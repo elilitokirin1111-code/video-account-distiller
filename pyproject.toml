@@ -1,0 +1,70 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "video-account-distiller"
+version = "0.1.0"
+description = "Offline-first Agent Skill and Python toolkit for evidence-based video account analysis."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "video-account-distiller contributors" }]
+dependencies = [
+  "duckdb>=1.3.2,<2",
+  "jinja2>=3.1.6,<4",
+  "pyarrow>=20,<24",
+  "pydantic>=2.11,<3",
+  "pyyaml>=6.0.2,<7",
+  "tzdata>=2025.2",
+  "typer>=0.16,<1",
+]
+
+[project.scripts]
+distiller = "video_account_distiller.cli:app"
+
+[dependency-groups]
+dev = [
+  "mypy>=1.16,<2",
+  "pytest>=8.4,<9",
+  "pytest-cov>=6.2,<8",
+  "pytest-socket>=0.7,<1",
+  "ruff>=0.12,<1",
+  "types-pyyaml>=6.0.12.20250516",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/video_account_distiller"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = ["docs/planning"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/video_account_distiller/cli.py" = ["B008"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+pretty = true
+files = ["src"]
+
+[[tool.mypy.overrides]]
+module = ["duckdb.*", "pyarrow.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --disable-socket --cov=video_account_distiller --cov-report=term-missing --cov-fail-under=80"
+markers = [
+  "performance: local performance acceptance checks",
+]
