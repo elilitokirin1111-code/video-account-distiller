@@ -2,8 +2,9 @@
 
 ## Offline-first defaults
 
-Phase 0/1/2 performs no model calls and no live platform requests. Files remain local to the
-project. No credentials are required.
+Phase 0/1/2 performs no model calls. Phase 3 accepts local structured model-output files or uses a
+deterministic fallback; it ships no network model client and makes no live platform request. No
+credentials are required.
 
 ## Raw data
 
@@ -12,6 +13,7 @@ project. No credentials are required.
 - Project raw data, local state, secrets, caches, and generated analysis projects are excluded from
   Git by default.
 - Validation recalculates hashes and reports integrity failures.
+- Subtitle and structured model-output bytes are also preserved under content-addressed raw paths.
 
 ## Comment privacy
 
@@ -23,11 +25,20 @@ Phase 2 evidence indexes contain normalized/source record IDs, hashes, and run I
 author identifiers or raw comment text. Account-health reports aggregate video-level metrics and
 do not publish raw exports.
 
+Phase 3 reports may contain transcript excerpts because they are required content evidence. Treat
+transcripts as potentially sensitive. Evidence indexes store cited text, timing, normalized/source
+IDs, hashes, and source runs. Do not publish reports without reviewing personal or confidential
+content.
+
 ## Secrets and logging
 
 `.distiller-secrets*` is ignored except for the empty example file. Machine results go to stdout;
 logs and human errors go to stderr. Credentials must never appear in either channel or in run
 manifests.
+
+`privacy.allow_cloud_model_upload` defaults to false. The shipped Phase 3 provider reads local JSON
+only; adding any cloud provider requires explicit user authorization, policy checks, a documented
+retention boundary, redacted logging, and independent contract tests.
 
 ## Platform compliance
 

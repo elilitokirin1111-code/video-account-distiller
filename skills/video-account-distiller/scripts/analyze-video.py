@@ -1,0 +1,4 @@
+from _invoke import run
+
+if __name__ == "__main__":
+    run("analyze", "video")

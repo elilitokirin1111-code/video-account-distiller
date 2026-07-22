@@ -1,11 +1,11 @@
 # Video Account Distiller
 
 `video-account-distiller` 是一个离线优先的 Agent Skill 与 Python 数据工具，用于导入、标准化、
-查询、分层采样和体检抖音、小红书、视频号、Bilibili、TikTok、YouTube 与 Instagram Reels
-的账号导出数据。
+查询、分层采样、体检和文本级拆解抖音、小红书、视频号、Bilibili、TikTok、YouTube 与
+Instagram Reels 的账号导出数据和字幕。
 
-当前版本 `0.2.0` 完成规划中的 Phase 0、Phase 1 和 Phase 2：在可追溯数据内核之上增加
-确定性分层采样、账号统计、体检报告和证据索引。它不会登录或抓取任何真实平台。
+当前版本 `0.3.0` 完成规划中的 Phase 0～Phase 3：在数据内核和账号体检之上增加字幕导入、
+盲分析、Hook/结构/CTA/情绪/内容支柱 Schema 和单视频报告。它不会登录或抓取真实平台。
 
 ## 能做什么
 
@@ -19,6 +19,10 @@
 - 按表现、近期、内容类型、时长、投流和异常值选择可解释的代表性样本。
 - 输出账号基础统计、高中低表现对照和内容寻址的样本清单。
 - 同时生成账号体检 JSON、Markdown、证据索引和警告文件。
+- 导入 SRT、VTT、TXT、JSON/JSONL 字幕并输出标准化 `transcripts.parquet`。
+- 在隐藏表现数据的前提下抽取事实和语义标签，再后置合并账号内表现背景。
+- 模型结果严格校验、自动重试；不可用时输出可见的低置信度降级结果。
+- 输出单视频 JSON/Markdown、独立盲分析、字幕/指标证据索引和警告。
 - 输出 JSON/Markdown 数据质量报告、不可变运行清单和项目状态。
 - 通过稳定错误码和 JSON Envelope 被 Agent 或自动化脚本调用。
 
@@ -94,7 +98,28 @@ uv run distiller report --project ./demo-project \
 报告目录同时包含 `report.json`、`report.md`、`evidence-index.json` 和 `warnings.json`。
 每个统计项和报告发现都能通过 `evi_*` 追溯到标准化记录、原始哈希和来源运行。
 
-### 5. 使用 DuckDB 查询
+### 5. 导入字幕并拆解单条视频
+
+```bash
+uv run distiller import transcripts --project ./demo-project \
+  --video video-001 \
+  --file ./subtitle.srt --language zh-CN --json
+
+uv run distiller normalize --project ./demo-project --json
+
+uv run distiller analyze video --project ./demo-project \
+  --video video-001 \
+  --model-output ./structured-output.json --json
+
+uv run distiller validate --project ./demo-project --json
+```
+
+`--model-output` 是离线结构化模型结果文件；省略时会使用保守的本地降级分析。需要完整
+模型结果时可追加 `--strict-model`。当前版本不会向任何模型服务上传字幕。
+`--video` 可填写内部 `vid_*`，也可填写项目内唯一的平台视频编号。最后一次 `validate`
+会同时检查分析文件 Schema、盲分析是否混入表现字段、模型输出哈希和证据引用。
+
+### 6. 使用 DuckDB 查询
 
 ```python
 from pathlib import Path
@@ -132,6 +157,7 @@ demo-project/
 ├── staging/              # 映射并校验后的 JSONL
 ├── normalized/           # 标准化 Parquet
 ├── analyses/accounts/    # 内容寻址的分层样本清单
+├── analyses/videos/      # 盲分析、单视频报告、证据索引和警告
 ├── reports/accounts/     # JSON/Markdown 体检、证据索引和警告
 ├── runs/<run-id>/        # manifest 与质量报告
 ├── knowledge-base/       # 后续 Phase 使用
@@ -157,11 +183,11 @@ uv run python skills/video-account-distiller/scripts/install-skill.py \
 
 ## 当前支持范围
 
-支持离线项目、CSV/JSON/JSONL、七个平台的字段映射模板、Parquet、DuckDB、基础派生指标、
-账号内稳健分层、代表性采样和可追溯账号体检。
+支持离线项目、CSV/JSON/JSONL、SRT/VTT/TXT 字幕、七个平台字段映射、Parquet、DuckDB、
+稳健指标、代表性采样、账号体检和可追溯的单视频文本拆解。
 
-尚未实现：真实平台抓取、字幕与视频语义分析、评论意图、完整账号蒸馏、模式发现、内容评分、
-预测、发布复盘、多模态以及团队协作 Adapter。详见
+尚未实现：真实平台抓取、评论意图、完整账号蒸馏、模式发现、内容评分、预测、发布复盘、
+画面/声音多模态以及团队协作 Adapter。详见
 [`docs/delivery-overview.md`](docs/delivery-overview.md)。
 
 ## 安全限制
@@ -171,6 +197,7 @@ uv run python skills/video-account-distiller/scripts/install-skill.py \
 - 不将缺失值写成 0。
 - 不提交原始用户数据、密钥、项目状态或本地缓存。
 - 评论作者标识在标准化表中只保存哈希。
+- 当前不包含网络模型 Provider；字幕可能含敏感信息，分享报告前需人工检查。
 
 ## 测试与质量门
 
@@ -194,6 +221,8 @@ uv run python tools/generate_large_fixture.py --output ./tmp/large-fixture --row
 - [架构](docs/architecture.md)
 - [数据合同](docs/data-contracts.md)
 - [分层采样与账号体检](docs/sampling-and-reporting.md)
+- [字幕与盲分析](docs/text-video-analysis.md)
+- [模型 Provider 指南](docs/model-provider-guide.md)
 - [Adapter 指南](docs/adapter-guide.md)
 - [隐私与合规](docs/privacy-and-compliance.md)
 - [开发与测试](docs/development.md)

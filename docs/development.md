@@ -25,12 +25,14 @@ contact any network service.
 
 ## Test layers
 
-- `tests/unit/`: formulas, models, parsing, IDs, project state, sampling, and report statistics.
-- `tests/contract/`: CLI JSON/error contract, platform mapping, Phase 2 commands, and DuckDB guard.
+- `tests/unit/`: formulas, models, transcript parsing, IDs, project state, sampling, and reports.
+- `tests/contract/`: CLI JSON/error contracts, platform mapping, blind provider prompts, retries,
+  Phase 2/3 commands, and DuckDB guard.
 - `tests/integration/`: full file-to-Parquet pipeline, idempotence, invalid rows, custom mappings,
-  cross-platform warnings, and raw integrity.
+  cross-platform warnings, raw integrity, transcript normalization, and single-video analysis.
 - `tests/golden/`: stable performance bands plus a 30-video, three-pillar Phase 2 sample-coverage
   fixture with outliers and promotion.
+  Phase 3 Golden checks stable Hook, structure, CTA, emotion, and pillar labels.
 
 ## Large offline fixture
 
@@ -65,6 +67,23 @@ uv run distiller status --project ./demo-project --json
 
 Verify all report `evidence_id` and finding `evidence_ids` values exist in `evidence-index.json`.
 Dry runs must not create sample or report files.
+
+## Phase 3 smoke test
+
+After videos and metrics are normalized:
+
+```bash
+uv run distiller import transcripts --project ./demo-project --video <vid_id> \
+  --file ./subtitle.srt --language zh-CN --json
+uv run distiller normalize --project ./demo-project --json
+uv run distiller analyze video --project ./demo-project --video <vid_id> \
+  --model-output ./structured-output.json --json
+uv run distiller validate --project ./demo-project --json
+```
+
+Verify `blind-analysis.json` contains no performance keys; every cited segment ID exists in
+`evidence-index.json`; invalid model candidates retry; and degraded mode never produces a validated
+account rule. The video argument may be an internal `vid_*` or a unique platform video ID.
 
 ## Skill validation
 

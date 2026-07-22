@@ -8,7 +8,7 @@ changes.
 
 ### Added
 
-- Placeholder for Phase 3 development.
+- Placeholder for Phase 4 development.
 
 ### Changed
 
@@ -17,6 +17,47 @@ changes.
 ### Migration
 
 - None.
+
+## 0.3.0 — 2026-07-22
+
+### Added
+
+- Immutable SRT, VTT, TXT, JSON, and JSONL transcript import tied to normalized video IDs.
+- `TranscriptSegment` Parquet records with nullable timing, confidence flags, source hashes, and
+  run provenance.
+- Versioned video fact-extraction and semantic-labeling Prompt assets.
+- Hook, structure, CTA, emotion timeline, content pillar, audience task, and language Schema.
+- Mockable `TextModelProvider` and deterministic offline structured-file provider.
+- Configurable Schema retries, low-confidence deterministic degradation, and strict error mode.
+- Blind content bundles and `blind-analysis.json` that exclude all performance fields.
+- Stage-two account-local performance context without relabeling blind content.
+- Content-addressed single-video JSON/Markdown reports, evidence indexes, warnings, and `vta_*`
+  IDs.
+- `distiller import transcripts` and `distiller analyze video` commands, Skill routes/wrappers,
+  Phase 3 Fixture, and unit/contract/integration/Golden tests.
+
+### Changed
+
+- Package and Skill version advanced to `0.3.0`.
+- Project status includes transcript imports, normalized segment counts, video-analysis counts, and
+  latest Phase 3 timestamps.
+- DuckDB exposes the optional `transcripts` view.
+- Transcript import and video analysis accept either internal or unique platform video IDs.
+- Project validation now checks Phase 3 artifact integrity, blind-stage isolation, and evidence
+  references.
+
+### Migration
+
+- Existing core schema `0.1.0` and Phase 2 analysis schema `0.2.0` remain unchanged.
+- New transcript and text-analysis contracts use schema `0.3.0`.
+- Existing configuration/state loads unchanged because model policy and Phase 3 timestamps have
+  defaults.
+
+### Security and compliance
+
+- No network model or platform provider is included.
+- Structured model responses are stored locally by hash; blind Prompt inputs contain no metrics.
+- Transcript excerpts may contain sensitive content and must be reviewed before report sharing.
 
 ## 0.2.0 — 2026-07-22
 

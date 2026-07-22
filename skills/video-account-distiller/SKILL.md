@@ -1,12 +1,12 @@
 ---
 name: video-account-distiller
-description: "Initialize, import, validate, normalize, sample, query, and report on offline video-account exports with robust account-local metrics and traceable evidence. Use for 拆解视频账号、账号体检、分层采样、高中低表现对照、生成账号报告、导入或分析账号数据、计算互动率或完播效率、检查数据质量，or work with user-provided CSV/JSON exports from Douyin, Xiaohongshu, WeChat Channels, Bilibili, TikTok, YouTube, or Instagram Reels."
+description: "Initialize, import, validate, normalize, sample, query, and report on offline video-account exports and transcripts with robust metrics, blind text analysis, and traceable evidence. Use for 拆解视频账号、拆解单条视频、导入字幕、分析 SRT/VTT/TXT、提取 Hook、结构、CTA、情绪或内容支柱、账号体检、分层采样、生成账号报告、计算互动率或完播效率，or work with user-provided CSV/JSON/transcript exports from Douyin, Xiaohongshu, WeChat Channels, Bilibili, TikTok, YouTube, or Instagram Reels."
 ---
 
 # Video Account Distiller
 
 Use the Python package and `distiller` CLI for deterministic work. Keep source exports immutable and
-perform Phase 0/1/2 tasks fully offline.
+perform Phase 0/1/2/3 tasks fully offline.
 
 ## Load references
 
@@ -20,6 +20,10 @@ perform Phase 0/1/2 tasks fully offline.
   coverage.
 - Read `references/account-health.md` before generating or interpreting an account-health report,
   high/middle/low comparison, evidence index, or warning file.
+- Read `references/video-analysis.md` before importing subtitles, analyzing one video, explaining
+  Hook/structure/emotion/CTA/content-pillar labels, or interpreting blind analysis.
+- Read `references/model-providers.md` before supplying structured model output, choosing strict or
+  degraded behavior, or handling a model Schema failure.
 - Read `references/privacy.md` for comments, identifiers, credentials, raw exports, or any request
   that could involve online collection.
 - Read the matching `references/platform-*.md` only when mapping that platform's export.
@@ -35,7 +39,7 @@ perform Phase 0/1/2 tasks fully offline.
   metrics for ranking.
 - Emit machine JSON to stdout and logs/errors to stderr. Preserve stable `E_*` error codes.
 - Do not access real platforms, automate login, bypass CAPTCHA/rate limits/risk controls, scrape, or
-  start a browser. Phase 0/1/2 is offline only.
+  start a browser. Phase 0/1/2/3 is offline only.
 
 ## Route tasks
 
@@ -70,8 +74,9 @@ uv run distiller validate --project <dir> --json
 uv run distiller normalize --project <dir> --json
 ```
 
-Validation verifies raw hashes and staging schemas. Normalization rebuilds deduplicated Parquet
-tables atomically. Use `--dry-run` on normalization when the user requests a preview.
+Validation verifies raw hashes, staging schemas, and any generated video-analysis artifacts,
+including blind-stage isolation and evidence references. Normalization rebuilds deduplicated
+Parquet tables atomically. Use `--dry-run` on normalization when the user requests a preview.
 
 ### Calculate performance
 
@@ -107,6 +112,35 @@ reconstructs the same content-addressed sample.
 Return the JSON and Markdown report paths plus `evidence-index.json` and `warnings.json`. Treat every
 high/middle/low difference as an account-local statistical association, not a causal content rule.
 
+### Import a transcript
+
+Import subtitles only after the target video exists in normalized Parquet:
+
+```bash
+uv run distiller import transcripts --project <dir> --video <video-id> \
+  --file <subtitle.srt> --language zh-CN --json
+uv run distiller normalize --project <dir> --json
+```
+
+Accept SRT, VTT, TXT, JSON, or JSONL. Return segment counts, raw SHA-256, the immutable raw path,
+and the normalized `transcripts.parquet` count. Preserve unknown timing as `null`. The video
+argument may be an internal `vid_*` or a unique platform video ID.
+
+### Analyze one video
+
+Run blind text analysis first; performance context is attached only after labels are frozen:
+
+```bash
+uv run distiller analyze video --project <dir> --video <video-id> \
+  --model-output <structured-output.json> --json
+```
+
+Omit `--model-output` for a conservative deterministic fallback. Add `--strict-model` when the user
+prefers `E_MODEL_UNAVAILABLE` or `E_MODEL_SCHEMA_INVALID` over degraded output. Return the analysis,
+blind-analysis, Markdown report, evidence index, and warnings paths. Never promote one video's
+labels to an account rule. Run `distiller validate` after generation to verify the complete artifact
+and evidence chain.
+
 ### Query or inspect status
 
 ```bash
@@ -126,8 +160,9 @@ Return a concise summary first:
 4. Output paths and account IDs.
 5. The safest next command.
 
-Point users to generated quality reports, sample manifest, account-health report, evidence index,
-warnings, and run manifest. Never infer content strategy from Phase 2 statistics alone.
+Point users to generated quality reports, sample manifest, account-health report, single-video
+analysis, evidence index, warnings, and run manifest. Never infer an account strategy from one
+video or from Phase 2 statistics alone.
 
 ## Scripts
 
@@ -137,7 +172,6 @@ uninstall this Skill.
 
 ## Current boundary
 
-Subtitle/video semantic analysis, comment intent, full account distillation, pattern/rule discovery,
-scoring, prediction, retrospective, multimodal analysis, and live adapters belong to later phases.
-Phase 2 account health is deterministic statistics only; state this instead of fabricating content
-semantics or strategy.
+Comment intent, full account distillation, pattern/rule discovery, scoring, prediction,
+retrospective, visual/audio multimodal analysis, and live adapters belong to later phases. Phase 3
+uses transcript text only; do not fabricate visual, audio, causal, or account-level conclusions.

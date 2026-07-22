@@ -47,6 +47,17 @@ distiller import accounts --project ./research --file accounts.csv \
 5. Add contract tests for source validation, mapping, missing values, and malformed input.
 6. Do not add network behavior to the analysis kernel.
 
+## Transcript adapter
+
+`TranscriptImportService` accepts SRT, VTT, TXT, JSON, and JSONL against an existing normalized
+`video_id`. It is separate from platform field mappings because subtitle cues use timing/text
+contracts rather than account export columns. JSON accepts `start_ms`/`end_ms` or Whisper-style
+`start`/`end` seconds. Unknown TXT timing remains `null`.
+
+Sources are copied to `raw/imports/transcripts/`, validated into `staging/transcripts/`, and
+normalized to `transcripts.parquet`. This adapter performs no speech recognition and does not read
+media files.
+
 ## Future authorized adapters
 
 A live adapter must be separately scoped, authorized, rate-limited, and contract-tested. It may use

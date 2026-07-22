@@ -110,3 +110,69 @@ requirements from later phases.
   facts, account-local associations, and warnings.
 - **Reason:** Phase 2 must make all report data traceable without prematurely implementing Phase 3
   semantic analysis or Phase 4 pattern claims.
+
+## ID-016 — Subsequent user instruction advances to Phase 3
+
+- **Decision:** Implement the complete Phase 3 milestone in package and Skill version `0.3.0`,
+  preserving Phase 0/1/2 interfaces and artifacts.
+- **Reason:** The user requested the next development stage; `07_MILESTONE_PLAN.md` identifies the
+  third round as transcript-level video analysis.
+
+## ID-017 — Offline structured-file provider before network clients
+
+- **Decision:** Define a mockable `TextModelProvider` protocol and ship an offline structured JSON
+  provider plus deterministic fallback, but no cloud or platform client.
+- **Reason:** Phase 3 requires model-Schema behavior and Prompt assets, while repository policy
+  requires offline tests and the user has not authorized content upload to a model service.
+
+## ID-018 — Freeze blind labels before metric lookup
+
+- **Decision:** Build a strict `BlindVideoBundle`, run fact and semantic tasks without performance
+  fields, persist `blind-analysis.json`, and only then attach the latest metric context.
+- **Reason:** This directly enforces the anti-hindsight requirement and prevents circular labels
+  such as inferring Hook quality from views.
+
+## ID-019 — Retry, degrade, and strict modes
+
+- **Decision:** Retry invalid structured output up to a configured attempt limit. By default,
+  degrade to conservative low-confidence local output; `--strict-model` instead returns stable
+  model unavailable or Schema-invalid errors.
+- **Reason:** The Phase 3 exit condition permits retry or degradation. Supporting both makes batch
+  processing resilient while allowing callers to require model-complete output.
+
+## ID-020 — Separate Phase 3 contract version
+
+- **Decision:** Keep existing core schema `0.1.0` and Phase 2 analysis schema `0.2.0`; version new
+  transcript/text-analysis records and artifacts as `0.3.0`.
+- **Reason:** Existing Parquet, samples, and reports need no rewrite. New contracts can migrate
+  independently.
+
+## ID-021 — Preserve structured model output as raw evidence
+
+- **Decision:** Hash and copy user-provided model output into local content-addressed raw storage,
+  and derive stable `vta_*` analysis IDs from content, prompts, output, and metric context.
+- **Reason:** Model results are analytical inputs and require the same immutability and replay
+  guarantees as data exports.
+
+## ID-022 — Prompt assets have one tracked source
+
+- **Decision:** Keep versioned Prompt Markdown under the Skill assets and force-include that folder
+  in built wheels; source checkouts load the same files directly.
+- **Reason:** This avoids divergent Prompt copies while keeping both the installed Skill and Python
+  package self-contained.
+
+## ID-023 — Resolve user-facing platform video IDs at the service boundary
+
+- **Decision:** Accept either the canonical internal `vid_*` or a unique platform video ID for
+  transcript import and single-video analysis, then persist only the canonical internal ID.
+- **Reason:** Forward-testing the Skill showed that requiring users to inspect staging data for a
+  generated ID made the documented workflow unnecessarily brittle. Ambiguous platform IDs still
+  fail explicitly instead of guessing.
+
+## ID-024 — Extend project validation to Phase 3 artifacts
+
+- **Decision:** Make the existing `validate` command check raw model-output hashes, analysis
+  Schema, content-addressed identities, blind-stage performance isolation, artifact paths, and
+  evidence references.
+- **Reason:** Phase 3 needs one repeatable acceptance command rather than relying on manual JSON
+  inspection after every video analysis.

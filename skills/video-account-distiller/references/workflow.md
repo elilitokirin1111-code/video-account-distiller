@@ -1,4 +1,4 @@
-# Phase 0/1/2 workflow
+# Phase 0/1/2/3 workflow
 
 ## Sequence
 
@@ -12,7 +12,11 @@
 8. Run `uv run distiller metrics` separately for each account.
 9. Run `uv run distiller sample` for a traceable stratified sample.
 10. Run `uv run distiller report` for account-health JSON, Markdown, evidence, and warnings.
-11. Query with DuckDB only after normalization.
+11. Import SRT/VTT/TXT/JSON transcripts using an internal or unique platform video ID, then
+    normalize again.
+12. Run `uv run distiller analyze video` for blind text labels and post-label performance context.
+13. Run `uv run distiller validate` again to verify analysis isolation and its evidence chain.
+14. Query with DuckDB only after normalization.
 
 ## Idempotence
 
@@ -20,6 +24,8 @@ The same entity/platform/input hash returns the existing receipt and changes not
 must not change state, raw data, staging, Parquet, or manifests. Repeated normalization rebuilds the
 same record population; repeated metrics replace that account's derived rows instead of appending
 duplicates. Samples and reports use content-addressed IDs and reuse unchanged artifacts.
+Transcript imports are keyed by video plus raw hash. Video analyses use content-addressed `vta_*`
+IDs and never overwrite an existing analysis.
 
 ## Project evidence
 
@@ -32,6 +38,8 @@ duplicates. Samples and reports use content-addressed IDs and reuse unchanged ar
 - `analyses/accounts/<account-id>/samples/<sample-id>/sample-manifest.json`: selection reasons and
   coverage.
 - `reports/accounts/<account-id>/<report-id>/`: JSON, Markdown, evidence index, and warnings.
+- `analyses/videos/<video-id>/<analysis-id>/`: blind analysis, combined analysis, Markdown report,
+  evidence index, and warnings.
 
 ## Failure handling
 

@@ -1,6 +1,6 @@
 # Architecture
 
-## Phase 0/1/2 data flow
+## Phase 0/1/2/3 data flow
 
 ```text
 CSV / JSON / JSONL
@@ -27,10 +27,21 @@ SamplingService → content-addressed sample manifest
         │
         ▼
 ReportService → report.json + report.md + evidence index + warnings
+        │
+        ├── SRT / VTT / TXT / JSON
+        │            │
+        │            ▼
+        │    TranscriptImportService → transcripts.parquet
+        │            │
+        │            ▼
+        └── VideoAnalysisService
+                    ├── blind fact extraction + semantic labels
+                    └── post-label performance context + video report
 ```
 
-The Agent Skill orchestrates the CLI. Deterministic behavior lives in the Python package. No prompt,
-model provider, browser, or platform network access is used in Phase 0/1/2.
+The Agent Skill orchestrates the CLI. Deterministic behavior lives in the Python package. Phase 3
+uses versioned prompts and a mockable text-provider boundary, but ships no network provider,
+browser control, or platform access.
 
 ## Components
 
@@ -41,6 +52,9 @@ model provider, browser, or platform network access is used in Phase 0/1/2.
 - `metrics/`: null-safe ratios, Median, MAD, Robust Z-score, weighted score, and account-local
   performance bands.
 - `sampling/`: normalized account dataset joins and deterministic stratified selection.
+- `transcripts/`: SRT/VTT/TXT/JSON parsing, immutable raw storage, and normalized segments.
+- `features/`: blind content bundle, versioned prompts, structured provider validation, retry,
+  conservative degradation, and post-label performance merge.
 - `reports/`: null-safe account statistics, high/middle/low comparisons, evidence collection, and
   Jinja2 Markdown rendering.
 - `storage/`: project state, run manifests, atomic Parquet writes, and DuckDB views.
@@ -57,6 +71,10 @@ Phase 2 samples and reports use stable content-addressed `smp_*` and `rpt_*` ide
 the same input/configuration reuses the artifact. Report evidence resolves `evi_*` identifiers to
 normalized record IDs, source record IDs, raw hashes, and source run IDs.
 
+Phase 3 transcript imports are keyed by video plus raw hash. Single-video analyses use stable
+content-addressed `vta_*` IDs. `blind-analysis.json` is frozen before metric lookup; cited transcript
+segment IDs resolve through the video evidence index to normalized records and raw source hashes.
+
 Normalized Parquet is reproducible from staging. Project state is stored in
 `.distiller-state.json`; later rule and task workflows may introduce SQLite without changing the
 Phase 1 table contracts.
@@ -69,6 +87,6 @@ missing raw inputs by recalculating SHA-256.
 
 ## Current boundaries
 
-Phase 3+ semantic content analysis, comment intent, full account distillation, pattern evidence,
-scoring, prediction, retrospective, multimodal processing, and authorized live adapters are not
-present.
+Phase 4+ comment intent, full account distillation, pattern evidence, scoring, prediction,
+retrospective, visual/audio multimodal processing, and authorized live adapters are not present.
+Phase 3 analyzes transcript text only and cannot infer camera, image, music, or sound features.

@@ -13,6 +13,11 @@ privacy:
   redact_usernames_in_reports: true
   hash_comment_author_ids: true
   allow_cloud_model_upload: false
+models:
+  text_provider: null
+  require_schema_validation: true
+  max_schema_attempts: 2
+  allow_degraded_analysis: true
 reports:
   formats:
     - markdown

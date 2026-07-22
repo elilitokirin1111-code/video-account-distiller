@@ -1,4 +1,4 @@
 interface:
   display_name: "Video Account Distiller"
-  short_description: "离线导入、分层采样并生成可追溯的视频账号标准体检报告"
-  default_prompt: "Use $video-account-distiller to turn offline video-account exports into validated Parquet data, representative samples, robust account metrics, and evidence-linked account-health reports."
+  short_description: "离线导入账号与字幕，生成盲分析、稳健指标和可追溯报告"
+  default_prompt: "Use $video-account-distiller to import offline video-account exports and transcripts, validate blind text labels, and generate evidence-linked account and single-video reports."
