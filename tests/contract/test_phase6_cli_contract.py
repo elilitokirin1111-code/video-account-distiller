@@ -13,7 +13,12 @@ runner = CliRunner()
 
 
 def test_phase6_command_exposes_help() -> None:
-    result = runner.invoke(app, ["analyze", "media", "--help"])
+    result = runner.invoke(
+        app,
+        ["analyze", "media", "--help"],
+        color=False,
+        terminal_width=160,
+    )
     assert result.exit_code == 0
     assert "--strict-media" in result.stdout
     assert "--vision-output" in result.stdout
