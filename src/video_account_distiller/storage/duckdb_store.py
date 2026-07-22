@@ -18,6 +18,7 @@ TABLES = (
     "comments",
     "transcripts",
     "derived_metrics",
+    "media_features",
 )
 
 

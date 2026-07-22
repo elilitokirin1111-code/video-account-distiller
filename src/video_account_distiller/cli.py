@@ -24,6 +24,7 @@ from video_account_distiller.distillation import (
 from video_account_distiller.errors import EXIT_CODES, DistillerError, ErrorCode
 from video_account_distiller.features import VideoAnalysisService
 from video_account_distiller.ingestion import ImportService
+from video_account_distiller.media import LocalMediaAnalysisService
 from video_account_distiller.metrics import MetricsService
 from video_account_distiller.models import Platform
 from video_account_distiller.normalization import NormalizationService
@@ -478,6 +479,55 @@ def analyze_comments_command(
             f"{len(analysis['need_clusters'])} need clusters"
         ),
     )
+
+
+@analyze_app.command("media")
+def analyze_media_command(
+    project: Path = typer.Option(..., "--project"),
+    video: str = typer.Option(..., "--video"),
+    file: Path | None = typer.Option(
+        None, "--file", help="Local MP4/MOV/MKV or other FFmpeg-readable media."
+    ),
+    vision_output: Path | None = typer.Option(
+        None,
+        "--vision-output",
+        help="Offline JSON containing schema-targeted visual/OCR annotations.",
+    ),
+    strict_media: bool = typer.Option(
+        False, "--strict-media", help="Return E_MEDIA_DECODE instead of a degraded artifact."
+    ),
+    strict_vision: bool = typer.Option(
+        False, "--strict-vision", help="Fail when visual/OCR output remains invalid."
+    ),
+    scene_threshold: float | None = typer.Option(None, "--scene-threshold", min=0.001, max=0.999),
+    max_keyframes: int | None = typer.Option(None, "--max-keyframes", min=1, max=100),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Analyze a local video into timestamped shots, frames, audio, and optional OCR."""
+
+    result = _execute(
+        lambda: LocalMediaAnalysisService(ProjectLayout.open(project)).analyze(
+            video_id=video,
+            file=file,
+            vision_output=vision_output,
+            strict_media=strict_media,
+            strict_vision=strict_vision,
+            scene_threshold=scene_threshold,
+            max_keyframes=max_keyframes,
+            dry_run=dry_run,
+        ),
+        json_output=json_output,
+    )
+    if dry_run:
+        human = f"Would analyze local media for {result['video_id']} with {result['backend']}"
+    else:
+        analysis = result["analysis"]
+        human = (
+            f"Analyzed local media for {analysis['video_id']} with "
+            f"status={analysis['status']}: {result['outputs'][0]}"
+        )
+    _emit(result, json_output=json_output, human=human)
 
 
 @app.command("distill")

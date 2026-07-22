@@ -1,0 +1,31 @@
+# Local media analysis
+
+- Analysis: `{{ analysis.analysis_id }}`
+- Video: `{{ analysis.video_id }}`
+- Status: `{{ analysis.status }}`
+- Media SHA-256: `{{ analysis.metadata.media_hash }}`
+- Duration: {{ analysis.metadata.duration_ms if analysis.metadata.duration_ms is not none else "unknown" }} ms
+- Resolution: {{ analysis.metadata.width if analysis.metadata.width is not none else "unknown" }} × {{ analysis.metadata.height if analysis.metadata.height is not none else "unknown" }}
+- Shots: {{ analysis.shots | length }}
+- Keyframes: {{ analysis.keyframes | length }}
+- Audio status: {{ analysis.audio.status }}
+- OCR observations: {{ analysis.vision.ocr_observations | length if analysis.vision else 0 }}
+
+## Timeline
+
+{% for shot in analysis.shots -%}
+- `{{ shot.shot_id }}`: {{ shot.start_ms }}–{{ shot.end_ms }} ms{% if shot.keyframe_ids %}; keyframes {{ shot.keyframe_ids | join(", ") }}{% endif %}
+{% else -%}
+- No decoded shot timeline is available.
+{% endfor %}
+
+## Warnings
+
+{% for warning in analysis.warnings -%}
+- {{ warning }}
+{% else -%}
+- None.
+{% endfor %}
+
+Visual and OCR labels are optional provider outputs. They remain unknown when no provider is supplied.
+Local mode never uploads the media file.

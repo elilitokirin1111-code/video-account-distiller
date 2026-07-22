@@ -15,6 +15,9 @@ from video_account_distiller.models import (
     CommentAnalysis,
     ContentCandidate,
     DataQualityIssue,
+    MediaAnalysis,
+    MediaEvidenceIndex,
+    MediaFeatureRecord,
     Prediction,
     Publication,
     Retro,
@@ -26,6 +29,7 @@ from video_account_distiller.models import (
 )
 from video_account_distiller.normalization.pipeline import MODEL_BY_ENTITY
 from video_account_distiller.quality import QualityReport, write_quality_report
+from video_account_distiller.storage.parquet import read_models
 from video_account_distiller.storage.project import ProjectLayout
 from video_account_distiller.utils.hashing import sha256_file
 from video_account_distiller.utils.ids import stable_id
@@ -140,6 +144,108 @@ def _validate_video_analysis(path: Path, project: ProjectLayout) -> list[str]:
     for field, expected in expected_declared.items():
         if getattr(analysis, field) != expected:
             errors.append(f"{field} does not point to the colocated artifact")
+    return [f"{project.relative(path)}: {message}" for message in errors]
+
+
+def _validate_media_analysis(path: Path, project: ProjectLayout) -> list[str]:
+    errors: list[str] = []
+    directory = path.parent
+    expected = {
+        "timeline": directory / "timeline.json",
+        "report": directory / "report.md",
+        "evidence": directory / "evidence-index.json",
+        "warnings": directory / "warnings.json",
+    }
+    missing = [name for name, item in expected.items() if not item.is_file()]
+    if missing:
+        return [f"{project.relative(path)}: missing artifacts: {', '.join(sorted(missing))}"]
+    try:
+        analysis = MediaAnalysis.model_validate(read_json(path))
+        evidence = MediaEvidenceIndex.model_validate(read_json(expected["evidence"]))
+        timeline = read_json(expected["timeline"])
+        warnings = read_json(expected["warnings"])
+    except (OSError, ValueError, ValidationError) as exc:
+        return [f"{project.relative(path)}: {exc}"]
+    if analysis.analysis_id != directory.name:
+        errors.append("analysis_id does not match its content-addressed directory")
+    if analysis.video_id != directory.parent.name:
+        errors.append("video_id does not match its media analysis directory")
+    if evidence.analysis_id != analysis.analysis_id or evidence.video_id != analysis.video_id:
+        errors.append("evidence index identity does not match media-analysis.json")
+    if evidence.media_hash != analysis.metadata.media_hash:
+        errors.append("evidence media hash does not match metadata")
+    if not isinstance(warnings, list) or not all(isinstance(item, str) for item in warnings):
+        errors.append("warnings.json must contain a JSON array of strings")
+    elif warnings != analysis.warnings:
+        errors.append("embedded warnings differ from warnings.json")
+    declared = {
+        "timeline_path": project.relative(expected["timeline"]),
+        "evidence_index_path": project.relative(expected["evidence"]),
+        "warnings_path": project.relative(expected["warnings"]),
+    }
+    for field, expected_path in declared.items():
+        if getattr(analysis, field) != expected_path:
+            errors.append(f"{field} does not point to the colocated artifact")
+    raw_media = (project.root / analysis.raw_media_path).resolve()
+    if not raw_media.is_relative_to(project.root):
+        errors.append("raw_media_path escapes the project root")
+    elif not raw_media.is_file() or sha256_file(raw_media) != analysis.metadata.media_hash:
+        errors.append("immutable raw media is missing or its hash changed")
+    evidence_items = {item.evidence_id: item for item in evidence.items}
+    media_items = [item for item in evidence.items if item.kind == "media"]
+    if not any(
+        item.path == analysis.raw_media_path and item.sha256 == analysis.metadata.media_hash
+        for item in media_items
+    ):
+        errors.append("media evidence does not point to the immutable raw copy")
+    for keyframe in analysis.keyframes:
+        keyframe_path = (project.root / keyframe.path).resolve()
+        expected_keyframe = (directory / "keyframes" / f"{keyframe.keyframe_id}.jpg").resolve()
+        if keyframe_path != expected_keyframe:
+            errors.append(f"keyframe path is not colocated: {keyframe.keyframe_id}")
+        elif not keyframe_path.is_file() or sha256_file(keyframe_path) != keyframe.sha256:
+            errors.append(f"keyframe is missing or its hash changed: {keyframe.keyframe_id}")
+        evidence_id = stable_id("evi_", analysis.analysis_id, "keyframe", keyframe.keyframe_id)
+        item = evidence_items.get(evidence_id)
+        if item is None or item.path != keyframe.path or item.sha256 != keyframe.sha256:
+            errors.append(f"keyframe evidence is missing or inconsistent: {keyframe.keyframe_id}")
+    if not isinstance(timeline, dict):
+        errors.append("timeline.json root must be an object")
+    else:
+        if timeline.get("analysis_id") != analysis.analysis_id:
+            errors.append("timeline identity does not match media analysis")
+        expected_shots = [item.model_dump(mode="json") for item in analysis.shots]
+        expected_frames = [item.model_dump(mode="json") for item in analysis.keyframes]
+        if timeline.get("shots") != expected_shots:
+            errors.append("timeline shots differ from media-analysis.json")
+        if timeline.get("keyframes") != expected_frames:
+            errors.append("timeline keyframes differ from media-analysis.json")
+    if analysis.vision is not None:
+        by_shot = {item.shot_id: item for item in analysis.shots}
+        for observation in analysis.vision.ocr_observations:
+            shot = by_shot[observation.shot_id]
+            if observation.start_ms < shot.start_ms or observation.end_ms > shot.end_ms:
+                errors.append(f"OCR timestamp falls outside its shot: {observation.observation_id}")
+    return [f"{project.relative(path)}: {message}" for message in errors]
+
+
+def _validate_media_features(project: ProjectLayout) -> list[str]:
+    path = project.normalized_dir / "media_features.parquet"
+    if not path.is_file():
+        return []
+    errors: list[str] = []
+    try:
+        records = read_models(path, MediaFeatureRecord)
+    except (OSError, ValueError, ValidationError) as exc:
+        return [f"{project.relative(path)}: {exc}"]
+    seen: set[str] = set()
+    for item in records:
+        if item.analysis_id in seen:
+            errors.append(f"duplicate media feature analysis_id: {item.analysis_id}")
+        seen.add(item.analysis_id)
+        analysis_path = project.root / item.analysis_path
+        if not analysis_path.is_file():
+            errors.append(f"media feature analysis is missing: {item.analysis_id}")
     return [f"{project.relative(path)}: {message}" for message in errors]
 
 
@@ -426,7 +532,15 @@ def validate_project(project: ProjectLayout) -> QualityReport:
     """Verify raw hashes, schemas, and Phase 3 analysis evidence boundaries."""
 
     state = project.load_state()
-    input_hashes = sorted({receipt.raw_hash for receipt in state.imports})
+    raw_media_paths = sorted((project.root / "raw" / "media").glob("*"))
+    vision_output_paths = sorted((project.root / "raw" / "vision-outputs").glob("*.json"))
+    input_hashes = sorted(
+        {
+            *(receipt.raw_hash for receipt in state.imports),
+            *(path.stem for path in raw_media_paths if path.is_file()),
+            *(path.stem for path in vision_output_paths),
+        }
+    )
     manifest = project.begin_run("validate", input_hashes=input_hashes)
     issues: list[DataQualityIssue] = []
     platforms = {receipt.platform for receipt in state.imports}
@@ -461,7 +575,9 @@ def validate_project(project: ProjectLayout) -> QualityReport:
                 )
 
     model_output_paths = sorted((project.root / "raw" / "model-outputs").glob("*.json"))
-    for path in model_output_paths:
+    for path in [*model_output_paths, *vision_output_paths, *raw_media_paths]:
+        if not path.is_file():
+            continue
         if sha256_file(path) != path.stem:
             issues.append(
                 DataQualityIssue(
@@ -469,8 +585,8 @@ def validate_project(project: ProjectLayout) -> QualityReport:
                     run_id=manifest.run_id,
                     severity="error",
                     code="raw_integrity",
-                    entity="model_outputs",
-                    message=f"Raw model output hash mismatch: {project.relative(path)}",
+                    entity="raw_inputs",
+                    message=f"Raw content-addressed input hash mismatch: {project.relative(path)}",
                 )
             )
 
@@ -487,6 +603,33 @@ def validate_project(project: ProjectLayout) -> QualityReport:
                     message=message,
                 )
             )
+
+    media_analysis_paths = sorted(
+        (project.root / "analyses" / "media").glob("*/*/media-analysis.json")
+    )
+    for path in media_analysis_paths:
+        for message in _validate_media_analysis(path, project):
+            issues.append(
+                DataQualityIssue(
+                    issue_id=stable_id("dqi_", manifest.run_id, project.relative(path), message),
+                    run_id=manifest.run_id,
+                    severity="error",
+                    code="media_artifact_invalid",
+                    entity="media_analyses",
+                    message=message,
+                )
+            )
+    for message in _validate_media_features(project):
+        issues.append(
+            DataQualityIssue(
+                issue_id=stable_id("dqi_", manifest.run_id, "media_features", message),
+                run_id=manifest.run_id,
+                severity="error",
+                code="media_artifact_invalid",
+                entity="media_features",
+                message=message,
+            )
+        )
 
     phase4_paths: list[tuple[Path, type[Any]]] = [
         *[
@@ -594,8 +737,11 @@ def validate_project(project: ProjectLayout) -> QualityReport:
         stats={
             "imports": len(state.imports),
             "model_outputs": len(model_output_paths),
+            "vision_outputs": len(vision_output_paths),
+            "raw_media": len([path for path in raw_media_paths if path.is_file()]),
             "platforms": len(platforms),
             "video_analyses": len(analysis_paths),
+            "phase6_artifacts": len(media_analysis_paths),
             "phase4_artifacts": len(phase4_paths),
             "phase5_artifacts": len(phase5_checks),
             "rules": len(rule_paths),

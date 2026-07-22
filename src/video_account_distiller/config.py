@@ -66,9 +66,26 @@ class PrivacySection(BaseModel):
 class ModelsSection(BaseModel):
     model_config = ConfigDict(extra="forbid")
     text_provider: str | None = None
+    vision_provider: str | None = None
     require_schema_validation: bool = True
     max_schema_attempts: int = Field(default=2, ge=1, le=5)
     allow_degraded_analysis: bool = True
+
+
+class MediaSection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    ffmpeg_path: str | None = None
+    ffprobe_path: str | None = None
+    scene_threshold: float = Field(default=0.30, gt=0, lt=1)
+    max_shots: int = Field(default=500, ge=1, le=5000)
+    max_keyframes: int = Field(default=12, ge=1, le=100)
+    keyframe_width: int = Field(default=720, ge=160, le=3840)
+    audio_sample_rate: int = Field(default=8000, ge=1000, le=48000)
+    audio_window_ms: int = Field(default=100, ge=20, le=1000)
+    silence_threshold_dbfs: float = Field(default=-40.0, ge=-100, le=0)
+    max_audio_analysis_seconds: int = Field(default=600, ge=1, le=7200)
+    command_timeout_seconds: int = Field(default=180, ge=1, le=3600)
+    allow_degraded_without_ffmpeg: bool = True
 
 
 class ScoringSection(BaseModel):
@@ -94,6 +111,7 @@ class DistillerConfig(BaseModel):
     platforms: PlatformSection = Field(default_factory=PlatformSection)
     privacy: PrivacySection = Field(default_factory=PrivacySection)
     models: ModelsSection = Field(default_factory=ModelsSection)
+    media: MediaSection = Field(default_factory=MediaSection)
     scoring: ScoringSection = Field(default_factory=ScoringSection)
     reports: ReportsSection = Field(default_factory=ReportsSection)
 
