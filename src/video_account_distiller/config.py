@@ -88,6 +88,14 @@ class MediaSection(BaseModel):
     allow_degraded_without_ffmpeg: bool = True
 
 
+class CollaborationSection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    request_timeout_seconds: int = Field(default=30, ge=1, le=300)
+    max_retries: int = Field(default=3, ge=0, le=8)
+    retry_base_seconds: float = Field(default=0.5, ge=0, le=30)
+    max_batch_rows: int = Field(default=500, ge=1, le=5000)
+
+
 class ScoringSection(BaseModel):
     model_config = ConfigDict(extra="forbid")
     default_target_snapshot_age_hours: int = Field(default=72, ge=1, le=8760)
@@ -112,6 +120,7 @@ class DistillerConfig(BaseModel):
     privacy: PrivacySection = Field(default_factory=PrivacySection)
     models: ModelsSection = Field(default_factory=ModelsSection)
     media: MediaSection = Field(default_factory=MediaSection)
+    collaboration: CollaborationSection = Field(default_factory=CollaborationSection)
     scoring: ScoringSection = Field(default_factory=ScoringSection)
     reports: ReportsSection = Field(default_factory=ReportsSection)
 

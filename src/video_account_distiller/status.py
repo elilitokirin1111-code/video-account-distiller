@@ -51,6 +51,8 @@ def project_status(project: ProjectLayout) -> dict[str, Any]:
     predictions = list((project.root / "predictions").glob("*/prediction.json"))
     publications = list((project.root / "publications").glob("*/publication.json"))
     retros = list((project.root / "reports" / "retros").glob("*/*/retro.json"))
+    sync_receipts = list((project.root / "collaboration" / "syncs").glob("*/sync.json"))
+    batch_results = list((project.root / "collaboration" / "batches").glob("*/batch-result.json"))
     pending_rule_changes = 0
     pending_rubric_changes = 0
     for path in retros:
@@ -115,6 +117,18 @@ def project_status(project: ProjectLayout) -> dict[str, Any]:
             state.last_publication_at.isoformat() if state.last_publication_at else None
         ),
         "last_retro_at": state.last_retro_at.isoformat() if state.last_retro_at else None,
+        "last_collaboration_at": (
+            state.last_collaboration_at.isoformat() if state.last_collaboration_at else None
+        ),
+        "last_batch_at": state.last_batch_at.isoformat() if state.last_batch_at else None,
+        "collaboration": {
+            "sync_receipts": len(sync_receipts),
+            "batch_results": len(batch_results),
+            "team_configured": (project.root / "team.yaml").is_file(),
+            "snapshot_plan_available": (
+                project.root / "collaboration" / "schedules" / "snapshot-plan.json"
+            ).is_file(),
+        },
         "artifacts": {
             "sample_manifests": len(sample_manifests),
             "account_health_reports": len(account_reports),

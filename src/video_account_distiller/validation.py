@@ -5,11 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import yaml
 from pydantic import BaseModel, ValidationError
 
 from video_account_distiller.models import (
     AccountDistillation,
     ArtifactEvidenceIndex,
+    AuthorizedExportManifest,
+    BatchResult,
     BenchmarkComparison,
     BlindContentAnalysis,
     CommentAnalysis,
@@ -25,13 +28,16 @@ from video_account_distiller.models import (
     Rule,
     ScoreResult,
     SingleVideoAnalysis,
+    SnapshotScheduleResult,
+    SyncReceipt,
+    TeamConfig,
     VideoAnalysisEvidenceIndex,
 )
 from video_account_distiller.normalization.pipeline import MODEL_BY_ENTITY
 from video_account_distiller.quality import QualityReport, write_quality_report
 from video_account_distiller.storage.parquet import read_models
 from video_account_distiller.storage.project import ProjectLayout
-from video_account_distiller.utils.hashing import sha256_file
+from video_account_distiller.utils.hashing import sha256_file, sha256_json
 from video_account_distiller.utils.ids import stable_id
 from video_account_distiller.utils.io import read_json
 
@@ -724,6 +730,81 @@ def validate_project(project: ProjectLayout) -> QualityReport:
                 )
             )
 
+    phase7_paths: list[tuple[Path, type[BaseModel]]] = [
+        *(
+            (path, AuthorizedExportManifest)
+            for path in sorted((project.root / "raw" / "authorized-manifests").glob("*.json"))
+        ),
+        *(
+            (path, SyncReceipt)
+            for path in sorted((project.root / "collaboration" / "syncs").glob("*/sync.json"))
+        ),
+        *(
+            (path, BatchResult)
+            for path in sorted(
+                (project.root / "collaboration" / "batches").glob("*/batch-result.json")
+            )
+        ),
+    ]
+    snapshot_plan = project.root / "collaboration" / "schedules" / "snapshot-plan.json"
+    if snapshot_plan.is_file():
+        phase7_paths.append((snapshot_plan, SnapshotScheduleResult))
+    team_config = project.root / "team.yaml"
+    if team_config.is_file():
+        try:
+            TeamConfig.model_validate(yaml.safe_load(team_config.read_text(encoding="utf-8")))
+        except (OSError, ValueError, ValidationError, yaml.YAMLError) as exc:
+            issues.append(
+                DataQualityIssue(
+                    issue_id=stable_id("dqi_", manifest.run_id, "team.yaml", str(exc)),
+                    run_id=manifest.run_id,
+                    severity="error",
+                    code="collaboration_artifact_invalid",
+                    entity="phase7_artifacts",
+                    message=f"team.yaml: {exc}",
+                )
+            )
+    for path, phase7_model_type in phase7_paths:
+        try:
+            phase7_artifact: BaseModel = phase7_model_type.model_validate(read_json(path))
+            if (
+                isinstance(phase7_artifact, SyncReceipt)
+                and phase7_artifact.sync_id != path.parent.name
+            ):
+                raise ValueError("Sync receipt path does not match sync_id")
+            if (
+                isinstance(phase7_artifact, BatchResult)
+                and phase7_artifact.batch_id != path.parent.name
+            ):
+                raise ValueError("Batch result path does not match batch_id")
+        except (OSError, ValueError, ValidationError) as exc:
+            issues.append(
+                DataQualityIssue(
+                    issue_id=stable_id("dqi_", manifest.run_id, project.relative(path), str(exc)),
+                    run_id=manifest.run_id,
+                    severity="error",
+                    code="collaboration_artifact_invalid",
+                    entity="phase7_artifacts",
+                    message=f"{project.relative(path)}: {exc}",
+                )
+            )
+    raw_collaboration_paths = sorted((project.root / "raw" / "collaboration").glob("*/*.json"))
+    for path in raw_collaboration_paths:
+        try:
+            if sha256_json(read_json(path)) != path.stem:
+                raise ValueError("content hash does not match raw collaboration filename")
+        except (OSError, ValueError) as exc:
+            issues.append(
+                DataQualityIssue(
+                    issue_id=stable_id("dqi_", manifest.run_id, project.relative(path), str(exc)),
+                    run_id=manifest.run_id,
+                    severity="error",
+                    code="raw_integrity",
+                    entity="phase7_raw",
+                    message=f"{project.relative(path)}: {exc}",
+                )
+            )
+
     warnings: list[str] = []
     if len(platforms) > 1:
         warnings.append(
@@ -746,6 +827,8 @@ def validate_project(project: ProjectLayout) -> QualityReport:
             "phase5_artifacts": len(phase5_checks),
             "rules": len(rule_paths),
             "rubrics": len(rubric_paths),
+            "phase7_artifacts": len(phase7_paths) + int(team_config.is_file()),
+            "phase7_raw": len(raw_collaboration_paths),
             "errors": sum(issue.severity == "error" for issue in issues),
             "warnings": sum(issue.severity == "warning" for issue in issues) + len(warnings),
         },

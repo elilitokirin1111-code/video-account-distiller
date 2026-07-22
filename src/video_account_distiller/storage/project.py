@@ -21,6 +21,8 @@ PROJECT_DIRECTORIES = (
     "raw/model-outputs",
     "raw/media",
     "raw/vision-outputs",
+    "raw/collaboration",
+    "raw/authorized-manifests",
     "raw/candidates",
     "raw/imports",
     "staging/accounts",
@@ -48,6 +50,9 @@ PROJECT_DIRECTORIES = (
     "reports/comparisons",
     "reports/scoring",
     "reports/retros",
+    "collaboration/syncs",
+    "collaboration/batches",
+    "collaboration/schedules",
     "runs",
 )
 
@@ -96,7 +101,9 @@ class ProjectLayout:
         if not secrets_example.exists():
             atomic_write_text(
                 secrets_example,
-                "# Offline phases need no credentials.\n",
+                "# Copy variable names only; keep real values outside the project.\n"
+                "FEISHU_BITABLE_TOKEN=\n"
+                "GOOGLE_SHEETS_TOKEN=\n",
             )
         return layout, already_initialized
 

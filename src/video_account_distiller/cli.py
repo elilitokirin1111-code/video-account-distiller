@@ -10,11 +10,19 @@ from typing import Any, TypeVar
 
 import typer
 
+from video_account_distiller.adapters import build_collaboration_adapter
 from video_account_distiller.closed_loop import (
     PredictionService,
     PublicationService,
     RetroService,
     ScoringService,
+)
+from video_account_distiller.collaboration import (
+    BatchService,
+    CollaborationService,
+    SnapshotScheduleService,
+    TeamConfigService,
+    load_connector_config,
 )
 from video_account_distiller.comments import CommentAnalysisService
 from video_account_distiller.distillation import (
@@ -45,8 +53,22 @@ import_app = typer.Typer(help="Import user-provided offline exports.", no_args_i
 analyze_app = typer.Typer(
     help="Run blind, schema-validated content analysis.", no_args_is_help=True
 )
+sync_app = typer.Typer(
+    help="Sync through explicitly authorized official table APIs.", no_args_is_help=True
+)
+batch_app = typer.Typer(help="Run validated Phase 7 batch manifests.", no_args_is_help=True)
+snapshot_app = typer.Typer(
+    help="Plan due metric snapshots for external schedulers.", no_args_is_help=True
+)
+team_app = typer.Typer(
+    help="Create and validate credential-free team policy.", no_args_is_help=True
+)
 app.add_typer(import_app, name="import")
 app.add_typer(analyze_app, name="analyze")
+app.add_typer(sync_app, name="sync")
+app.add_typer(batch_app, name="batch")
+app.add_typer(snapshot_app, name="snapshot")
+app.add_typer(team_app, name="team")
 
 T = TypeVar("T")
 
@@ -726,6 +748,182 @@ def retro_command(
             f"{len(retro['next_experiments'])} next experiments"
         ),
     )
+
+
+@import_app.command("authorized-export")
+def import_authorized_export_command(
+    project: Path = typer.Option(..., "--project"),
+    manifest: Path = typer.Option(..., "--manifest"),
+    mapping: Path | None = typer.Option(None, "--mapping"),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Import an export only after validating its explicit grant and SHA-256 manifest."""
+
+    result = _execute(
+        lambda: CollaborationService(ProjectLayout.open(project)).import_authorized_export(
+            manifest_path=manifest,
+            mapping_path=mapping,
+            dry_run=dry_run,
+        ),
+        json_output=json_output,
+    )
+    quality = result["quality"]
+    _emit(
+        result,
+        json_output=json_output,
+        human=(
+            f"Authorized export: {quality['stats']['accepted_rows']} accepted, "
+            f"{quality['stats']['rejected_rows']} rejected"
+        ),
+    )
+
+
+@sync_app.command("pull")
+def sync_pull_command(
+    project: Path = typer.Option(..., "--project"),
+    connector_config: Path = typer.Option(..., "--connector-config"),
+    entity: str = typer.Option(..., "--entity"),
+    platform: Platform = typer.Option(..., "--platform"),
+    mapping: Path | None = typer.Option(None, "--mapping"),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Pull rows from an explicitly authorized Feishu or Google table."""
+
+    def operation() -> dict[str, Any]:
+        config = load_connector_config(connector_config)
+        adapter = build_collaboration_adapter(config)
+        return CollaborationService(ProjectLayout.open(project)).pull(
+            adapter=adapter,
+            entity=entity,
+            platform=platform,
+            mapping_path=mapping,
+            dry_run=dry_run,
+        )
+
+    result = _execute(operation, json_output=json_output)
+    _emit(
+        result,
+        json_output=json_output,
+        human=f"Pulled {result['sync']['row_count']} {entity} rows",
+    )
+
+
+@sync_app.command("push")
+def sync_push_command(
+    project: Path = typer.Option(..., "--project"),
+    connector_config: Path = typer.Option(..., "--connector-config"),
+    entity: str = typer.Option(..., "--entity"),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Append normalized rows to an explicitly authorized Feishu or Google table."""
+
+    def operation() -> dict[str, Any]:
+        config = load_connector_config(connector_config)
+        adapter = build_collaboration_adapter(config)
+        return CollaborationService(ProjectLayout.open(project)).push(
+            adapter=adapter,
+            entity=entity,
+            dry_run=dry_run,
+        )
+
+    result = _execute(operation, json_output=json_output)
+    _emit(
+        result,
+        json_output=json_output,
+        human=f"Pushed {result['sync']['row_count']} {entity} rows",
+    )
+
+
+@snapshot_app.command("plan")
+def snapshot_plan_command(
+    project: Path = typer.Option(..., "--project"),
+    at: str | None = typer.Option(None, "--at", help="Optional ISO-8601 planning time."),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Emit due/future/available snapshot tasks without collecting platform data."""
+
+    planning_time = parse_datetime(at) if at else None
+    result = _execute(
+        lambda: SnapshotScheduleService(ProjectLayout.open(project)).plan(
+            now=planning_time, dry_run=dry_run
+        ),
+        json_output=json_output,
+    )
+    payload = result.model_dump(mode="json")
+    due = sum(task["status"] == "due" for task in payload["tasks"])
+    _emit(payload, json_output=json_output, human=f"Snapshot plan: {due} due tasks")
+
+
+@batch_app.command("run")
+def batch_run_command(
+    project: Path = typer.Option(..., "--project"),
+    file: Path = typer.Option(..., "--file"),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Run a strict batch manifest and isolate each task result."""
+
+    result = _execute(
+        lambda: BatchService(ProjectLayout.open(project)).run(manifest_path=file, dry_run=dry_run),
+        json_output=json_output,
+    )
+    payload = result.model_dump(mode="json")
+    failures = sum(task["status"] == "failed" for task in payload["tasks"])
+    _emit(
+        payload,
+        json_output=json_output,
+        human=(
+            f"Batch {result.batch_id}: {len(result.tasks) - failures} succeeded, {failures} failed"
+        ),
+    )
+
+
+@team_app.command("init")
+def team_init_command(
+    project: Path = typer.Option(..., "--project"),
+    owner: str = typer.Option(..., "--owner"),
+    owner_name: str | None = typer.Option(None, "--owner-name"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Create a credential-free team policy without overwriting an existing file."""
+
+    config, already_initialized = _execute(
+        lambda: TeamConfigService(ProjectLayout.open(project)).initialize(
+            owner_id=owner, owner_name=owner_name
+        ),
+        json_output=json_output,
+    )
+    payload = {
+        "ok": True,
+        "already_initialized": already_initialized,
+        "path": str(ProjectLayout.open(project).root / "team.yaml"),
+        "team": config.model_dump(mode="json"),
+    }
+    _emit(payload, json_output=json_output, human=f"Team config ready: {config.name}")
+
+
+@team_app.command("validate")
+def team_validate_command(
+    project: Path = typer.Option(..., "--project"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Validate team roles and connector references without reading credential values."""
+
+    config = _execute(
+        lambda: TeamConfigService(ProjectLayout.open(project)).load(),
+        json_output=json_output,
+    )
+    payload = {
+        "ok": True,
+        "team_id": config.team_id,
+        "members": len(config.members),
+        "connectors": len(config.connectors),
+    }
+    _emit(payload, json_output=json_output, human=f"Team config valid: {config.name}")
 
 
 @app.command("status")

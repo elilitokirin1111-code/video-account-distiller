@@ -299,3 +299,5 @@ class ProjectState(StrictModel):
     last_prediction_at: datetime | None = None
     last_publication_at: datetime | None = None
     last_retro_at: datetime | None = None
+    last_collaboration_at: datetime | None = None
+    last_batch_at: datetime | None = None
