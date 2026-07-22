@@ -1,0 +1,150 @@
+version: "1"
+platforms:
+  douyin:
+    accounts:
+      platform_account_id: [sec_uid, uid, author_id]
+      handle: [unique_id, short_id]
+      display_name: [nickname, name]
+      follower_count_current: [follower_count, fans]
+    videos:
+      platform_video_id: [aweme_id, item_id, id]
+      account_id: [author_id, sec_uid, account_id]
+      published_at: [create_time, publish_time]
+      views: [play_count]
+    metrics:
+      video_id: [aweme_id, item_id]
+      views: [play_count]
+      likes: [digg_count]
+      comments: [comment_count]
+      shares: [share_count]
+      saves: [collect_count]
+    comments:
+      platform_comment_id: [cid, comment_id, id]
+      video_id: [aweme_id, item_id]
+      text: [comment_text, content]
+  xiaohongshu:
+    accounts:
+      platform_account_id: [user_id, red_id]
+      handle: [red_id, user_name]
+      display_name: [nickname, name]
+      follower_count_current: [fans, followers]
+    videos:
+      platform_video_id: [note_id, id]
+      account_id: [user_id, author_id]
+      published_at: [time, publish_time]
+    metrics:
+      video_id: [note_id]
+      views: [view_count, read_count]
+      likes: [liked_count, likes]
+      comments: [comment_count]
+      shares: [share_count]
+      saves: [collected_count, collect_count]
+    comments:
+      platform_comment_id: [comment_id, id]
+      video_id: [note_id]
+      text: [content, comment_text]
+  wechat-channels:
+    accounts:
+      platform_account_id: [finder_id, user_id]
+      handle: [finder_username]
+      display_name: [nickname, name]
+      follower_count_current: [follower_count, fans]
+    videos:
+      platform_video_id: [object_id, feed_id, id]
+      account_id: [finder_id, user_id]
+      published_at: [create_time, publish_time]
+    metrics:
+      video_id: [object_id, feed_id]
+      views: [read_count, play_count]
+      likes: [like_count]
+      comments: [comment_count]
+      shares: [share_count]
+      saves: [favorite_count]
+    comments:
+      platform_comment_id: [comment_id, id]
+      video_id: [object_id, feed_id]
+      text: [content, comment_text]
+  bilibili:
+    accounts:
+      platform_account_id: [mid, user_id]
+      handle: [uname]
+      display_name: [name, uname]
+      follower_count_current: [follower, fans]
+    videos:
+      platform_video_id: [bvid, aid, id]
+      account_id: [mid, owner_mid]
+      published_at: [pubdate, created_at]
+    metrics:
+      video_id: [bvid, aid]
+      views: [view, play]
+      likes: [like]
+      comments: [reply, comment]
+      shares: [share]
+      saves: [favorite]
+    comments:
+      platform_comment_id: [rpid, comment_id]
+      video_id: [bvid, aid]
+      text: [message, content]
+  tiktok:
+    accounts:
+      platform_account_id: [author_id, user_id, uid]
+      handle: [unique_id, username]
+      display_name: [nickname, name]
+      follower_count_current: [follower_count, followers]
+    videos:
+      platform_video_id: [video_id, item_id, id]
+      account_id: [author_id, user_id]
+      published_at: [create_time, published_at]
+    metrics:
+      video_id: [video_id, item_id]
+      views: [play_count, views]
+      likes: [digg_count, likes]
+      comments: [comment_count, comments]
+      shares: [share_count, shares]
+      saves: [collect_count, saves]
+    comments:
+      platform_comment_id: [comment_id, cid, id]
+      video_id: [video_id, item_id]
+      text: [text, comment_text]
+  youtube:
+    accounts:
+      platform_account_id: [channel_id]
+      handle: [handle, custom_url]
+      display_name: [channel_title, title]
+      follower_count_current: [subscriber_count, subscribers]
+    videos:
+      platform_video_id: [video_id, id]
+      account_id: [channel_id]
+      published_at: [published_at, publishedAt]
+    metrics:
+      video_id: [video_id]
+      views: [view_count, views]
+      likes: [like_count, likes]
+      comments: [comment_count, comments]
+      shares: [share_count, shares]
+      saves: [save_count, saves]
+    comments:
+      platform_comment_id: [comment_id, id]
+      video_id: [video_id]
+      text: [text, text_display]
+  instagram:
+    accounts:
+      platform_account_id: [user_id, ig_user_id]
+      handle: [username]
+      display_name: [name, full_name]
+      follower_count_current: [followers_count, follower_count]
+    videos:
+      platform_video_id: [media_id, id]
+      account_id: [user_id, ig_user_id]
+      published_at: [timestamp, published_at]
+    metrics:
+      video_id: [media_id]
+      views: [play_count, views]
+      likes: [like_count, likes]
+      comments: [comments_count, comment_count]
+      shares: [shares, share_count]
+      saves: [saved, save_count]
+    comments:
+      platform_comment_id: [comment_id, id]
+      video_id: [media_id]
+      text: [text, comment_text]

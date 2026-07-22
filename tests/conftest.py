@@ -1,0 +1,37 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from video_account_distiller.ingestion import ImportService
+from video_account_distiller.models import Platform
+from video_account_distiller.normalization import NormalizationService
+from video_account_distiller.storage.project import ProjectLayout
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
+@pytest.fixture
+def fixtures_dir() -> Path:
+    return FIXTURES
+
+
+@pytest.fixture
+def project(tmp_path: Path) -> ProjectLayout:
+    layout, _ = ProjectLayout.initialize(tmp_path / "project", project_name="test-project")
+    return layout
+
+
+@pytest.fixture
+def normalized_project(project: ProjectLayout, fixtures_dir: Path) -> ProjectLayout:
+    service = ImportService(project)
+    normal = fixtures_dir / "normal"
+    service.import_file(entity="accounts", source=normal / "accounts.csv", platform=Platform.DOUYIN)
+    service.import_file(entity="videos", source=normal / "videos.csv", platform=Platform.DOUYIN)
+    service.import_file(entity="metrics", source=normal / "metrics.csv", platform=Platform.DOUYIN)
+    service.import_file(
+        entity="comments", source=normal / "comments.json", platform=Platform.DOUYIN
+    )
+    NormalizationService(project).normalize()
+    return project

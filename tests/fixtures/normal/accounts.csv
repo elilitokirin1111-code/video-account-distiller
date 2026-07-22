@@ -1,0 +1,2 @@
+platform_account_id,handle,display_name,bio,follower_count_current,following_count_current,total_likes_current,video_count_current,verified,snapshot_at
+hotel-demo,hotel_demo,示例酒店运营,离线测试账号,12000,88,350000,6,true,2026-07-20T10:00:00+08:00

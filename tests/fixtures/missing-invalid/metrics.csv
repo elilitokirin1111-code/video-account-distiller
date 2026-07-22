@@ -1,0 +1,4 @@
+video_id,snapshot_at,views,likes,comments,shares,saves,avg_watch_time_seconds
+v-valid-missing,2026-07-20T10:00:00+08:00,1000,50,5,,,12
+v-negative,2026-07-20T10:00:00+08:00,-10,2,1,0,0,5
+v-bad-time,not-a-time,100,2,1,0,0,5

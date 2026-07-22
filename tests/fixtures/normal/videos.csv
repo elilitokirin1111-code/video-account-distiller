@@ -1,0 +1,8 @@
+platform_video_id,account_id,title,published_at,duration_seconds,content_type,is_ad,is_pinned,is_repost,follower_count_at_publish,hashtags
+v-high,hotel-demo,三秒看懂酒店早餐,2026-07-01T09:00:00+08:00,30,talking-head,false,true,false,10000,酒店|早餐
+v-above,hotel-demo,客房清洁流程,2026-07-03T09:30:00+08:00,45,process,false,false,false,10200,酒店|客房
+v-mid,hotel-demo,前台入住技巧,2026-07-05T12:00:00+08:00,40,talking-head,false,false,false,10500,酒店|服务
+v-low,hotel-demo,布草知识,2026-07-07T18:00:00+08:00,60,talking-head,false,false,false,10800,酒店|布草
+v-bottom,hotel-demo,停车场路线,2026-07-09T20:00:00+08:00,20,walkthrough,false,false,false,11000,酒店|停车
+v-promoted,hotel-demo,暑期套餐,2026-07-11T19:00:00+08:00,25,promo,true,false,false,11500,酒店|暑期
+v-high,hotel-demo,三秒看懂酒店早餐,2026-07-01T09:00:00+08:00,30,talking-head,false,true,false,10000,酒店|早餐

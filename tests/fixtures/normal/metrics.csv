@@ -1,0 +1,7 @@
+video_id,snapshot_at,age_hours,views,likes,comments,shares,saves,follows_gained,profile_visits,avg_watch_time_seconds,completion_rate,is_promoted,promotion_spend,metric_source
+v-high,2026-07-15T09:00:00+08:00,336,100000,8200,450,900,2100,520,3000,24,0.68,false,0,export
+v-above,2026-07-15T09:00:00+08:00,288,22000,1400,120,180,350,90,650,30,0.55,false,0,export
+v-mid,2026-07-15T09:00:00+08:00,240,8000,420,45,55,90,25,210,22,0.44,false,0,export
+v-low,2026-07-15T09:00:00+08:00,192,3000,110,12,10,18,5,65,18,0.30,false,0,export
+v-bottom,2026-07-15T09:00:00+08:00,144,500,12,1,,,0,5,5,0.12,false,0,export
+v-promoted,2026-07-15T09:00:00+08:00,96,300000,9000,500,700,1500,180,5000,16,0.50,true,5000,export

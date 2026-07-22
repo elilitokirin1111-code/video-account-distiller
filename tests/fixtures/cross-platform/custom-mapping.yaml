@@ -1,0 +1,10 @@
+schema_version: "0.1.0"
+entity: accounts
+platform: douyin
+fields:
+  platform_account_id: custom_uid
+  display_name: custom_name
+  follower_count_current: custom_fans
+  snapshot_at: custom_snapshot
+timezone: Asia/Shanghai
+mapping_version: custom-1
