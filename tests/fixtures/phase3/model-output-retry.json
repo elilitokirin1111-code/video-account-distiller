@@ -1,0 +1,113 @@
+{
+  "model_name": "offline-phase3-fixture",
+  "video_fact_extraction": [
+    {
+      "segment_count": 0
+    },
+    {
+      "transcript_language": "zh-CN",
+      "opening_text": "酒店入住最容易踩的3个坑，你知道吗？",
+      "closing_text": "收藏这份清单，关注我，下次继续讲酒店避坑。",
+      "segment_count": 4,
+      "character_count": 81,
+      "facts": [
+        {
+          "category": "number",
+          "text": "3",
+          "evidence_segment_ids": ["ts_e4dd2fb0a9cf7f851760"]
+        },
+        {
+          "category": "instruction",
+          "text": "确认早餐和停车是否包含",
+          "evidence_segment_ids": ["ts_cb647d0a6254eb36e1f6"]
+        },
+        {
+          "category": "instruction",
+          "text": "提前问清房型和窗户",
+          "evidence_segment_ids": ["ts_0184f57179b70b004284"]
+        }
+      ],
+      "explicit_cta_texts": ["收藏这份清单", "关注我"],
+      "unknowns": []
+    }
+  ],
+  "video_semantic_labeling": {
+    "primary_pillar": "酒店入住避坑",
+    "primary_pillar_evidence_segment_ids": [
+      "ts_e4dd2fb0a9cf7f851760",
+      "ts_cb647d0a6254eb36e1f6",
+      "ts_0184f57179b70b004284"
+    ],
+    "secondary_topics": ["早餐权益", "停车权益", "房型确认"],
+    "audience_tasks": ["预订前核对权益", "降低入住落差"],
+    "content_goal": "practical_guidance",
+    "funnel_stage": "consideration",
+    "hook": {
+      "primary_type": "number_list",
+      "secondary_types": ["pain_point", "question_challenge"],
+      "hook_text": "酒店入住最容易踩的3个坑，你知道吗？",
+      "start_ms": 0,
+      "end_ms": 4000,
+      "promise": "提供酒店入住避坑清单",
+      "curiosity_gap": "三个坑的具体内容尚未展开",
+      "evidence_segment_ids": ["ts_e4dd2fb0a9cf7f851760"]
+    },
+    "structure_segments": [
+      {
+        "function": "hook",
+        "start_ms": 0,
+        "end_ms": 4000,
+        "text_summary": "用数字和踩坑问题开场",
+        "evidence_segment_ids": ["ts_e4dd2fb0a9cf7f851760"]
+      },
+      {
+        "function": "development",
+        "start_ms": 4000,
+        "end_ms": 10000,
+        "text_summary": "核对早餐和停车权益",
+        "evidence_segment_ids": ["ts_cb647d0a6254eb36e1f6"]
+      },
+      {
+        "function": "development",
+        "start_ms": 10000,
+        "end_ms": 16000,
+        "text_summary": "提前确认房型和窗户",
+        "evidence_segment_ids": ["ts_0184f57179b70b004284"]
+      },
+      {
+        "function": "cta",
+        "start_ms": 16000,
+        "end_ms": 20000,
+        "text_summary": "引导收藏、关注并预告下期",
+        "evidence_segment_ids": ["ts_f23581c367ad63609ad9"]
+      }
+    ],
+    "narrative_type": "list_explainer",
+    "information_density": "high",
+    "emotion_timeline": [
+      {
+        "emotion": "curiosity",
+        "start_ms": 0,
+        "end_ms": 4000,
+        "evidence_segment_ids": ["ts_e4dd2fb0a9cf7f851760"]
+      },
+      {
+        "emotion": "action",
+        "start_ms": 16000,
+        "end_ms": 20000,
+        "evidence_segment_ids": ["ts_f23581c367ad63609ad9"]
+      }
+    ],
+    "cta": {
+      "primary_type": "save",
+      "text": "收藏这份清单，关注我",
+      "alignment_score": 0.9,
+      "evidence_segment_ids": ["ts_f23581c367ad63609ad9"]
+    },
+    "persona_signals": ["酒店经验分享者"],
+    "language_signals": ["数字清单", "口语提醒", "直接行动词"],
+    "risk_flags": [],
+    "unknowns": ["视觉 Hook", "声音设计", "镜头节奏"],
+    "confidence": 0.86
+  }
+}

@@ -78,4 +78,8 @@ def test_account_health_report_outputs_are_traceable_and_idempotent(
     assert state.last_sample_at is not None
     assert state.last_report_at is not None
     status = project_status(phase2_project)
-    assert status["artifacts"] == {"sample_manifests": 1, "account_health_reports": 1}
+    assert status["artifacts"] == {
+        "sample_manifests": 1,
+        "account_health_reports": 1,
+        "video_analyses": 0,
+    }

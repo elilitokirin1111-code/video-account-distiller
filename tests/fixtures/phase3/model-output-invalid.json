@@ -1,0 +1,11 @@
+{
+  "model_name": "invalid-offline-fixture",
+  "video_fact_extraction": {
+    "segment_count": 0,
+    "character_count": -1,
+    "unexpected": true
+  },
+  "video_semantic_labeling": {
+    "primary_pillar": ""
+  }
+}

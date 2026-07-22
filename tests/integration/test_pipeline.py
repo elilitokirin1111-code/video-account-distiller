@@ -69,6 +69,7 @@ def test_complete_offline_pipeline_is_idempotent(tmp_path: Path, fixtures_dir: P
         "videos": 6,
         "metrics": 6,
         "comments": 3,
+        "transcripts": 0,
     }
 
     account_id = stable_id("acc_", "douyin", "hotel-demo")

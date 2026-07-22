@@ -9,6 +9,7 @@ from video_account_distiller.metrics import MetricsService
 from video_account_distiller.models import Platform
 from video_account_distiller.normalization import NormalizationService
 from video_account_distiller.storage.project import ProjectLayout
+from video_account_distiller.transcripts import TranscriptImportService
 from video_account_distiller.utils.ids import stable_id
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -49,3 +50,15 @@ def phase2_project(project: ProjectLayout, fixtures_dir: Path) -> ProjectLayout:
     NormalizationService(project).normalize()
     MetricsService(project).calculate(account_id=stable_id("acc_", "douyin", "phase2-hotel"))
     return project
+
+
+@pytest.fixture
+def phase3_project(phase2_project: ProjectLayout, fixtures_dir: Path) -> ProjectLayout:
+    video_id = stable_id("vid_", "douyin", "p2-01")
+    TranscriptImportService(phase2_project).import_file(
+        video_id=video_id,
+        source=fixtures_dir / "phase3" / "hotel-video.srt",
+        language="zh-CN",
+    )
+    NormalizationService(phase2_project).normalize()
+    return phase2_project
