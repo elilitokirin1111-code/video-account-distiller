@@ -41,3 +41,15 @@ Phase 5 scoring, prediction, publication, and Retro do not use this provider. Th
 intervals, version linkage, and approval boundary are deterministic. A future model may suggest
 language improvements only behind a separately validated Schema; it must not overwrite scores,
 predictions, actual snapshots, Rule status, or approval metadata.
+
+## Phase 6 visual/OCR provider
+
+`VisionModelProvider.analyze(MediaVisionBundle)` is a separate mockable boundary. The bundled
+`StructuredVisionFileProvider` replays local JSON with `model_name` and a `media_vision` object or
+retry array. It performs no network operation. Every returned annotation must cite an existing
+`shot_id`; every OCR observation must cite an existing `keyframe_id` and timestamp interval.
+
+The bundle contains local keyframe paths so an explicitly supplied custom local Provider can read
+them. A cloud implementation must not be bundled or activated implicitly. It requires explicit user
+authorization, `privacy.allow_cloud_model_upload: true`, documented retention and region, redacted
+logging, and mocked upload/timeout/Schema tests.

@@ -1,4 +1,4 @@
-# Phase 0/1/2/3/4/5 workflow
+# Phase 0/1/2/3/4/5/6 workflow
 
 ## Sequence
 
@@ -25,7 +25,9 @@
 20. Import/normalize the published video, then run `uv run distiller publish`.
 21. Import later metric snapshots, recalculate metrics, and run `uv run distiller retro`.
 22. Run `uv run distiller validate` to verify the complete closed-loop evidence chain.
-23. Query with DuckDB only after normalization.
+23. Run `uv run distiller analyze media` for local scene/keyframe/audio and optional OCR evidence.
+24. Run `uv run distiller validate` to verify raw media, frames, timeline, and evidence hashes.
+25. Query with DuckDB only after normalization.
 
 ## Idempotence
 
@@ -41,6 +43,8 @@ knowledge index are rebuildable latest pointers.
 Scores and predictions use content-addressed `score_*` and `pred_*` IDs. Predictions and
 publications are immutable. Retros use `retro_*`; repeating the same publication/snapshot/version
 reuses the existing review. Retro writes pending proposals without modifying Rule or Rubric files.
+Media analyses use content-addressed `mda_*` IDs, immutable `raw/media/<sha256>.<ext>` copies, and
+stable `shot_*`/`key_*` evidence. Repeating identical media/config/provider inputs reuses the result.
 
 ## Project evidence
 
@@ -64,6 +68,7 @@ reuses the existing review. Retro writes pending proposals without modifying Rul
 - `candidates/` and `reports/scoring/`: script candidate and explainable score artifacts.
 - `predictions/` and `publications/`: immutable prediction and publication linkage.
 - `reports/retros/` and `knowledge-base/reviews/`: prediction errors and pending proposals.
+- `analyses/media/<video-id>/<analysis-id>/`: media analysis, timeline, frames, evidence, warnings.
 
 ## Failure handling
 

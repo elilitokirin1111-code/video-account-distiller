@@ -4,9 +4,9 @@
 查询、分层采样、体检和文本级拆解抖音、小红书、视频号、Bilibili、TikTok、YouTube 与
 Instagram Reels 的账号导出数据、字幕和评论，并沉淀可复用的 Pattern 与对标实验。
 
-当前版本 `0.5.0` 完成规划中的 Phase 0～Phase 5：在数据内核、账号体检、单视频盲分析和
-账号蒸馏之上，增加可解释脚本评分、不可变预测、发布登记、预测误差复盘以及待审批的规则/
-Rubric 变更建议。它不会登录或抓取真实平台。
+当前版本 `0.6.0` 完成规划中的 Phase 0～Phase 6：在数据内核、账号体检、单视频盲分析、
+账号蒸馏和发布复盘闭环之上，增加本地视频元数据、场景切分、关键帧、音频特征、可选 OCR/
+视觉 Provider 与镜头时间线。它不会登录或抓取真实平台，也不会在本地模式上传媒体。
 
 ## 能做什么
 
@@ -24,6 +24,9 @@ Rubric 变更建议。它不会登录或抓取真实平台。
 - 在隐藏表现数据的前提下抽取事实和语义标签，再后置合并账号内表现背景。
 - 模型结果严格校验、自动重试；不可用时输出可见的低置信度降级结果。
 - 输出单视频 JSON/Markdown、独立盲分析、字幕/指标证据索引和警告。
+- 使用本机 FFmpeg/FFprobe 分析 MP4、MOV、MKV 等媒体，生成镜头时间线与关键帧证据。
+- 计算可追溯的音频响度、动态范围、静音/活动比例，并在无 FFmpeg 时明确降级。
+- 通过可替换视觉 Provider 添加带时间戳的画面标签和 OCR；默认保持未知且不上传媒体。
 - 在评论分析副本中脱敏电话、邮箱、网址、账号和联系方式，不修改原始评论。
 - 输出评论意图、痛点、异议、购买意图、内容机会和带偏差提醒的需求聚类。
 - 将内容簇与账号内表现分层对照，生成同时包含支持样本和反例的可追溯 Pattern。
@@ -182,7 +185,24 @@ uv run distiller retro --project ./demo-project \
 如果实际快照时间明显偏离目标，或属于投流/Robust 异常值，系统仍保留结果供观察，但会将
 匹配规则标记为“证据不足”，并禁止据此生成 Rule/Rubric 变更建议。
 
-### 8. 使用 DuckDB 查询
+### 8. 分析本地视频画面与声音
+
+视频必须先存在于 `videos.parquet`；本地文件可通过 `--file` 指定，也可来自视频记录的
+`media_path`：
+
+```bash
+uv run distiller analyze media --project ./demo-project \
+  --video video-001 --file ./hotel.mp4 --json
+
+uv run distiller validate --project ./demo-project --json
+```
+
+默认只运行 FFmpeg/FFprobe 的本地确定性分析。可使用 `--vision-output ./vision.json` 回放
+离线结构化 OCR/视觉结果；`--strict-media` 会在解码器不可用时返回 `E_MEDIA_DECODE`，否则
+生成带警告的降级产物。输出包含 `media-analysis.json`、`timeline.json`、`report.md`、
+`evidence-index.json`、`warnings.json`、关键帧以及 `media_features.parquet`。
+
+### 9. 使用 DuckDB 查询
 
 ```python
 from pathlib import Path
@@ -217,10 +237,12 @@ demo-project/
 ├── distiller.yaml
 ├── .distiller-state.json
 ├── raw/imports/          # 原始文件，只读保留
+├── raw/media/            # 本地媒体的 SHA-256 寻址副本
 ├── staging/              # 映射并校验后的 JSONL
 ├── normalized/           # 标准化 Parquet
 ├── analyses/accounts/    # 内容寻址的分层样本清单
 ├── analyses/videos/      # 盲分析、单视频报告、证据索引和警告
+├── analyses/media/       # 镜头、关键帧、音频、OCR 与时间线
 ├── analyses/comments/    # 评论信号、需求聚类、证据索引和警告
 ├── reports/accounts/     # 账号体检与账号蒸馏报告
 ├── reports/comparisons/  # 对标迁移矩阵
@@ -254,11 +276,11 @@ uv run python skills/video-account-distiller/scripts/install-skill.py \
 ## 当前支持范围
 
 支持离线项目、CSV/JSON/JSONL、SRT/VTT/TXT 字幕、七个平台字段映射、Parquet、DuckDB、
-稳健指标、代表性采样、账号体检、单视频文本拆解、评论需求分析、Pattern/反例、账号蒸馏、
+稳健指标、代表性采样、账号体检、单视频文本/本地多模态拆解、评论需求分析、Pattern/反例、账号蒸馏、
 对标迁移矩阵、脚本评分、不可变区间预测、发布登记和快照复盘。
 
-尚未实现：真实平台抓取、自动批准 Level 4 规则、画面/声音多模态以及团队协作 Adapter。
-Phase 5 只生成待审批的规则升级建议；详见
+尚未实现：真实平台抓取、自动批准 Level 4 规则以及团队协作 Adapter。视觉/OCR 只提供
+本地离线回放和可注入 Provider 合同，不内置网络模型客户端。Phase 5 仍只生成待审批的规则升级建议；详见
 [`docs/delivery-overview.md`](docs/delivery-overview.md)。
 
 ## 安全限制
@@ -293,6 +315,7 @@ uv run python tools/generate_large_fixture.py --output ./tmp/large-fixture --row
 - [数据合同](docs/data-contracts.md)
 - [分层采样与账号体检](docs/sampling-and-reporting.md)
 - [字幕与盲分析](docs/text-video-analysis.md)
+- [本地视频多模态分析](docs/local-media-analysis.md)
 - [评论、Pattern 与账号蒸馏](docs/comment-and-account-distillation.md)
 - [评分、预测、发布与复盘](docs/scoring-prediction-retro.md)
 - [模型 Provider 指南](docs/model-provider-guide.md)

@@ -285,3 +285,39 @@ requirements from later phases.
   preserving core `0.1.0`, Phase 2 `0.2.0`, Phase 3 `0.3.0`, and Phase 4 `0.4.0` contracts.
 - **Reason:** No existing Parquet or analysis artifact needs rewriting; independent versions keep
   migrations narrow and preserve reproducibility.
+
+## ID-039 — Implement Phase 6 as an offline local-media adapter
+
+- **Decision:** Analyze only user-provided local files through FFmpeg/FFprobe and keep live platform
+  collection outside the media package.
+- **Reason:** Phase 6 requires multimodal evidence, while repository policy prohibits implicit
+  platform access and the user asked to defer real collection until later adaptation.
+
+## ID-040 — Prefer FFmpeg CLI over mandatory computer-vision dependencies
+
+- **Decision:** Ship a small mockable subprocess adapter without making OpenCV, PySceneDetect,
+  librosa, or a GPU runtime mandatory dependencies.
+- **Reason:** FFmpeg already provides portable metadata, scene scores, frame extraction, and PCM
+  decoding. A lighter install is easier to test across Python 3.11/3.14 and can be replaced behind
+  the same protocol when a specialist decoder is justified.
+
+## ID-041 — Degrade explicitly when the local decoder is unavailable
+
+- **Decision:** Default to a content-addressed degraded artifact with unknown fields and warnings;
+  `--strict-media` returns `E_MEDIA_DECODE`.
+- **Reason:** This satisfies the Phase 6 exit condition without fabricating media observations and
+  supports both resilient batch work and strict automation.
+
+## ID-042 — Keep visual/OCR results separate, optional, and timestamp-cited
+
+- **Decision:** Define a mockable vision Provider and offline structured-file replay. Require every
+  annotation to cite existing shot/keyframe evidence; ship no network client.
+- **Reason:** Visual models can change independently and may require content upload. The boundary
+  preserves privacy defaults, replay, Schema validation, and exact evidence timing.
+
+## ID-043 — Store detailed timelines as JSON and aggregates as Parquet
+
+- **Decision:** Persist shots, frames, audio intervals, and OCR in content-addressed JSON artifacts,
+  while writing one traceable aggregate `MediaFeatureRecord` per analysis to Parquet/DuckDB.
+- **Reason:** Nested timelines remain readable and precisely validated, while account-level queries
+  get a stable columnar table without flattening or duplicating every interval.

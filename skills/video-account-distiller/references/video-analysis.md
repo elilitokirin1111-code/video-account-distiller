@@ -26,6 +26,7 @@ Structure functions are Hook, problem, value promise, development, proof, peak, 
 loop, or unknown. CTA types are comment, save, share, follow, direct message, profile, product,
 community, next episode, none, or unknown. Emotion labels are timeline points, not one global mood.
 
-This is text-only analysis. Keep visual Hook, shot rhythm, music, sound effects, and on-screen
-graphics unknown until Phase 6 media analysis. A single video can provide facts and hypotheses but
+This command is text-only analysis. Use the separate Phase 6 `analyze media` workflow for observed
+shot rhythm, keyframes, signal-level audio, and schema-cited OCR/visual evidence. Do not backfill
+these fields from transcript guesses. A single video can provide facts and hypotheses but
 cannot establish an account Pattern or validated rule.

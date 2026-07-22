@@ -143,6 +143,21 @@ unchanged, every proposal remains `pending`, counterexamples are retained, exper
 and Phase 5 validation reports no errors. Also test a materially mistimed snapshot: its matched
 Rules must be inconclusive and its Rule/Rubric proposal lists must be empty.
 
+## Phase 6 smoke test
+
+Create or select a short local MP4 whose target video already exists in normalized Parquet:
+
+```bash
+uv run distiller analyze media --project ./demo-project --video <vid_id> \
+  --file ./local-video.mp4 --json
+uv run distiller validate --project ./demo-project --json
+```
+
+Verify metadata, ordered shot intervals, keyframe files/hashes, audio status, `timeline.json`,
+evidence, `media_features.parquet`, DuckDB row count, and idempotent repeat behavior. Test an
+unavailable fake backend in both degraded and `--strict-media` modes. Provider tests must be fully
+offline and cite valid shot/keyframe IDs.
+
 ## Skill validation
 
 Run `skills-ref validate skills/video-account-distiller` when available. The repository-compatible

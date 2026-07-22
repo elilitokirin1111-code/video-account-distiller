@@ -74,6 +74,14 @@ recalculate metrics. `retro` reads only normalized `MetricSnapshot`/`DerivedMetr
 nearest requested age, and preserves the actual snapshot ID/time. Adapters must not synthesize an
 exact T+ checkpoint when the export contains a later or earlier observation.
 
+## Phase 6 local media adapter
+
+`FFmpegMediaBackend` implements the mockable `MediaBackend` protocol for user-provided local files.
+It is not a platform adapter: it receives no credentials, does not resolve platform URLs, and never
+opens a browser. Tests inject a fake backend rather than requiring system codecs. Alternative local
+decoders must preserve metadata nulls, millisecond shot boundaries, deterministic keyframe
+evidence, bounded audio decoding, and stable `MediaBackendFailure` behavior.
+
 ## Future authorized adapters
 
 A live adapter must be separately scoped, authorized, rate-limited, and contract-tested. It may use

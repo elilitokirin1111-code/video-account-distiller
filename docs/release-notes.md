@@ -8,15 +8,47 @@ changes.
 
 ### Added
 
-- Placeholder for Phase 6 development.
+- None.
 
 ### Changed
 
 - None.
 
+## 0.6.0 — 2026-07-22
+
+### Added
+
+- Strict metadata, shot, keyframe, audio, OCR, visual annotation, evidence, analysis, and aggregate
+  media-feature contracts.
+- Mockable `MediaBackend` plus local FFmpeg/FFprobe metadata, scene detection, JPEG extraction, and
+  bounded mono PCM decoding.
+- Deterministic RMS/peak dBFS, dynamic-range, loudness-variance, silence/activity, and silence-
+  interval calculations.
+- Mockable `VisionModelProvider` and offline structured JSON replay with retry and strict/degraded
+  modes.
+- `distiller analyze media` CLI route, thin Skill wrapper, timestamped JSON/Markdown artifacts,
+  content-addressed raw media/vision storage, and DuckDB `media_features` view.
+- Phase 6 status counters, full artifact/hash/timeline validation, unit/contract/integration tests,
+  and local-media documentation.
+
+### Changed
+
+- Package and Skill version advanced to `0.6.0`.
+- Project initialization adds raw media, raw vision-output, and media-analysis directories.
+- Project status reports the latest media analysis, artifact count, and aggregate Parquet row count.
+
 ### Migration
 
-- None.
+- Core Schema `0.1.0` and Phase 2–5 Schemas remain unchanged.
+- New media artifacts and `media_features.parquet` use Schema `0.6.0`.
+- Existing config and state load through defaults for the new `media`, `vision_provider`, and
+  `last_media_analysis_at` fields.
+
+### Security and compliance
+
+- Local mode never uploads media or opens a browser; no network vision client is bundled.
+- Raw media, frames, OCR, and visual reports are treated as sensitive content-addressed evidence.
+- Missing FFmpeg degrades visibly by default; strict mode returns stable `E_MEDIA_DECODE`.
 
 ## 0.5.0 — 2026-07-22
 

@@ -4,12 +4,14 @@ Core normalized schema version: `0.1.0`. Phase 2 analysis artifact schema versio
 Phase 3 transcript/text-analysis schema version: `0.3.0`.
 Phase 4 comment/distillation schema version: `0.4.0`.
 Phase 5 scoring/prediction/Retro schema version: `0.5.0`.
+Phase 6 local media-analysis schema version: `0.6.0`.
 
 The authoritative planning dictionary is `docs/planning/04_DATA_SCHEMA.md`; executable contracts
 are Pydantic models in `src/video_account_distiller/models/core.py` and reject unknown fields.
 Phase 2 contracts are in `src/video_account_distiller/models/analysis.py` and use the same strict
 unknown-field policy. Phase 3 contracts are in `models/text_analysis.py`; Phase 4 contracts are in
-`models/distillation.py`; Phase 5 contracts are in `models/closed_loop.py`.
+`models/distillation.py`; Phase 5 contracts are in `models/closed_loop.py`; Phase 6 contracts are in
+`models/media.py`.
 
 ## Core tables
 
@@ -22,6 +24,7 @@ unknown-field policy. Phase 3 contracts are in `models/text_analysis.py`; Phase 
 | `comments.parquet` | `Comment` | `comment_id` / `record_id` |
 | `transcripts.parquet` | `TranscriptSegment` | `segment_id` / `record_id` |
 | `derived_metrics.parquet` | `DerivedMetrics` | stable ID from metric snapshot and schema |
+| `media_features.parquet` | `MediaFeatureRecord` | `mdf_*` from media analysis ID |
 
 All core records carry source platform/type/URI/record ID, collection and ingestion timestamps,
 run ID, raw hash, schema version, and quality flags. Unknown values are `null`, never fabricated as
@@ -60,10 +63,10 @@ imports, identical records collapse. Conflicting duplicates choose the latest `i
 
 ## Migration policy
 
-Version `0.5.0` does not rewrite existing accounts, videos, metrics, comments, derived metrics,
+Version `0.6.0` does not rewrite existing accounts, videos, metrics, comments, derived metrics,
 samples, reports, Patterns, or distillations. Existing project config/state files remain valid
-because scoring policy and timestamps have defaults. Phase 5 adds candidate/score/prediction/
-publication/Retro and versioned knowledge artifacts; core normalized schema remains `0.1.0`.
+because scoring/media policy and timestamps have defaults. Phase 6 adds media-analysis artifacts and
+one independent aggregate table; prior core and Phase 2–5 schemas remain unchanged.
 
 ## Phase 2 analysis artifacts
 
@@ -148,3 +151,19 @@ disjoint supported/counterexample Rule sets, external factors, lessons, pending 
 proposals, and proposed experiments. Proposals never overwrite source Rule/Rubric files.
 Materially mistimed, promoted, or Robust-outlier snapshots are retained as observations but cannot
 produce Rule/Rubric change proposals.
+
+## Phase 6 local media artifacts
+
+| Path | Contract | Identity |
+|---|---|---|
+| `raw/media/<sha256>.<ext>` | immutable local media bytes | SHA-256 |
+| `raw/vision-outputs/<sha256>.json` | optional offline Provider result | SHA-256 |
+| `analyses/media/<video>/<mda_*>/media-analysis.json` | `MediaAnalysis` | media/features/config/provider result |
+| `analyses/media/<video>/<mda_*>/timeline.json` | shot/keyframe/audio/vision timeline | analysis ID |
+| `analyses/media/<video>/<mda_*>/keyframes/<key_*>.jpg` | frame evidence | shot + timestamp + media hash |
+| `analyses/media/<video>/<mda_*>/evidence-index.json` | `MediaEvidenceIndex` | timestamp evidence |
+| `normalized/media_features.parquet` | `MediaFeatureRecord` | `mdf_*` from analysis ID |
+
+Shots require ordered non-negative intervals and exact durations. Keyframes cite one shot, timestamp,
+local path, and SHA-256. OCR cites an existing shot/keyframe and interval. Missing decoder/audio/
+visual information remains `null`, `skipped`, or absent; it is never represented as observed zero.

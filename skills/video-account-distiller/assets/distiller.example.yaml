@@ -18,9 +18,23 @@ privacy:
   allow_cloud_model_upload: false
 models:
   text_provider: null
+  vision_provider: null
   require_schema_validation: true
   max_schema_attempts: 2
   allow_degraded_analysis: true
+media:
+  ffmpeg_path: null
+  ffprobe_path: null
+  scene_threshold: 0.3
+  max_shots: 500
+  max_keyframes: 12
+  keyframe_width: 720
+  audio_sample_rate: 8000
+  audio_window_ms: 100
+  silence_threshold_dbfs: -40.0
+  max_audio_analysis_seconds: 600
+  command_timeout_seconds: 180
+  allow_degraded_without_ffmpeg: true
 scoring:
   default_target_snapshot_age_hours: 72
   snapshot_plan_hours:

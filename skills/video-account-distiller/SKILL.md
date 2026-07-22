@@ -1,12 +1,12 @@
 ---
 name: video-account-distiller
-description: "Initialize, import, validate, normalize, analyze, distill, compare, score, predict, register, and retrospect on offline video-account exports, scripts, transcripts, comments, and metric snapshots with robust metrics, evidence-backed Patterns/Rules, immutable prediction intervals, and pending change proposals. Use for 拆解或蒸馏视频账号、分析评论、提炼用户需求、发现内容模式、寻找反例、对标迁移、给脚本或选题打分、发布前预测、登记发布、发布后复盘、分析预测误差、规划下一轮实验、拆解单条视频、导入字幕、账号体检或分层采样，using user-provided data from Douyin, Xiaohongshu, WeChat Channels, Bilibili, TikTok, YouTube, or Instagram Reels."
+description: "Initialize, import, validate, normalize, analyze, distill, compare, score, predict, register, and retrospect on offline video-account exports, local MP4/MOV/MKV media, scripts, transcripts, comments, and metrics with robust metrics, timestamped shots/keyframes/audio/OCR evidence, Patterns/Rules, immutable predictions, and pending changes. Use for 拆解或蒸馏视频账号、分析本地视频画面声音、镜头切分、关键帧、OCR、分析评论、提炼用户需求、发现内容模式、寻找反例、对标迁移、脚本评分、发布前预测、登记发布、发布后复盘、导入字幕、账号体检或分层采样，using user-provided data from Douyin, Xiaohongshu, WeChat Channels, Bilibili, TikTok, YouTube, or Instagram Reels."
 ---
 
 # Video Account Distiller
 
 Use the Python package and `distiller` CLI for deterministic work. Keep source exports immutable and
-perform Phase 0/1/2/3/4/5 tasks fully offline.
+perform Phase 0/1/2/3/4/5/6 tasks fully offline.
 
 ## Load references
 
@@ -22,6 +22,8 @@ perform Phase 0/1/2/3/4/5 tasks fully offline.
   high/middle/low comparison, evidence index, or warning file.
 - Read `references/video-analysis.md` before importing subtitles, analyzing one video, explaining
   Hook/structure/emotion/CTA/content-pillar labels, or interpreting blind analysis.
+- Read `references/media-analysis.md` before analyzing MP4/MOV/MKV media, scene cuts, keyframes,
+  audio features, OCR, visual labels, decoder degradation, or a shot timeline.
 - Read `references/model-providers.md` before supplying structured model output, choosing strict or
   degraded behavior, or handling a model Schema failure.
 - Read `references/comment-analysis.md` before labeling comments, interpreting audience demand,
@@ -39,7 +41,7 @@ perform Phase 0/1/2/3/4/5 tasks fully offline.
 
 ## Operating contract
 
-- Accept user-provided CSV, JSON, JSONL, and explicit mapping files.
+- Accept user-provided CSV, JSON, JSONL, local media, subtitles, and explicit mapping files.
 - Never log or silently alter original data. Store an immutable SHA-256-addressed copy first.
 - Use Pydantic contracts and preserve unknown values as `None`, not zero, empty string, or false.
 - Keep platform aliases inside adapters. Do not scatter source-column names through analysis code.
@@ -48,7 +50,7 @@ perform Phase 0/1/2/3/4/5 tasks fully offline.
   metrics for ranking.
 - Emit machine JSON to stdout and logs/errors to stderr. Preserve stable `E_*` error codes.
 - Do not access real platforms, automate login, bypass CAPTCHA/rate limits/risk controls, scrape, or
-  start a browser. Phase 0/1/2/3/4/5 is offline only.
+  start a browser. Never upload media in local mode. Phase 0/1/2/3/4/5/6 is offline only.
 
 ## Route tasks
 
@@ -149,6 +151,30 @@ prefers `E_MODEL_UNAVAILABLE` or `E_MODEL_SCHEMA_INVALID` over degraded output. 
 blind-analysis, Markdown report, evidence index, and warnings paths. Never promote one video's
 labels to an account rule. Run `distiller validate` after generation to verify the complete artifact
 and evidence chain.
+
+### Analyze local media
+
+Run only after the video exists in normalized Parquet:
+
+```bash
+uv run distiller analyze media --project <dir> --video <video-id> \
+  --file <local-video.mp4> --json
+```
+
+Use `--vision-output <offline.json>` only for local schema-targeted visual/OCR results. Omit it to
+keep visual fields unknown while still extracting FFprobe metadata, scene cuts, keyframes, and
+audio features. Add `--strict-media` when missing or failed FFmpeg must return `E_MEDIA_DECODE`
+instead of a degraded artifact; add `--strict-vision` for strict visual Schema behavior. Return
+`media-analysis.json`, `timeline.json`, Markdown, evidence, warnings, keyframes, and the
+`media_features.parquet` path. Run `distiller validate` afterward. Never infer unobserved visual
+details or upload the media without separate explicit authorization.
+
+Use `--max-keyframes <1-100>` to cap evenly distributed keyframes and `--scene-threshold <0-1>` to
+override scene sensitivity. These options, Provider output, and extracted features are part of the
+content-addressed result, so meaningful differences may create another immutable `mda_*` analysis.
+The artifact's `warnings.json` describes analysis limitations; a later validation report may still
+show zero validator warnings when that limitation was correctly recorded rather than an integrity
+failure. Status summarizes counts; inspect the returned analysis paths for configuration differences.
 
 ### Analyze comments
 
@@ -252,8 +278,9 @@ Return a concise summary first:
 5. The safest next command.
 
 Point users to generated quality reports, sample manifest, account-health report, single-video
-analysis, comment analysis, account distillation, transfer matrix, evidence index, warnings, and
-run manifest. Include score, immutable prediction, publication, Retro, and pending proposal paths
+analysis, media timeline/keyframes, comment analysis, account distillation, transfer matrix,
+evidence index, warnings, and run manifest. Include score, immutable prediction, publication,
+Retro, and pending proposal paths
 when present. Never infer an account strategy from one video or from Phase 2 statistics alone.
 
 ## Scripts
@@ -264,7 +291,8 @@ uninstall this Skill.
 
 ## Current boundary
 
-Phase 5 supports scoring, immutable interval prediction, publication linkage, snapshot Retro, and
-pending rule/rubric proposals. It does not auto-approve Level 4 rules: repeated controlled evidence
-and explicit human approval remain required. Visual/audio multimodal analysis and live adapters
-belong to Phase 6/7; do not fabricate visual/audio evidence, causality, or platform access.
+Phase 6 supports local FFmpeg metadata, scene cuts, keyframes, audio features, optional schema-
+validated visual/OCR results, and timestamped evidence. It ships no network vision client and no
+live platform adapter. It does not auto-approve Level 4 rules: repeated controlled evidence and
+explicit human approval remain required. Do not fabricate visual/audio evidence, causality, or
+platform access.

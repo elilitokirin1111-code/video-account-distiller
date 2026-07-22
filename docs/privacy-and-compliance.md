@@ -14,6 +14,8 @@ credentials are required.
   Git by default.
 - Validation recalculates hashes and reports integrity failures.
 - Subtitle and structured model-output bytes are also preserved under content-addressed raw paths.
+- Phase 6 local media is copied under `raw/media/`; keyframes, OCR, and timelines remain inside the
+  project. They may reveal guests, room numbers, screens, booking data, faces, or license plates.
 - Phase 5 script candidates are copied byte-for-byte under `raw/candidates/`; they may contain
   confidential campaign, price, product, employee, or customer information and require the same
   access controls as raw exports.
@@ -52,6 +54,10 @@ manifests.
 `privacy.allow_cloud_model_upload` defaults to false. The shipped Phase 3/4 provider reads local JSON
 only; adding any cloud provider requires explicit user authorization, policy checks, a documented
 retention boundary, redacted logging, and independent contract tests.
+
+The shipped Phase 6 visual Provider also reads only local structured JSON. FFmpeg/FFprobe are local
+processes and do not upload media. Treat extracted keyframes and OCR as sensitive raw-derived
+evidence; review and redact them before sharing outside the project.
 
 Phase 5 scoring, prediction, publication, and Retro are deterministic and local. Prediction files
 record versions and hashes, not credentials. Publication URLs and notes may still be sensitive;

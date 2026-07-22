@@ -25,3 +25,10 @@ Model-output bytes are copied to content-addressed local raw storage and hashed.
 content unless the user explicitly authorizes it and `privacy.allow_cloud_model_upload` is true;
 no bundled Phase 3/4 command uploads data. Redact comment identifiers before any authorized future
 provider receives them.
+
+Phase 6 separately defines `VisionModelProvider.analyze(MediaVisionBundle)`. The bundled
+`StructuredVisionFileProvider` only replays local JSON under the `media_vision` key and preserves
+its SHA-256. A custom provider must return strict `MediaVisionAnnotation`, cite existing shot and
+keyframe IDs, expose provider/model names, and remain mockable. No bundled command sends frames to
+a network vision service. Any cloud implementation requires explicit authorization and
+`privacy.allow_cloud_model_upload: true`.

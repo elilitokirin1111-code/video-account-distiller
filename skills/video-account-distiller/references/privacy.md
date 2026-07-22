@@ -7,6 +7,8 @@
 - Never print credentials to stdout, stderr, quality reports, or manifests.
 - Phase 3/4 ships no network model provider. Do not upload comments, transcripts, or media unless the
   user explicitly authorizes it and project policy allows cloud-model upload.
+- Local media, extracted frames, audio measurements, OCR, and reports may expose guests, room
+  numbers, screens, or booking data. Keep them local by default and never log their contents.
 - Phase 4 redacts direct identifiers only in comment analysis copies; preserve raw comments and
   never expose author hashes. Treat comment clusters as biased opportunity signals, not the whole
   audience or proof of demand.

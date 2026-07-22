@@ -3,10 +3,10 @@
 Core normalized schema version is `0.1.0`; Phase 2 analysis artifacts use `0.2.0`; transcript and
 text-analysis contracts use `0.3.0`; comment, Pattern, distillation, and comparison artifacts use
 `0.4.0`; Rubric, Rule, candidate, score, prediction, publication, experiment, and Retro artifacts
-use `0.5.0`. Executable Pydantic models reject unknown fields.
+use `0.5.0`; local media analysis contracts use `0.6.0`. Executable Pydantic models reject unknown fields.
 
 Normalized tables are `accounts`, `account_snapshots`, `videos`, `metric_snapshots`, `comments`,
-`transcripts`, and `derived_metrics`. Every core row includes source platform/type/URI/record ID, collected and
+`transcripts`, `derived_metrics`, and `media_features`. Every core row includes source platform/type/URI/record ID, collected and
 ingested timestamps, run ID, raw hash, schema version, and quality flags.
 
 Treat these cases differently:
@@ -31,6 +31,11 @@ Phase 5 IDs use `rule_*`, `rub_*`, `cand_*`, `score_*`, `pred_*`, `pub_*`, `retr
 Rubric weights must total 100. Prediction quantiles must satisfy P25 ≤ P50 ≤ P75 and include
 `immutable: true`. Rule versions are stored separately; Retro proposals are `pending` and do not
 replace their source Rule/Rubric.
+
+Phase 6 IDs use `mda_*`, `mdf_*`, `shot_*`, and `key_*`. Shot intervals are non-negative,
+non-overlapping, and exactly match duration. Keyframes carry a local path and SHA-256. OCR must cite
+an existing shot/keyframe and timestamp evidence. Unknown decoder, audio, OCR, and visual values stay
+`null` or absent; they are never inferred as zero/false.
 
 For full field definitions, read the repository `docs/data-contracts.md` and
 `docs/planning/04_DATA_SCHEMA.md`.

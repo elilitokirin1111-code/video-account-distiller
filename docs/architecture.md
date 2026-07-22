@@ -1,6 +1,6 @@
 # Architecture
 
-## Phase 0/1/2/3/4/5 data flow
+## Phase 0/1/2/3/4/5/6 data flow
 
 ```text
 CSV / JSON / JSONL
@@ -59,6 +59,12 @@ ReportService → report.json + report.md + evidence index + warnings
                     │
                     ▼
             RetroService → error + counterexamples + pending proposals + experiments
+        │
+        └── local media → LocalMediaAnalysisService
+                    ├── FFprobe metadata + FFmpeg scene cuts/keyframes
+                    ├── bounded PCM audio features
+                    ├── optional visual/OCR Provider
+                    └── timeline/evidence + media_features.parquet
 ```
 
 The Agent Skill orchestrates the CLI. Deterministic behavior lives in the Python package. Phase 3
@@ -82,6 +88,8 @@ provider, browser control, or platform access.
   benchmark transfer review.
 - `closed_loop/`: Rule/Rubric materialization, explainable script scoring, immutable prediction,
   publication registration, snapshot selection, prediction error, and pending-only Retro changes.
+- `media/`: local FFmpeg/FFprobe adapter, scene/keyframe/audio pipeline, and mockable visual/OCR
+  provider boundary.
 - `reports/`: null-safe account statistics, high/middle/low comparisons, evidence collection, and
   Jinja2 Markdown rendering.
 - `storage/`: project state, run manifests, atomic Parquet writes, and DuckDB views.
@@ -117,6 +125,11 @@ snapshots cannot propose policy changes. Other proposed Rule/Rubric changes rema
 not modify their source files. Proposed experiments use `exp_*` and are stored separately from
 validated rules.
 
+Phase 6 copies media to `raw/media/<sha256>.<ext>`, creates content-addressed `mda_*` analyses,
+stable `shot_*` and `key_*` timestamp evidence, and aggregate `mdf_*` rows in
+`media_features.parquet`. Structured visual output is preserved under `raw/vision-outputs/`.
+Keyframe hashes and timeline copies are validated against the main media artifact.
+
 Normalized Parquet is reproducible from staging. Project state is stored in
 `.distiller-state.json`; later rule and task workflows may introduce SQLite without changing the
 Phase 1 table contracts.
@@ -129,6 +142,7 @@ missing raw inputs by recalculating SHA-256.
 
 ## Current boundaries
 
-Phase 6/7 visual/audio multimodal processing and authorized live adapters are not present. Phase 5
-does not infer camera, image, music, sound, audience representativeness, causality, or automatically
-validated Level 4 rules. It creates bounded scoring inputs and pending experiment/change proposals.
+Authorized live and collaboration adapters remain Phase 7. Phase 6 measures local media and accepts
+optional schema-cited visual/OCR output, but it does not infer speech meaning, visual causality,
+audience representativeness, or automatically validated Level 4 rules. No bundled network vision
+provider uploads media.
