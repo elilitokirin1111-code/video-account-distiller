@@ -1,0 +1,20 @@
+[
+  {"platform_comment_id":"p4-c01","video_id":"p2-01","author_id":"guest-01","text":"早餐几点开始？","like_count":18,"created_at":"2026-07-01T08:00:00+08:00"},
+  {"platform_comment_id":"p4-c02","video_id":"p2-02","author_id":"guest-02","text":"可以做一期延迟退房教程吗？","like_count":15,"created_at":"2026-07-02T08:00:00+08:00"},
+  {"platform_comment_id":"p4-c03","video_id":"p2-03","author_id":"guest-03","text":"这个套餐多少钱，在哪里预订？","like_count":25,"created_at":"2026-07-03T08:00:00+08:00"},
+  {"platform_comment_id":"p4-c04","video_id":"p2-04","author_id":"guest-04","text":"太贵了，感觉不值","like_count":9,"created_at":"2026-07-04T08:00:00+08:00"},
+  {"platform_comment_id":"p4-c05","video_id":"p2-05","author_id":"guest-05","text":"这个流程很清楚，学到了","like_count":30,"created_at":"2026-07-05T08:00:00+08:00"},
+  {"platform_comment_id":"p4-c06","video_id":"p2-06","author_id":"guest-06","text":"你们没有儿童餐吗？带孩子不方便","like_count":11,"created_at":"2026-07-06T08:00:00+08:00"},
+  {"platform_comment_id":"p4-c07","video_id":"p2-07","author_id":"guest-07","text":"我住过，前台服务确实不错","like_count":22,"created_at":"2026-07-07T08:00:00+08:00"},
+  {"platform_comment_id":"p4-c08","video_id":"p2-08","author_id":"guest-08","text":"这个说法的依据是什么，真的吗？","like_count":13,"created_at":"2026-07-08T08:00:00+08:00"},
+  {"platform_comment_id":"p4-c09","video_id":"p2-09","author_id":"guest-09","text":"预订链接发一下","like_count":17,"created_at":"2026-07-09T08:00:00+08:00"},
+  {"platform_comment_id":"p4-c10","video_id":"p2-10","author_id":"guest-10","text":"我也是酒店同行，同感","like_count":8,"created_at":"2026-07-10T08:00:00+08:00"},
+  {"platform_comment_id":"p4-c11","video_id":"p2-11","author_id":"guest-11","text":"电话是13812345678吗？@hotel_manager","like_count":2,"created_at":"2026-07-11T08:00:00+08:00"},
+  {"platform_comment_id":"p4-c12","video_id":"p2-12","author_id":"guest-12","text":"加微信 abcdef88 做代理赚钱","like_count":0,"created_at":"2026-07-12T08:00:00+08:00"},
+  {"platform_comment_id":"p4-c13","video_id":"p2-16","author_id":"guest-13","text":"能不能做一期客房升级的步骤教程？","like_count":14,"created_at":"2026-07-16T08:00:00+08:00"},
+  {"platform_comment_id":"p4-c14","video_id":"p2-18","author_id":"guest-14","text":"亲子套餐多少钱？","like_count":12,"created_at":"2026-07-18T08:00:00+08:00"},
+  {"platform_comment_id":"p4-c15","video_id":"p2-20","author_id":"guest-15","text":"停车入口在哪里？","like_count":10,"created_at":"2026-07-20T08:00:00+08:00"},
+  {"platform_comment_id":"p4-c16","video_id":"p2-22","author_id":"guest-16","text":"讲得很清楚，收藏了","like_count":21,"created_at":"2026-07-22T08:00:00+08:00"},
+  {"platform_comment_id":"p4-c17","video_id":"p2-26","author_id":"guest-17","text":"我觉得早餐排队太久，不方便","like_count":16,"created_at":"2026-07-26T08:00:00+08:00"},
+  {"platform_comment_id":"p4-c18","video_id":"p2-28","author_id":"guest-18","text":"下一期讲讲会员权益怎么用吗？","like_count":19,"created_at":"2026-07-28T08:00:00+08:00"}
+]

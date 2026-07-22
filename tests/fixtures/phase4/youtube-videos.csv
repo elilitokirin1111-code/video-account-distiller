@@ -1,0 +1,7 @@
+platform_video_id,account_id,title,published_at,duration_seconds,content_type,is_ad,follower_count_at_publish
+yt-p4-01,phase4-youtube,Room tour 01,2026-06-01T09:00:00Z,45,room-tour,false,50000
+yt-p4-02,phase4-youtube,Room tour 02,2026-06-02T09:00:00Z,45,room-tour,false,50100
+yt-p4-03,phase4-youtube,Room tour 03,2026-06-03T09:00:00Z,45,room-tour,false,50200
+yt-p4-04,phase4-youtube,Room tour 04,2026-06-04T09:00:00Z,45,room-tour,false,50300
+yt-p4-05,phase4-youtube,Room tour 05,2026-06-05T09:00:00Z,45,room-tour,false,50400
+yt-p4-06,phase4-youtube,Room tour 06,2026-06-06T09:00:00Z,45,room-tour,false,50500

@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from video_account_distiller.comments import CommentAnalysisService
+from video_account_distiller.distillation import AccountDistillationService
 from video_account_distiller.ingestion import ImportService
 from video_account_distiller.metrics import MetricsService
 from video_account_distiller.models import Platform
@@ -62,3 +64,69 @@ def phase3_project(phase2_project: ProjectLayout, fixtures_dir: Path) -> Project
     )
     NormalizationService(phase2_project).normalize()
     return phase2_project
+
+
+@pytest.fixture
+def phase4_project(phase2_project: ProjectLayout, fixtures_dir: Path) -> ProjectLayout:
+    ImportService(phase2_project).import_file(
+        entity="comments",
+        source=fixtures_dir / "phase4" / "comments.json",
+        platform=Platform.DOUYIN,
+    )
+    NormalizationService(phase2_project).normalize()
+    CommentAnalysisService(phase2_project).analyze(
+        account_id=stable_id("acc_", "douyin", "phase2-hotel")
+    )
+    return phase2_project
+
+
+@pytest.fixture
+def phase4_benchmark_project(phase4_project: ProjectLayout, fixtures_dir: Path) -> ProjectLayout:
+    service = ImportService(phase4_project)
+    normal = fixtures_dir / "normal"
+    for entity, filename in (
+        ("accounts", "accounts.csv"),
+        ("videos", "videos.csv"),
+        ("metrics", "metrics.csv"),
+        ("comments", "comments.json"),
+    ):
+        service.import_file(
+            entity=entity,  # type: ignore[arg-type]
+            source=normal / filename,
+            platform=Platform.DOUYIN,
+        )
+    NormalizationService(phase4_project).normalize()
+    benchmark_id = stable_id("acc_", "douyin", "hotel-demo")
+    target_id = stable_id("acc_", "douyin", "phase2-hotel")
+    MetricsService(phase4_project).calculate(account_id=benchmark_id)
+    CommentAnalysisService(phase4_project).analyze(account_id=benchmark_id)
+    distiller = AccountDistillationService(phase4_project)
+    distiller.distill(account_id=target_id)
+    distiller.distill(account_id=benchmark_id)
+    return phase4_project
+
+
+@pytest.fixture
+def phase4_cross_platform_project(
+    phase4_project: ProjectLayout, fixtures_dir: Path
+) -> ProjectLayout:
+    service = ImportService(phase4_project)
+    phase4 = fixtures_dir / "phase4"
+    for entity, filename in (
+        ("accounts", "youtube-accounts.csv"),
+        ("videos", "youtube-videos.csv"),
+        ("metrics", "youtube-metrics.csv"),
+    ):
+        service.import_file(
+            entity=entity,  # type: ignore[arg-type]
+            source=phase4 / filename,
+            platform=Platform.YOUTUBE,
+        )
+    NormalizationService(phase4_project).normalize()
+    benchmark_id = stable_id("acc_", "youtube", "phase4-youtube")
+    target_id = stable_id("acc_", "douyin", "phase2-hotel")
+    MetricsService(phase4_project).calculate(account_id=benchmark_id)
+    distiller = AccountDistillationService(phase4_project)
+    distiller.distill(account_id=target_id)
+    distiller.distill(account_id=benchmark_id)
+    return phase4_project

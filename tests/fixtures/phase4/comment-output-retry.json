@@ -1,0 +1,24 @@
+{
+  "model_name": "offline-comment-fixture",
+  "comment_intent": [
+    {
+      "schema_version": "0.4.0",
+      "sentiment": "neutral",
+      "intent_labels": []
+    },
+    {
+      "schema_version": "0.4.0",
+      "sentiment": "neutral",
+      "intent_labels": ["follow_up"],
+      "pain_points": [],
+      "questions": ["早餐几点开始？"],
+      "objections": [],
+      "purchase_intent": null,
+      "identity_signal": null,
+      "content_opportunities": ["制作早餐时间答疑"],
+      "spam_probability": 0.01,
+      "confidence": 0.91,
+      "unknowns": []
+    }
+  ]
+}

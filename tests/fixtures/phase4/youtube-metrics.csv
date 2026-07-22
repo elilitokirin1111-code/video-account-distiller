@@ -1,0 +1,7 @@
+video_id,snapshot_at,views,likes,comments,shares,saves,avg_watch_time_seconds,is_promoted,metric_source
+yt-p4-01,2026-07-15T00:00:00Z,1000,30,3,2,4,10,false,export
+yt-p4-02,2026-07-15T00:00:00Z,2000,70,7,5,9,15,false,export
+yt-p4-03,2026-07-15T00:00:00Z,4000,160,16,12,22,22,false,export
+yt-p4-04,2026-07-15T00:00:00Z,8000,360,36,28,50,28,false,export
+yt-p4-05,2026-07-15T00:00:00Z,16000,800,80,70,120,34,false,export
+yt-p4-06,2026-07-15T00:00:00Z,32000,1760,176,160,270,38,false,export
