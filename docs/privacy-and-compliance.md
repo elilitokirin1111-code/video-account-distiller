@@ -2,8 +2,8 @@
 
 ## Offline-first defaults
 
-Phase 0/1 performs no model calls and no live platform requests. Files remain local to the project.
-No credentials are required.
+Phase 0/1/2 performs no model calls and no live platform requests. Files remain local to the
+project. No credentials are required.
 
 ## Raw data
 
@@ -18,6 +18,10 @@ No credentials are required.
 Raw author identifiers are never placed in normalized `Comment` records. When provided, they are
 hashed with SHA-256. Reports should avoid exposing usernames or full identifiers. Hashing is
 pseudonymization, not anonymization; access to raw exports must still be controlled.
+
+Phase 2 evidence indexes contain normalized/source record IDs, hashes, and run IDs, not raw comment
+author identifiers or raw comment text. Account-health reports aggregate video-level metrics and
+do not publish raw exports.
 
 ## Secrets and logging
 

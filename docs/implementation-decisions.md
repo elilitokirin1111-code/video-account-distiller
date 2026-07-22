@@ -1,6 +1,6 @@
 # Implementation decisions
 
-This document records Phase 0/1 choices where the planning pack was incomplete or contained
+This document records implementation choices where the planning pack was incomplete or contained
 requirements from later phases.
 
 ## ID-001 — Create the repository from the planning-only archive
@@ -73,3 +73,40 @@ requirements from later phases.
   validate` when that executable is available; otherwise run the bundled `quick_validate.py` and
   record the exact result in delivery notes.
 - **Reason:** The planning pack names `skills-ref`, but does not vendor or pin it.
+
+## ID-011 — Subsequent user instruction advances the milestone
+
+- **Decision:** Implement only Phase 2 in version `0.2.0` while preserving the completed Phase 0/1
+  interfaces.
+- **Reason:** `08_CODEX_MASTER_PROMPT.md` freezes its original round at Phase 0/1, while the user
+  explicitly requested the next development step and `07_MILESTONE_PLAN.md` defines that step as
+  Phase 2.
+
+## ID-012 — Separate core and analysis schema versions
+
+- **Decision:** Keep normalized Phase 1 records on core schema `0.1.0` and version new sampling and
+  report artifacts as analysis schema `0.2.0`.
+- **Reason:** Phase 2 adds new contracts but does not require rewriting stable Parquet or staging
+  data. Package and Skill versions advance independently to `0.2.0`.
+
+## ID-013 — `content_type` is a temporary pillar proxy
+
+- **Decision:** Use the normalized `Video.content_type` field for Phase 2 pillar coverage and label
+  it explicitly as a proxy in manifests, reports, warnings, and Skill guidance.
+- **Reason:** Semantic content-pillar extraction belongs to Phase 3. Inventing semantic labels from
+  titles or performance would violate the fact/inference boundary.
+
+## ID-014 — Content-addressed samples and reports
+
+- **Decision:** Derive stable `smp_*` and `rpt_*` IDs from account, inputs, policy/version, size, and
+  selected IDs. Reuse unchanged artifacts instead of overwriting or duplicating them.
+- **Reason:** This preserves idempotence, supports versioned future outputs, and keeps historical
+  run manifests meaningful.
+
+## ID-015 — Evidence-linked deterministic health reports
+
+- **Decision:** Wrap report statistics with `evi_*` references and write a separate evidence index
+  containing normalized/source IDs, raw hashes, calculations, and source runs. Limit findings to
+  facts, account-local associations, and warnings.
+- **Reason:** Phase 2 must make all report data traceable without prematurely implementing Phase 3
+  semantic analysis or Phase 4 pattern claims.

@@ -1,12 +1,12 @@
 ---
 name: video-account-distiller
-description: "Initialize, import, validate, normalize, query, and calculate robust account-local metrics from offline video-account exports. Use for 拆解视频账号、蒸馏账号、导入账号或视频数据、分析账号数据、计算互动率或完播效率、建立本地账号研究项目、检查账号数据质量，or work with user-provided CSV/JSON exports from Douyin, Xiaohongshu, WeChat Channels, Bilibili, TikTok, YouTube, or Instagram Reels."
+description: "Initialize, import, validate, normalize, sample, query, and report on offline video-account exports with robust account-local metrics and traceable evidence. Use for 拆解视频账号、账号体检、分层采样、高中低表现对照、生成账号报告、导入或分析账号数据、计算互动率或完播效率、检查数据质量，or work with user-provided CSV/JSON exports from Douyin, Xiaohongshu, WeChat Channels, Bilibili, TikTok, YouTube, or Instagram Reels."
 ---
 
 # Video Account Distiller
 
 Use the Python package and `distiller` CLI for deterministic work. Keep source exports immutable and
-perform Phase 0/1 tasks fully offline.
+perform Phase 0/1/2 tasks fully offline.
 
 ## Load references
 
@@ -16,6 +16,10 @@ perform Phase 0/1 tasks fully offline.
   or using Parquet/DuckDB.
 - Read `references/metrics.md` before calculating or explaining derived metrics, robust scores, or
   performance bands.
+- Read `references/sampling.md` before selecting representative videos or explaining sample
+  coverage.
+- Read `references/account-health.md` before generating or interpreting an account-health report,
+  high/middle/low comparison, evidence index, or warning file.
 - Read `references/privacy.md` for comments, identifiers, credentials, raw exports, or any request
   that could involve online collection.
 - Read the matching `references/platform-*.md` only when mapping that platform's export.
@@ -31,7 +35,7 @@ perform Phase 0/1 tasks fully offline.
   metrics for ranking.
 - Emit machine JSON to stdout and logs/errors to stderr. Preserve stable `E_*` error codes.
 - Do not access real platforms, automate login, bypass CAPTCHA/rate limits/risk controls, scrape, or
-  start a browser. Phase 0/1 is offline only.
+  start a browser. Phase 0/1/2 is offline only.
 
 ## Route tasks
 
@@ -79,6 +83,30 @@ uv run distiller metrics --project <dir> --account <account-id> --json
 
 Explain that Phase 1 uses the latest snapshot per video and compares it to the same account.
 
+### Select representative samples
+
+Run metrics first, then select a deterministic sample:
+
+```bash
+uv run distiller sample --project <dir> --account <account-id> --size 40 --json
+```
+
+Report population and selected coverage for performance, recency, `content_type` pillar proxy,
+duration, promotion, and outliers. Do not describe a sample as representative when the manifest
+contains `sampling_gap` or `small_sample` warnings.
+
+### Generate an account-health report
+
+```bash
+uv run distiller report --project <dir> --account <account-id> --json
+```
+
+When the user requested an exact sample size, add `--sample-size <n>` so the report reuses or
+reconstructs the same content-addressed sample.
+
+Return the JSON and Markdown report paths plus `evidence-index.json` and `warnings.json`. Treat every
+high/middle/low difference as an account-local statistical association, not a causal content rule.
+
 ### Query or inspect status
 
 ```bash
@@ -98,8 +126,8 @@ Return a concise summary first:
 4. Output paths and account IDs.
 5. The safest next command.
 
-Point users to the generated JSON/Markdown quality reports and run manifest. Never infer content
-strategy from Phase 1 metrics alone.
+Point users to generated quality reports, sample manifest, account-health report, evidence index,
+warnings, and run manifest. Never infer content strategy from Phase 2 statistics alone.
 
 ## Scripts
 
@@ -109,6 +137,7 @@ uninstall this Skill.
 
 ## Current boundary
 
-Representative sampling, subtitle/video analysis, comment intent, account distillation reports,
-pattern/rule evidence, scoring, prediction, retrospective, multimodal analysis, and live adapters
-belong to later phases. State this explicitly instead of fabricating those outputs.
+Subtitle/video semantic analysis, comment intent, full account distillation, pattern/rule discovery,
+scoring, prediction, retrospective, multimodal analysis, and live adapters belong to later phases.
+Phase 2 account health is deterministic statistics only; state this instead of fabricating content
+semantics or strategy.

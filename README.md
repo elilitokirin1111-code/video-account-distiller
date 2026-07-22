@@ -1,10 +1,11 @@
 # Video Account Distiller
 
 `video-account-distiller` 是一个离线优先的 Agent Skill 与 Python 数据工具，用于导入、标准化、
-查询和评估抖音、小红书、视频号、Bilibili、TikTok、YouTube 与 Instagram Reels 的账号导出数据。
+查询、分层采样和体检抖音、小红书、视频号、Bilibili、TikTok、YouTube 与 Instagram Reels
+的账号导出数据。
 
-当前版本完成规划中的 Phase 0 和 Phase 1：先把可追溯的数据内核做正确，再在后续阶段增加采样、
-视频语义拆解、账号蒸馏、预测与复盘。它不会登录或抓取任何真实平台。
+当前版本 `0.2.0` 完成规划中的 Phase 0、Phase 1 和 Phase 2：在可追溯数据内核之上增加
+确定性分层采样、账号统计、体检报告和证据索引。它不会登录或抓取任何真实平台。
 
 ## 能做什么
 
@@ -15,6 +16,9 @@
 - 对文件内及多次导入的数据进行稳定去重。
 - 输出标准化 Parquet，并提供只读 DuckDB 查询层。
 - 计算互动率、完播效率、Median、MAD、Robust Z-score、账号相对表现和 S/A/B/C/D 分层。
+- 按表现、近期、内容类型、时长、投流和异常值选择可解释的代表性样本。
+- 输出账号基础统计、高中低表现对照和内容寻址的样本清单。
+- 同时生成账号体检 JSON、Markdown、证据索引和警告文件。
 - 输出 JSON/Markdown 数据质量报告、不可变运行清单和项目状态。
 - 通过稳定错误码和 JSON Envelope 被 Agent 或自动化脚本调用。
 
@@ -77,7 +81,20 @@ uv run distiller metrics --project ./demo-project \
   --account acc_0776e1a4f82e23c02045 --json
 ```
 
-### 4. 使用 DuckDB 查询
+### 4. 分层采样并生成账号体检
+
+```bash
+uv run distiller sample --project ./demo-project \
+  --account acc_0776e1a4f82e23c02045 --size 40 --json
+
+uv run distiller report --project ./demo-project \
+  --account acc_0776e1a4f82e23c02045 --sample-size 40 --json
+```
+
+报告目录同时包含 `report.json`、`report.md`、`evidence-index.json` 和 `warnings.json`。
+每个统计项和报告发现都能通过 `evi_*` 追溯到标准化记录、原始哈希和来源运行。
+
+### 5. 使用 DuckDB 查询
 
 ```python
 from pathlib import Path
@@ -114,7 +131,8 @@ demo-project/
 ├── raw/imports/          # 原始文件，只读保留
 ├── staging/              # 映射并校验后的 JSONL
 ├── normalized/           # 标准化 Parquet
-├── reports/
+├── analyses/accounts/    # 内容寻址的分层样本清单
+├── reports/accounts/     # JSON/Markdown 体检、证据索引和警告
 ├── runs/<run-id>/        # manifest 与质量报告
 ├── knowledge-base/       # 后续 Phase 使用
 └── STATUS.md
@@ -139,11 +157,11 @@ uv run python skills/video-account-distiller/scripts/install-skill.py \
 
 ## 当前支持范围
 
-支持离线项目、CSV/JSON/JSONL、七个平台的字段映射模板、Parquet、DuckDB、基础派生指标和
-账号内稳健分层。
+支持离线项目、CSV/JSON/JSONL、七个平台的字段映射模板、Parquet、DuckDB、基础派生指标、
+账号内稳健分层、代表性采样和可追溯账号体检。
 
-尚未实现：真实平台抓取、代表性采样、字幕与视频语义分析、评论意图、模式发现、账号报告、
-内容评分、预测、发布复盘、多模态以及团队协作 Adapter。详见
+尚未实现：真实平台抓取、字幕与视频语义分析、评论意图、完整账号蒸馏、模式发现、内容评分、
+预测、发布复盘、多模态以及团队协作 Adapter。详见
 [`docs/delivery-overview.md`](docs/delivery-overview.md)。
 
 ## 安全限制
@@ -159,8 +177,9 @@ uv run python skills/video-account-distiller/scripts/install-skill.py \
 ```bash
 uv run ruff check .
 uv run ruff format --check .
-uv run mypy src
+uv run mypy src tests
 uv run pytest
+uv build
 ```
 
 测试强制禁用网络，并覆盖单元、合同、集成和 Golden 场景。生成 10 万条离线 Fixture：
@@ -174,6 +193,7 @@ uv run python tools/generate_large_fixture.py --output ./tmp/large-fixture --row
 - [交付介绍](docs/delivery-overview.md)
 - [架构](docs/architecture.md)
 - [数据合同](docs/data-contracts.md)
+- [分层采样与账号体检](docs/sampling-and-reporting.md)
 - [Adapter 指南](docs/adapter-guide.md)
 - [隐私与合规](docs/privacy-and-compliance.md)
 - [开发与测试](docs/development.md)

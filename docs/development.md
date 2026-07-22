@@ -15,8 +15,9 @@ uv run distiller --help
 ```bash
 uv run ruff check .
 uv run ruff format --check .
-uv run mypy src
+uv run mypy src tests
 uv run pytest
+uv build
 ```
 
 Pytest disables sockets. Tests must use `tests/fixtures/` or temporary directories and must not
@@ -24,11 +25,12 @@ contact any network service.
 
 ## Test layers
 
-- `tests/unit/`: formulas, models, parsing, IDs, project state, and quality reports.
-- `tests/contract/`: CLI JSON/error contract, platform mapping contract, and DuckDB read-only guard.
+- `tests/unit/`: formulas, models, parsing, IDs, project state, sampling, and report statistics.
+- `tests/contract/`: CLI JSON/error contract, platform mapping, Phase 2 commands, and DuckDB guard.
 - `tests/integration/`: full file-to-Parquet pipeline, idempotence, invalid rows, custom mappings,
   cross-platform warnings, and raw integrity.
-- `tests/golden/`: stable expected performance-band distribution for the normal fixture.
+- `tests/golden/`: stable performance bands plus a 30-video, three-pillar Phase 2 sample-coverage
+  fixture with outliers and promotion.
 
 ## Large offline fixture
 
@@ -50,6 +52,19 @@ counts with `distiller status --json`. Generated files remain under ignored `tmp
 5. Preserve raw inputs and `None` semantics.
 6. Run all quality gates.
 7. Update `docs/release-notes.md` under `Unreleased`.
+
+## Phase 2 smoke test
+
+After the normal import/normalize/metrics sequence:
+
+```bash
+uv run distiller sample --project ./demo-project --account <acc_id> --size 40 --json
+uv run distiller report --project ./demo-project --account <acc_id> --json
+uv run distiller status --project ./demo-project --json
+```
+
+Verify all report `evidence_id` and finding `evidence_ids` values exist in `evidence-index.json`.
+Dry runs must not create sample or report files.
 
 ## Skill validation
 

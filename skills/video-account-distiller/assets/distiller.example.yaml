@@ -3,6 +3,8 @@ project:
   language: zh-CN
   timezone: Asia/Shanghai
 analysis:
+  default_sample_size: 40
+  recent_sample_fraction: 0.2
   use_robust_zscore: true
   log_transform_metrics: true
 platforms:
@@ -11,3 +13,8 @@ privacy:
   redact_usernames_in_reports: true
   hash_comment_author_ids: true
   allow_cloud_model_upload: false
+reports:
+  formats:
+    - markdown
+    - json
+  include_evidence_index: true

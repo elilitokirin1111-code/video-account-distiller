@@ -1,9 +1,11 @@
 # Data contracts
 
-Schema version: `0.1.0`.
+Core normalized schema version: `0.1.0`. Phase 2 analysis artifact schema version: `0.2.0`.
 
 The authoritative planning dictionary is `docs/planning/04_DATA_SCHEMA.md`; executable contracts
 are Pydantic models in `src/video_account_distiller/models/core.py` and reject unknown fields.
+Phase 2 contracts are in `src/video_account_distiller/models/analysis.py` and use the same strict
+unknown-field policy.
 
 ## Core tables
 
@@ -52,6 +54,23 @@ imports, identical records collapse. Conflicting duplicates choose the latest `i
 
 ## Migration policy
 
-There is no previous schema to migrate in version `0.1.0`. Future changes must increment
-`schema_version`, document compatibility in release notes, and provide a deterministic migration
-before existing Parquet or knowledge records are rewritten.
+Version `0.2.0` does not rewrite Phase 1 Parquet or staging records. Existing `distiller.yaml` and
+`.distiller-state.json` files remain valid because new sampling, report, and state fields have
+validated defaults. Phase 2 creates new analysis artifacts only.
+
+## Phase 2 analysis artifacts
+
+| Path | Contract | Identity |
+|---|---|---|
+| `analyses/accounts/<account>/samples/<smp_*>/sample-manifest.json` | `SampleManifest` | content-addressed sample ID |
+| `reports/accounts/<account>/<rpt_*>/report.json` | `AccountHealthReport` | content-addressed report ID |
+| `reports/accounts/<account>/<rpt_*>/evidence-index.json` | `EvidenceIndex` | report ID + `evi_*` items |
+| `reports/accounts/<account>/<rpt_*>/warnings.json` | warning envelope | report ID |
+
+`SampleManifest` records population/requested/target/selected sizes, coverage by performance,
+recency, content pillar proxy, duration and special flags, selected video IDs, reasons, raw input
+hashes, and run ID.
+
+Every scalar or distribution in `AccountHealthReport` carries an evidence ID. `EvidenceIndex`
+resolves it to normalized table/record IDs, original source record IDs, raw hashes, calculations,
+and source run IDs. See `docs/sampling-and-reporting.md` for the complete behavior contract.

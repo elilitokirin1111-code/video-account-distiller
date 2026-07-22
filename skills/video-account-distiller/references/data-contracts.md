@@ -1,6 +1,7 @@
 # Data contracts
 
-Schema version is `0.1.0`. Executable Pydantic models reject unknown fields.
+Core normalized schema version is `0.1.0`; Phase 2 analysis artifacts use `0.2.0`. Executable
+Pydantic models reject unknown fields.
 
 Normalized tables are `accounts`, `account_snapshots`, `videos`, `metric_snapshots`, `comments`,
 and `derived_metrics`. Every core row includes source platform/type/URI/record ID, collected and
