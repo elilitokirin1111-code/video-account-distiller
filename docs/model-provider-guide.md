@@ -36,3 +36,8 @@ Before adding a cloud implementation:
 6. Redact comment direct identifiers before upload and preserve raw response hashes/prompt versions.
 
 No current command contacts OpenAI or any other model service.
+
+Phase 5 scoring, prediction, publication, and Retro do not use this provider. Their formulas,
+intervals, version linkage, and approval boundary are deterministic. A future model may suggest
+language improvements only behind a separately validated Schema; it must not overwrite scores,
+predictions, actual snapshots, Rule status, or approval metadata.

@@ -25,16 +25,19 @@ contact any network service.
 
 ## Test layers
 
-- `tests/unit/`: formulas, models, transcript/comment privacy, IDs, project state, sampling, and reports.
+- `tests/unit/`: formulas, models, transcript/comment privacy, IDs, project state, sampling, reports,
+  Rubric totals, prediction intervals, and Rule approval requirements.
 - `tests/contract/`: CLI JSON/error contracts, platform mapping, blind provider prompts, retries,
-  Phase 2/3/4 commands, and DuckDB guard.
+  Phase 2/3/4/5 commands, and DuckDB guard.
 - `tests/integration/`: full file-to-Parquet pipeline, idempotence, invalid rows, custom mappings,
   cross-platform warnings, raw integrity, transcript normalization, single-video analysis, comment
-  needs, account distillation, Pattern counterexamples, and transfer matrices.
+  needs, account distillation, Pattern counterexamples, transfer matrices, immutable predictions,
+  publication linkage, and Retro proposals.
 - `tests/golden/`: stable performance bands plus a 30-video, three-pillar Phase 2 sample-coverage
   fixture with outliers and promotion.
   Phase 3 Golden checks stable Hook, structure, CTA, emotion, and pillar labels.
   Phase 4 Golden checks content-cluster coverage, Pattern support, and counterexample retention.
+  Phase 5 Golden checks dimension order/weights, interval ordering, Rule versions, and warnings.
 
 ## Large offline fixture
 
@@ -109,6 +112,36 @@ uv run distiller compare --project ./demo-project --target <acc_id> \
 ```
 
 Verify cross-platform items keep separate baselines and never compare raw views.
+
+## Phase 5 smoke test
+
+After the target account has a distillation and a UTF-8 script exists:
+
+```bash
+uv run distiller score --project ./demo-project --account <acc_id> \
+  --script ./script.md --target-pillar <pillar> --json
+uv run distiller predict --project ./demo-project --account <acc_id> \
+  --script ./script.md --target-pillar <pillar> --target-age-hours 72 --json
+```
+
+Verify nine dimension weights total 100, candidate Rules remain low maturity, prediction quantiles
+are ordered, baseline snapshot-age warnings are visible, and repeating identical inputs preserves
+the same prediction bytes.
+
+After importing and normalizing the published video and metric snapshots:
+
+```bash
+uv run distiller publish --project ./demo-project --prediction <pred_id> \
+  --video <vid_id> --json
+uv run distiller retro --project ./demo-project --publication <pub_id> \
+  --snapshot t3d --json
+uv run distiller validate --project ./demo-project --json
+```
+
+Verify publication time follows prediction creation, the prediction and source Rule files are
+unchanged, every proposal remains `pending`, counterexamples are retained, experiment files exist,
+and Phase 5 validation reports no errors. Also test a materially mistimed snapshot: its matched
+Rules must be inconclusive and its Rule/Rubric proposal lists must be empty.
 
 ## Skill validation
 

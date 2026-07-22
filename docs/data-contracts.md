@@ -3,12 +3,13 @@
 Core normalized schema version: `0.1.0`. Phase 2 analysis artifact schema version: `0.2.0`.
 Phase 3 transcript/text-analysis schema version: `0.3.0`.
 Phase 4 comment/distillation schema version: `0.4.0`.
+Phase 5 scoring/prediction/Retro schema version: `0.5.0`.
 
 The authoritative planning dictionary is `docs/planning/04_DATA_SCHEMA.md`; executable contracts
 are Pydantic models in `src/video_account_distiller/models/core.py` and reject unknown fields.
 Phase 2 contracts are in `src/video_account_distiller/models/analysis.py` and use the same strict
 unknown-field policy. Phase 3 contracts are in `models/text_analysis.py`; Phase 4 contracts are in
-`models/distillation.py`.
+`models/distillation.py`; Phase 5 contracts are in `models/closed_loop.py`.
 
 ## Core tables
 
@@ -59,10 +60,10 @@ imports, identical records collapse. Conflicting duplicates choose the latest `i
 
 ## Migration policy
 
-Version `0.4.0` does not rewrite existing accounts, videos, metrics, comments, derived metrics,
-samples, or reports. Existing project config/state files remain valid because new model policy and
-timestamps have defaults. Phase 4 adds analysis/report/knowledge artifacts and state pointers;
-core normalized schema remains `0.1.0`.
+Version `0.5.0` does not rewrite existing accounts, videos, metrics, comments, derived metrics,
+samples, reports, Patterns, or distillations. Existing project config/state files remain valid
+because scoring policy and timestamps have defaults. Phase 5 adds candidate/score/prediction/
+publication/Retro and versioned knowledge artifacts; core normalized schema remains `0.1.0`.
 
 ## Phase 2 analysis artifacts
 
@@ -114,3 +115,36 @@ counts, disjoint sets, evidence IDs, scope, confidence, maturity, and version.
 records, source IDs, source runs, and raw hashes. `distiller validate` verifies companion files,
 artifact identities, account scope, evidence references, evidence sources, and knowledge Pattern
 files.
+
+## Phase 5 closed-loop artifacts
+
+| Path | Contract | Identity |
+|---|---|---|
+| `raw/candidates/<sha256>.<ext>` | original script bytes | SHA-256 |
+| `candidates/<cand_*>/candidate.json` | `ContentCandidate` | account + script hash + target context |
+| `knowledge-base/rules/<rule_*>/<version>.json` | `Rule` | account + source Pattern |
+| `knowledge-base/rubrics/<account>/<rub_*>.json` | `Rubric` | distillation + Rule versions + weights |
+| `reports/scoring/<account>/<score_*>/score.json` | `ScoreResult` | candidate + Rubric/Rule versions |
+| `predictions/<pred_*>/prediction.json` | `Prediction` | canonical immutable input hash |
+| `publications/<pub_*>/publication.json` | `Publication` | prediction + video + publication facts |
+| `reports/retros/<pub_*>/<retro_*>/retro.json` | `Retro` | publication + prediction + actual snapshot |
+| `knowledge-base/experiments/<exp_*>.json` | `Experiment` | Retro + tested Rule or weak dimension |
+
+`Rubric` requires unique dimensions whose weights sum to exactly 100. `Rule` stores source Pattern,
+scope, conditions, evidence/experiment counts, status and version; `validated` additionally requires
+human approval metadata.
+
+`ScoreResult.total_score` must equal the weighted dimension contributions. A score contains
+evidence IDs and separate missing/risk fields; it is not a prediction.
+
+`Prediction` requires ordered non-negative P25/P50/P75 intervals, a canonical `input_hash`,
+Rubric/Rule versions, assumptions and `immutable: true`. Its directory ID must equal the stable ID
+derived from that input hash. `Publication` is likewise content-addressed and immutable.
+Its publication time must match the normalized video when present and must follow prediction
+creation.
+
+`Retro` records the selected normalized metric snapshot, per-metric error and interval position,
+disjoint supported/counterexample Rule sets, external factors, lessons, pending Rule/Rubric change
+proposals, and proposed experiments. Proposals never overwrite source Rule/Rubric files.
+Materially mistimed, promoted, or Robust-outlier snapshots are retained as observations but cannot
+produce Rule/Rubric change proposals.

@@ -1,4 +1,4 @@
-# Phase 0/1/2/3/4 workflow
+# Phase 0/1/2/3/4/5 workflow
 
 ## Sequence
 
@@ -20,7 +20,12 @@
 15. Run `uv run distiller distill` for content clusters, Patterns, counterexamples, and actions.
 16. Distill every account separately before `uv run distiller compare`.
 17. Run `uv run distiller validate` again to verify Phase 4 evidence and knowledge artifacts.
-18. Query with DuckDB only after normalization.
+18. Run `uv run distiller score` to check a new script against the current Rubric.
+19. Run `uv run distiller predict` to save an immutable account-local interval.
+20. Import/normalize the published video, then run `uv run distiller publish`.
+21. Import later metric snapshots, recalculate metrics, and run `uv run distiller retro`.
+22. Run `uv run distiller validate` to verify the complete closed-loop evidence chain.
+23. Query with DuckDB only after normalization.
 
 ## Idempotence
 
@@ -33,6 +38,9 @@ IDs and never overwrite an existing analysis.
 Comment analyses, account distillations, Patterns, and comparisons use content-addressed `cma_*`,
 `dst_*`, `pat_*`, and `cmp_*` IDs. Knowledge Pattern files are immutable; the account profile and
 knowledge index are rebuildable latest pointers.
+Scores and predictions use content-addressed `score_*` and `pred_*` IDs. Predictions and
+publications are immutable. Retros use `retro_*`; repeating the same publication/snapshot/version
+reuses the existing review. Retro writes pending proposals without modifying Rule or Rubric files.
 
 ## Project evidence
 
@@ -52,6 +60,10 @@ knowledge index are rebuildable latest pointers.
 - `reports/accounts/<account-id>/<distillation-id>/`: account distillation JSON/Markdown/evidence.
 - `reports/comparisons/<comparison-id>/`: benchmark transfer matrix and evidence.
 - `knowledge-base/patterns/`: versioned Pattern JSON with support and counterexamples.
+- `knowledge-base/rules/` and `knowledge-base/rubrics/`: versioned scoring inputs.
+- `candidates/` and `reports/scoring/`: script candidate and explainable score artifacts.
+- `predictions/` and `publications/`: immutable prediction and publication linkage.
+- `reports/retros/` and `knowledge-base/reviews/`: prediction errors and pending proposals.
 
 ## Failure handling
 

@@ -2,7 +2,8 @@
 
 Core normalized schema version is `0.1.0`; Phase 2 analysis artifacts use `0.2.0`; transcript and
 text-analysis contracts use `0.3.0`; comment, Pattern, distillation, and comparison artifacts use
-`0.4.0`. Executable Pydantic models reject unknown fields.
+`0.4.0`; Rubric, Rule, candidate, score, prediction, publication, experiment, and Retro artifacts
+use `0.5.0`. Executable Pydantic models reject unknown fields.
 
 Normalized tables are `accounts`, `account_snapshots`, `videos`, `metric_snapshots`, `comments`,
 `transcripts`, and `derived_metrics`. Every core row includes source platform/type/URI/record ID, collected and
@@ -25,6 +26,11 @@ Phase 4 IDs use `cma_*` comment analyses, `cms_*` comment signals, `cnc_*` need 
 account distillations, `clu_*` content clusters, `pat_*` Patterns, and `cmp_*` comparisons. Every
 Pattern requires support, a counterexample field, disjoint sample sets, scope, maturity, version,
 risks, and evidence IDs. Core records are not rewritten.
+
+Phase 5 IDs use `rule_*`, `rub_*`, `cand_*`, `score_*`, `pred_*`, `pub_*`, `retro_*`, and `exp_*`.
+Rubric weights must total 100. Prediction quantiles must satisfy P25 ≤ P50 ≤ P75 and include
+`immutable: true`. Rule versions are stored separately; Retro proposals are `pending` and do not
+replace their source Rule/Rubric.
 
 For full field definitions, read the repository `docs/data-contracts.md` and
 `docs/planning/04_DATA_SCHEMA.md`.

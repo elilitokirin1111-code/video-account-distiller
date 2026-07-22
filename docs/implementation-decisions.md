@@ -219,3 +219,69 @@ requirements from later phases.
   understanding rather than direct migration.
 - **Reason:** Account sizes and platform mechanics make raw views non-comparable; transfer is a
   planning hypothesis that requires a bounded target-account experiment.
+
+## ID-031 — Materialize Phase 4 Patterns only as candidate Rules
+
+- **Decision:** Create versioned Rule records from account-local Patterns, but keep them in
+  `candidate` status and cap their scoring influence. Do not promote historical associations to
+  validated rules.
+- **Reason:** Phase 4 evidence has support and counterexamples but no repeated controlled
+  experiments. Phase 5 needs executable scoring inputs without weakening the maturity contract.
+
+## ID-032 — Use a deterministic nine-dimension Rubric
+
+- **Decision:** Score scripts with the planned 100-point Rubric using transparent text checks and
+  bounded Rule adjustments. Store every dimension, explanation, missing item, risk, and evidence;
+  do not call a model or return only a black-box total.
+- **Reason:** The closed loop must work offline and remain testable. Model-assisted scoring can be
+  added later behind a strict provider, but deterministic behavior is the safe baseline.
+
+## ID-033 — Predict account-local empirical intervals, not guaranteed outcomes
+
+- **Decision:** Build P25/P50/P75 from each video's eligible snapshot nearest the requested age in
+  the same account, exclude paid and Robust-outlier records, require at least three observations per
+  metric, expose timing mismatch, and apply only a bounded score adjustment.
+- **Reason:** There is no trained causal model or comparable peer panel. The result is a calibrated
+  historical interval with visible assumptions, not a promise or cross-platform forecast.
+
+## ID-034 — Enforce logical immutability with content addressing and validation
+
+- **Decision:** Derive `pred_*` and `pub_*` from canonical input hashes, never expose an update or
+  overwrite route, reuse exact repeats, and make `distiller validate` check ID/hash/link integrity.
+  Do not set filesystem read-only flags.
+- **Reason:** Read-only flags are unreliable across operating systems and can obstruct backup or
+  deletion. Content addressing plus an append-only service contract is portable and testable.
+
+## ID-035 — Require a chronological normalized video before publication registration
+
+- **Decision:** Link a prediction only to an existing normalized video from the same account and
+  target platform. Require the normalized publication time to follow prediction creation and reject
+  an explicit time that contradicts the normalized record. Continue importing actual snapshots
+  through the existing metrics Adapter.
+- **Reason:** This prevents invented platform IDs and metrics, keeps the Adapter boundary intact,
+  prevents retrospective predictions from being presented as pre-publication forecasts, and makes
+  every Retro actual value traceable to normalized and raw evidence.
+
+## ID-036 — Select the nearest snapshot and expose timing mismatch
+
+- **Decision:** Retro evaluates the normalized snapshot nearest the requested T+ age and emits a
+  warning when the distance exceeds tolerance rather than fabricating or interpolating a value.
+  A materially mistimed, promoted, or Robust-outlier snapshot may be reviewed, but it marks all
+  matched Rules inconclusive and cannot generate Rule/Rubric change proposals.
+- **Reason:** Exports often omit exact checkpoints. Keeping the real snapshot age is more honest
+  than pretending a late snapshot represents T+3d exactly, while the eligibility gate prevents
+  confounded observations from silently changing policy.
+
+## ID-037 — Keep all Rule and Rubric changes pending
+
+- **Decision:** Retro may propose a version, status, scope, or small paired weight change and write
+  next experiments, but it never creates the proposed Rule version or mutates the current Rubric.
+- **Reason:** One observed publication may support or contradict a hypothesis but cannot establish
+  causality or approve a Level 4 rule. Human review and repeated experiments remain mandatory.
+
+## ID-038 — Add an independent Phase 5 schema version
+
+- **Decision:** Advance package and Skill to `0.5.0` and use `0.5.0` for closed-loop artifacts while
+  preserving core `0.1.0`, Phase 2 `0.2.0`, Phase 3 `0.3.0`, and Phase 4 `0.4.0` contracts.
+- **Reason:** No existing Parquet or analysis artifact needs rewriting; independent versions keep
+  migrations narrow and preserve reproducibility.

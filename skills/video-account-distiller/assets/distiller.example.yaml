@@ -21,6 +21,17 @@ models:
   require_schema_validation: true
   max_schema_attempts: 2
   allow_degraded_analysis: true
+scoring:
+  default_target_snapshot_age_hours: 72
+  snapshot_plan_hours:
+    - 1
+    - 24
+    - 72
+    - 168
+  prediction_metrics:
+    - views
+    - engagement_rate_by_view
+  max_rule_score_adjustment: 5.0
 reports:
   formats:
     - markdown

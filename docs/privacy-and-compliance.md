@@ -2,7 +2,7 @@
 
 ## Offline-first defaults
 
-Phase 0/1/2 performs no model calls. Phase 3/4 accepts local structured model-output files or uses a
+Phase 0/1/2/5 performs no model calls. Phase 3/4 accepts local structured model-output files or uses a
 deterministic fallback; it ships no network model client and makes no live platform request. No
 credentials are required.
 
@@ -14,6 +14,9 @@ credentials are required.
   Git by default.
 - Validation recalculates hashes and reports integrity failures.
 - Subtitle and structured model-output bytes are also preserved under content-addressed raw paths.
+- Phase 5 script candidates are copied byte-for-byte under `raw/candidates/`; they may contain
+  confidential campaign, price, product, employee, or customer information and require the same
+  access controls as raw exports.
 
 ## Comment privacy
 
@@ -49,6 +52,12 @@ manifests.
 `privacy.allow_cloud_model_upload` defaults to false. The shipped Phase 3/4 provider reads local JSON
 only; adding any cloud provider requires explicit user authorization, policy checks, a documented
 retention boundary, redacted logging, and independent contract tests.
+
+Phase 5 scoring, prediction, publication, and Retro are deterministic and local. Prediction files
+record versions and hashes, not credentials. Publication URLs and notes may still be sensitive;
+reports should be reviewed before sharing. Retro keeps actual metric evidence and counterexamples
+instead of hiding unfavorable results. Rule/Rubric proposals remain pending so a single publication
+cannot silently alter decision policy.
 
 ## Platform compliance
 

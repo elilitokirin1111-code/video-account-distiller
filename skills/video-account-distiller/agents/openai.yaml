@@ -1,4 +1,4 @@
 interface:
   display_name: "Video Account Distiller"
-  short_description: "离线蒸馏视频账号、评论需求、内容模式、反例与对标证据"
-  default_prompt: "Use $video-account-distiller to analyze offline video-account exports, distill comment needs and evidence-backed Patterns, and build an account or benchmark action plan."
+  short_description: "离线完成账号蒸馏、脚本评分、区间预测、发布复盘与证据迭代"
+  default_prompt: "Use $video-account-distiller to score an offline script, save an immutable account-local prediction, and review the published result with evidence-backed pending changes."

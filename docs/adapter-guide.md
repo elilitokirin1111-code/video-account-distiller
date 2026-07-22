@@ -66,6 +66,14 @@ then creates a separate analysis copy that redacts common direct identifiers fro
 Adapters must not pre-clean or overwrite the immutable source because validation and replay depend
 on exact source bytes.
 
+## Phase 5 publication snapshots
+
+Publication registration does not add a new platform Adapter. Import the published video and every
+actual T+ metric snapshot through the existing video/metrics file Adapter, then normalize and
+recalculate metrics. `retro` reads only normalized `MetricSnapshot`/`DerivedMetrics`, selects the
+nearest requested age, and preserves the actual snapshot ID/time. Adapters must not synthesize an
+exact T+ checkpoint when the export contains a later or earlier observation.
+
 ## Future authorized adapters
 
 A live adapter must be separately scoped, authorized, rate-limited, and contract-tested. It may use

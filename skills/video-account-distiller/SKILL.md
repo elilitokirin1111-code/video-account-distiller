@@ -1,12 +1,12 @@
 ---
 name: video-account-distiller
-description: "Initialize, import, validate, normalize, analyze, distill, compare, and report on offline video-account exports, transcripts, and comments with robust metrics, blind text labels, audience-need clusters, evidence-backed Patterns, counterexamples, and transfer matrices. Use for 拆解视频账号、蒸馏账号、分析评论、提炼用户需求、发现内容模式、寻找反例、对标迁移、拆解单条视频、导入字幕、提取 Hook/结构/CTA/情绪/内容支柱、账号体检、分层采样或生成账号报告，using user-provided exports from Douyin, Xiaohongshu, WeChat Channels, Bilibili, TikTok, YouTube, or Instagram Reels."
+description: "Initialize, import, validate, normalize, analyze, distill, compare, score, predict, register, and retrospect on offline video-account exports, scripts, transcripts, comments, and metric snapshots with robust metrics, evidence-backed Patterns/Rules, immutable prediction intervals, and pending change proposals. Use for 拆解或蒸馏视频账号、分析评论、提炼用户需求、发现内容模式、寻找反例、对标迁移、给脚本或选题打分、发布前预测、登记发布、发布后复盘、分析预测误差、规划下一轮实验、拆解单条视频、导入字幕、账号体检或分层采样，using user-provided data from Douyin, Xiaohongshu, WeChat Channels, Bilibili, TikTok, YouTube, or Instagram Reels."
 ---
 
 # Video Account Distiller
 
 Use the Python package and `distiller` CLI for deterministic work. Keep source exports immutable and
-perform Phase 0/1/2/3/4 tasks fully offline.
+perform Phase 0/1/2/3/4/5 tasks fully offline.
 
 ## Load references
 
@@ -30,6 +30,9 @@ perform Phase 0/1/2/3/4 tasks fully offline.
   counterexamples, maturity, or confidence.
 - Read `references/account-distillation.md` before distilling an account or building a benchmark
   transfer matrix.
+- Read `references/scoring-prediction.md` before scoring a script, creating a prediction,
+  registering a publication, selecting a metric snapshot, running a Retro, or interpreting a
+  Rule/Rubric change proposal.
 - Read `references/privacy.md` for comments, identifiers, credentials, raw exports, or any request
   that could involve online collection.
 - Read the matching `references/platform-*.md` only when mapping that platform's export.
@@ -45,7 +48,7 @@ perform Phase 0/1/2/3/4 tasks fully offline.
   metrics for ranking.
 - Emit machine JSON to stdout and logs/errors to stderr. Preserve stable `E_*` error codes.
 - Do not access real platforms, automate login, bypass CAPTCHA/rate limits/risk controls, scrape, or
-  start a browser. Phase 0/1/2/3/4 is offline only.
+  start a browser. Phase 0/1/2/3/4/5 is offline only.
 
 ## Route tasks
 
@@ -183,11 +186,57 @@ uv run distiller compare --project <dir> --target <account-id> \
 Keep each platform/account baseline separate. Judge transferability from content features, scope,
 resources, risk, and Pattern maturity; do not compare raw views across accounts or platforms.
 
+### Score a script
+
+Distill the account first, then run:
+
+```bash
+uv run distiller score --project <dir> --account <account-id> \
+  --script <script.md> --target-pillar <pillar> --json
+```
+
+Return all nine dimension scores, Rubric/Rule versions, missing items, risks, evidence, and warnings.
+Treat the score as an explainable pre-publication checklist, not a performance prediction. Candidate
+and experimental rules may only make bounded adjustments.
+
+### Save an immutable prediction
+
+```bash
+uv run distiller predict --project <dir> --account <account-id> \
+  --script <script.md> --target-pillar <pillar> --target-age-hours 72 --json
+```
+
+The command scores first, then saves account-local P25/P50/P75 intervals with assumptions, input
+hash, Rubric version, Rule versions, and `immutable: true`. Never promise a result or compare raw
+cross-platform baselines.
+
+### Register and review a publication
+
+After importing and normalizing the published video, link it to the prediction:
+
+```bash
+uv run distiller publish --project <dir> --prediction <pred-id> --video <video-id> --json
+uv run distiller retro --project <dir> --publication <pub-id> --snapshot t3d --json
+```
+
+Require the normalized publication time to follow prediction creation. Do not use
+`--published-at` to contradict the normalized video record.
+
+Import later metric snapshots through the existing metrics Adapter and recalculate metrics before
+running Retro. Report interval error, supported/counterexample/inconclusive Rule IDs, external
+factors, pending-only Rule/Rubric proposals, and proposed next experiments. Never mutate the linked
+prediction or auto-approve a rule change. If the selected snapshot is materially mistimed,
+promoted, or a Robust outlier, keep the observation but mark matched Rules inconclusive and do not
+propose Rule/Rubric changes from it.
+
 ### Query or inspect status
 
 ```bash
 uv run distiller status --project <dir> --json
 ```
+
+Use `videos.recent` to obtain both canonical `video_id` and source `platform_video_id`; the list is
+bounded and reports whether it was truncated.
 
 For custom SQL, use `video_account_distiller.storage.duckdb_store.DuckDBStore`. Allow only
 `SELECT`/`WITH` queries and return source IDs with analytical results.
@@ -204,7 +253,8 @@ Return a concise summary first:
 
 Point users to generated quality reports, sample manifest, account-health report, single-video
 analysis, comment analysis, account distillation, transfer matrix, evidence index, warnings, and
-run manifest. Never infer an account strategy from one video or from Phase 2 statistics alone.
+run manifest. Include score, immutable prediction, publication, Retro, and pending proposal paths
+when present. Never infer an account strategy from one video or from Phase 2 statistics alone.
 
 ## Scripts
 
@@ -214,6 +264,7 @@ uninstall this Skill.
 
 ## Current boundary
 
-Scoring, prediction, retrospective, Level 3/4 rule validation, visual/audio multimodal analysis,
-and live adapters belong to later phases. Phase 4 uses normalized exports and text artifacts only;
-do not fabricate visual/audio evidence, audience representativeness, causality, or validated rules.
+Phase 5 supports scoring, immutable interval prediction, publication linkage, snapshot Retro, and
+pending rule/rubric proposals. It does not auto-approve Level 4 rules: repeated controlled evidence
+and explicit human approval remain required. Visual/audio multimodal analysis and live adapters
+belong to Phase 6/7; do not fabricate visual/audio evidence, causality, or platform access.

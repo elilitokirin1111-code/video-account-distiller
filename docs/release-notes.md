@@ -8,7 +8,7 @@ changes.
 
 ### Added
 
-- Placeholder for Phase 5 development.
+- Placeholder for Phase 6 development.
 
 ### Changed
 
@@ -17,6 +17,54 @@ changes.
 ### Migration
 
 - None.
+
+## 0.5.0 — 2026-07-22
+
+### Added
+
+- Strict Rule, Rubric, ContentCandidate, ScoreResult, Prediction, Publication, PredictionError,
+  Retro, change-proposal, and Experiment contracts.
+- Deterministic nine-dimension script scoring with visible weights, explanations, missing items,
+  risks, Pattern/Rule evidence, and bounded low-maturity adjustments.
+- Versioned candidate Rules derived from Phase 4 Patterns and account-specific Rubrics totaling
+  100 points.
+- Immutable account-local P25/P50/P75 predictions with target age, confidence, assumptions,
+  uncertainties, input hash, and Rubric/Rule versions.
+- Publication registration that requires a normalized same-account video and records T+1h,
+  T+24h, T+3d, and T+7d snapshot plans.
+- Snapshot Retro with actual-vs-predicted error, interval position, Rule support/counterexamples,
+  external factors, pending Rule/Rubric proposals, and proposed next experiments.
+- `distiller score`, `distiller predict`, `distiller publish`, and `distiller retro` CLI routes and
+  thin Skill wrappers.
+- Phase 5 status counters, artifact validation, offline script Fixture, and unit/contract/
+  integration/Golden tests.
+
+### Changed
+
+- Package and Skill version advanced to `0.5.0`.
+- Project initialization adds candidate, Rubric, scoring, prediction, publication, Retro, review,
+  and experiment directories.
+- Status includes Phase 5 artifacts, pending proposal counts, latest timestamps, and a bounded list
+  of recent canonical/platform video IDs.
+- Project validation checks candidate raw hashes, Rubric totals, Rule versions, immutable IDs,
+  linked artifacts, evidence companions, reviews, and experiments.
+
+### Migration
+
+- Core Schema `0.1.0`, Phase 2 Schema `0.2.0`, Phase 3 Schema `0.3.0`, and Phase 4 Schema `0.4.0`
+  remain unchanged.
+- New closed-loop artifacts use Schema `0.5.0`; existing config/state files load through defaults.
+- New scoring config controls target snapshot age, snapshot plan, predicted metrics, and maximum
+  Rule adjustment.
+
+### Security and compliance
+
+- Phase 5 remains fully offline and adds no network/platform/model provider.
+- Script candidates are preserved by SHA-256 and may contain confidential content.
+- Predictions and publications are append-only content-addressed records.
+- Publication rejects retrospective predictions and normalized/override timestamp contradictions.
+- Retro never auto-approves or mutates Rule/Rubric versions; every eligible proposed change is
+  pending, while materially mistimed, promoted, or outlier snapshots cannot propose changes.
 
 ## 0.4.0 — 2026-07-22
 

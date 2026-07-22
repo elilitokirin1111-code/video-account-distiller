@@ -1,6 +1,6 @@
 # Architecture
 
-## Phase 0/1/2/3/4 data flow
+## Phase 0/1/2/3/4/5 data flow
 
 ```text
 CSV / JSON / JSONL
@@ -48,6 +48,17 @@ ReportService → report.json + report.md + evidence index + warnings
                     ├── support samples + counterexamples + confounders
                     ├── account report + knowledge-base Patterns
                     └── BenchmarkComparisonService → transfer matrix
+        │
+        └── ScoringService → candidate Rules + versioned Rubric + script score
+                    │
+                    ▼
+            PredictionService → immutable account-local P25/P50/P75
+                    │
+                    ▼
+            PublicationService → normalized video link + snapshot plan
+                    │
+                    ▼
+            RetroService → error + counterexamples + pending proposals + experiments
 ```
 
 The Agent Skill orchestrates the CLI. Deterministic behavior lives in the Python package. Phase 3
@@ -69,6 +80,8 @@ provider, browser control, or platform access.
 - `comments/`: redacted comment copies, intent labeling, deterministic fallback, and need clusters.
 - `distillation/`: content clusters, Pattern evidence/counterexamples, account knowledge, and
   benchmark transfer review.
+- `closed_loop/`: Rule/Rubric materialization, explainable script scoring, immutable prediction,
+  publication registration, snapshot selection, prediction error, and pending-only Retro changes.
 - `reports/`: null-safe account statistics, high/middle/low comparisons, evidence collection, and
   Jinja2 Markdown rendering.
 - `storage/`: project state, run manifests, atomic Parquet writes, and DuckDB views.
@@ -95,6 +108,15 @@ benchmark comparisons use `cmp_*`. Every referenced `evi_*` resolves to normaliz
 hashes. Promoted and Robust-outlier videos remain visible as confounders but do not count as Pattern
 support or counterexamples.
 
+Phase 5 scripts are copied under `raw/candidates/` by SHA-256 and described by stable `cand_*`
+records. Scores use `score_*`; Rubrics and Rules use `rub_*` and `rule_*` with explicit versions.
+Predictions use `pred_*` derived from a canonical input hash and are never overwritten.
+Publications use `pub_*` and require prediction-before-publication chronology. Retros use `retro_*`
+and preserve the actual metric snapshot. Materially mistimed, promoted, and Robust-outlier
+snapshots cannot propose policy changes. Other proposed Rule/Rubric changes remain pending and do
+not modify their source files. Proposed experiments use `exp_*` and are stored separately from
+validated rules.
+
 Normalized Parquet is reproducible from staging. Project state is stored in
 `.distiller-state.json`; later rule and task workflows may introduce SQLite without changing the
 Phase 1 table contracts.
@@ -107,6 +129,6 @@ missing raw inputs by recalculating SHA-256.
 
 ## Current boundaries
 
-Phase 5+ scoring, prediction, retrospective, Level 3/4 rule validation, visual/audio multimodal
-processing, and authorized live adapters are not present. Phase 4 still cannot infer camera, image,
-music, sound, audience representativeness, causality, or validated rules.
+Phase 6/7 visual/audio multimodal processing and authorized live adapters are not present. Phase 5
+does not infer camera, image, music, sound, audience representativeness, causality, or automatically
+validated Level 4 rules. It creates bounded scoring inputs and pending experiment/change proposals.
