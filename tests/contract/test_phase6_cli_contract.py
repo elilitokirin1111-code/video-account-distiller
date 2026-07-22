@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import yaml
@@ -10,6 +11,7 @@ from video_account_distiller.cli import app
 from video_account_distiller.storage.project import ProjectLayout
 
 runner = CliRunner()
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
 def test_phase6_command_exposes_help() -> None:
@@ -20,8 +22,9 @@ def test_phase6_command_exposes_help() -> None:
         terminal_width=160,
     )
     assert result.exit_code == 0
-    assert "--strict-media" in result.stdout
-    assert "--vision-output" in result.stdout
+    help_text = ANSI_ESCAPE.sub("", result.stdout)
+    assert "--strict-media" in help_text
+    assert "--vision-output" in help_text
 
 
 def test_media_dry_run_is_json_and_does_not_write_analysis(
