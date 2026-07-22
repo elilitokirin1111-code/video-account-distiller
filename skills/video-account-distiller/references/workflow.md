@@ -1,4 +1,4 @@
-# Phase 0/1/2/3 workflow
+# Phase 0/1/2/3/4 workflow
 
 ## Sequence
 
@@ -16,7 +16,11 @@
     normalize again.
 12. Run `uv run distiller analyze video` for blind text labels and post-label performance context.
 13. Run `uv run distiller validate` again to verify analysis isolation and its evidence chain.
-14. Query with DuckDB only after normalization.
+14. Run `uv run distiller analyze comments` for redacted comment signals and need clusters.
+15. Run `uv run distiller distill` for content clusters, Patterns, counterexamples, and actions.
+16. Distill every account separately before `uv run distiller compare`.
+17. Run `uv run distiller validate` again to verify Phase 4 evidence and knowledge artifacts.
+18. Query with DuckDB only after normalization.
 
 ## Idempotence
 
@@ -26,6 +30,9 @@ same record population; repeated metrics replace that account's derived rows ins
 duplicates. Samples and reports use content-addressed IDs and reuse unchanged artifacts.
 Transcript imports are keyed by video plus raw hash. Video analyses use content-addressed `vta_*`
 IDs and never overwrite an existing analysis.
+Comment analyses, account distillations, Patterns, and comparisons use content-addressed `cma_*`,
+`dst_*`, `pat_*`, and `cmp_*` IDs. Knowledge Pattern files are immutable; the account profile and
+knowledge index are rebuildable latest pointers.
 
 ## Project evidence
 
@@ -40,6 +47,11 @@ IDs and never overwrite an existing analysis.
 - `reports/accounts/<account-id>/<report-id>/`: JSON, Markdown, evidence index, and warnings.
 - `analyses/videos/<video-id>/<analysis-id>/`: blind analysis, combined analysis, Markdown report,
   evidence index, and warnings.
+- `analyses/comments/<account-id>/<analysis-id>/`: redacted signals, need clusters, evidence, and
+  warnings.
+- `reports/accounts/<account-id>/<distillation-id>/`: account distillation JSON/Markdown/evidence.
+- `reports/comparisons/<comparison-id>/`: benchmark transfer matrix and evidence.
+- `knowledge-base/patterns/`: versioned Pattern JSON with support and counterexamples.
 
 ## Failure handling
 

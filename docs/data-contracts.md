@@ -2,11 +2,13 @@
 
 Core normalized schema version: `0.1.0`. Phase 2 analysis artifact schema version: `0.2.0`.
 Phase 3 transcript/text-analysis schema version: `0.3.0`.
+Phase 4 comment/distillation schema version: `0.4.0`.
 
 The authoritative planning dictionary is `docs/planning/04_DATA_SCHEMA.md`; executable contracts
 are Pydantic models in `src/video_account_distiller/models/core.py` and reject unknown fields.
 Phase 2 contracts are in `src/video_account_distiller/models/analysis.py` and use the same strict
-unknown-field policy. Phase 3 contracts are in `models/text_analysis.py`.
+unknown-field policy. Phase 3 contracts are in `models/text_analysis.py`; Phase 4 contracts are in
+`models/distillation.py`.
 
 ## Core tables
 
@@ -57,10 +59,10 @@ imports, identical records collapse. Conflicting duplicates choose the latest `i
 
 ## Migration policy
 
-Version `0.3.0` does not rewrite existing accounts, videos, metrics, comments, derived metrics,
+Version `0.4.0` does not rewrite existing accounts, videos, metrics, comments, derived metrics,
 samples, or reports. Existing project config/state files remain valid because new model policy and
-timestamps have defaults. Projects gain an optional `transcripts.parquet` table and new `vta_*`
-analysis artifacts.
+timestamps have defaults. Phase 4 adds analysis/report/knowledge artifacts and state pointers;
+core normalized schema remains `0.1.0`.
 
 ## Phase 2 analysis artifacts
 
@@ -92,3 +94,23 @@ and source run IDs. See `docs/sampling-and-reporting.md` for the complete behavi
 Transcript start/end may be `null` when the source, such as TXT, has no timing. Known intervals must
 be non-negative and ordered. Model output rejects unknown fields and must cite existing segment IDs
 for known semantic labels. The blind bundle and blind artifact exclude all performance fields.
+
+## Phase 4 comment and account artifacts
+
+| Path | Contract | Identity |
+|---|---|---|
+| `analyses/comments/<account>/<cma_*>/analysis.json` | `CommentAnalysis` | redacted signals + provider traces + clusters |
+| `analyses/comments/<account>/<cma_*>/evidence-index.json` | `ArtifactEvidenceIndex` | comment and cluster evidence |
+| `reports/accounts/<account>/<dst_*>/distillation.json` | `AccountDistillation` | account inputs + config + upstream analyses |
+| `knowledge-base/patterns/<pat_*>.json` | `Pattern` | feature + support + counterexamples + version |
+| `reports/comparisons/<cmp_*>/comparison.json` | `BenchmarkComparison` | target + benchmark distillation hashes |
+
+`CommentSignalAnnotation` rejects empty intent labels and out-of-range probabilities/confidence.
+`CommentAnalysis` counts must match its signals and unique videos. `ContentCluster.video_count` must
+match unique video IDs. `Pattern` requires at least one support video, exact support/counterexample
+counts, disjoint sets, evidence IDs, scope, confidence, maturity, and version.
+
+`ArtifactEvidenceIndex` resolves Phase 4 conclusions to normalized comment/account/video/metric
+records, source IDs, source runs, and raw hashes. `distiller validate` verifies companion files,
+artifact identities, account scope, evidence references, evidence sources, and knowledge Pattern
+files.

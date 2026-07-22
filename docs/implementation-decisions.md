@@ -176,3 +176,46 @@ requirements from later phases.
   evidence references.
 - **Reason:** Phase 3 needs one repeatable acceptance command rather than relying on manual JSON
   inspection after every video analysis.
+
+## ID-025 — Analyze redacted comment copies without mutating source data
+
+- **Decision:** Keep raw and normalized comments immutable, but redact common phone, email, URL,
+  handle, and contact identifiers in the Phase 4 analysis copy before prompting or reporting.
+- **Reason:** Pattern and intent analysis needs comment evidence while privacy rules prohibit
+  exposing author identifiers or silently changing source records.
+
+## ID-026 — Use readable deterministic need clusters before embeddings
+
+- **Decision:** Group comments by a documented primary-intent priority and attach representative
+  comment IDs, frequency, intensity, opportunities, and evidence.
+- **Reason:** Phase 4 must work fully offline and cannot treat opaque embedding cluster numbers as
+  business conclusions. Embedding providers remain an optional later enhancement.
+
+## ID-027 — Cap Phase 4 Pattern maturity at Level 1
+
+- **Decision:** Generate only Level 0 observations and Level 1 account-local associations. Require
+  support videos and a counterexample field, keep sets disjoint, and never emit Level 4 rules.
+- **Reason:** One offline historical sample cannot establish causality or repeated experimental
+  validation, even when an association is strong.
+
+## ID-028 — Exclude paid and Robust-outlier videos from Pattern counts
+
+- **Decision:** Preserve promoted and Robust-outlier videos as explicit confounders but exclude
+  them from Pattern support and counterexample counts.
+- **Reason:** Their performance may be driven by distribution or external events; deleting them
+  would hide risk, while counting them as ordinary evidence would inflate confidence.
+
+## ID-029 — Prefer semantic pillars and degrade to labeled proxies
+
+- **Decision:** Build content clusters from completed blind semantic pillars when available and use
+  normalized `content_type` only as an explicit proxy for uncovered videos.
+- **Reason:** Account distillation must remain useful before full Phase 3 coverage without
+  presenting source categories as model-derived semantics.
+
+## ID-030 — Transfer matrices never compare raw account metrics
+
+- **Decision:** Distill every account independently and review transfer through features, scope,
+  maturity, platform alignment, replicability, and risk. Cross-platform items default to
+  understanding rather than direct migration.
+- **Reason:** Account sizes and platform mechanics make raw views non-comparable; transfer is a
+  planning hypothesis that requires a bounded target-account experiment.

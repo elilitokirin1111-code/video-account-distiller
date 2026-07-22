@@ -8,7 +8,7 @@ changes.
 
 ### Added
 
-- Placeholder for Phase 4 development.
+- Placeholder for Phase 5 development.
 
 ### Changed
 
@@ -17,6 +17,51 @@ changes.
 ### Migration
 
 - None.
+
+## 0.4.0 — 2026-07-22
+
+### Added
+
+- Privacy-preserving comment analysis copies with direct-identifier redaction.
+- Strict comment sentiment, intent, pain-point, question, objection, purchase-intent, opportunity,
+  spam, confidence, and unknown Schema.
+- Mockable comment model calls, structured-file retries, deterministic fallback, and visible
+  degradation.
+- Readable account-local need clusters with frequency, intensity, representative comments, and
+  traceable evidence.
+- Content clusters using blind semantic pillars with explicit `content_type` proxy fallback.
+- Versioned `Pattern` objects with support videos, counterexamples, confounders, scope, maturity,
+  confidence, replicability, risks, and evidence.
+- Account distillation JSON/Markdown with positioning observations, strengths, failure modes,
+  copyable/noncopyable factors, actions, and experiments.
+- Knowledge-base account profiles, immutable Pattern JSON, and rebuildable index.
+- Benchmark transfer matrices with separate account/platform baselines and conservative verdicts.
+- `distiller analyze comments`, `distiller distill`, and `distiller compare` CLI routes and Skill
+  wrappers.
+- Phase 4 artifact validation, status counters, offline Fixtures, and unit/contract/integration/
+  Golden tests.
+
+### Changed
+
+- Package and Skill version advanced to `0.4.0`.
+- Project status includes comment analyses, account distillations, comparisons, and timestamps.
+- Account dataset input hashes now include derived metrics used by downstream artifacts.
+- Structured-file providers fail on exhausted candidates instead of silently reusing the last
+  response.
+
+### Migration
+
+- Core Schema `0.1.0`, Phase 2 Schema `0.2.0`, and Phase 3 Schema `0.3.0` remain unchanged.
+- Phase 4 artifacts use Schema `0.4.0`; existing config/state files load through defaulted fields.
+- New config fields control Pattern support, future validated-rule support, and comment analysis
+  caps; direct-identifier redaction is mandatory for comment analysis copies.
+
+### Security and compliance
+
+- No network model or platform provider is included.
+- Raw comments remain immutable; reports omit author IDs/hashes and use best-effort redacted text.
+- Comment demand and transfer results are explicitly biased hypotheses, not population or causal
+  claims.
 
 ## 0.3.0 — 2026-07-22
 

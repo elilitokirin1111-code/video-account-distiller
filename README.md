@@ -2,10 +2,10 @@
 
 `video-account-distiller` 是一个离线优先的 Agent Skill 与 Python 数据工具，用于导入、标准化、
 查询、分层采样、体检和文本级拆解抖音、小红书、视频号、Bilibili、TikTok、YouTube 与
-Instagram Reels 的账号导出数据和字幕。
+Instagram Reels 的账号导出数据、字幕和评论，并沉淀可复用的 Pattern 与对标实验。
 
-当前版本 `0.3.0` 完成规划中的 Phase 0～Phase 3：在数据内核和账号体检之上增加字幕导入、
-盲分析、Hook/结构/CTA/情绪/内容支柱 Schema 和单视频报告。它不会登录或抓取真实平台。
+当前版本 `0.4.0` 完成规划中的 Phase 0～Phase 4：在数据内核、账号体检和单视频盲分析之上，
+增加评论意图、用户需求聚类、Pattern/反例、账号蒸馏与对标迁移矩阵。它不会登录或抓取真实平台。
 
 ## 能做什么
 
@@ -23,6 +23,11 @@ Instagram Reels 的账号导出数据和字幕。
 - 在隐藏表现数据的前提下抽取事实和语义标签，再后置合并账号内表现背景。
 - 模型结果严格校验、自动重试；不可用时输出可见的低置信度降级结果。
 - 输出单视频 JSON/Markdown、独立盲分析、字幕/指标证据索引和警告。
+- 在评论分析副本中脱敏电话、邮箱、网址、账号和联系方式，不修改原始评论。
+- 输出评论意图、痛点、异议、购买意图、内容机会和带偏差提醒的需求聚类。
+- 将内容簇与账号内表现分层对照，生成同时包含支持样本和反例的可追溯 Pattern。
+- 输出账号定位观察、优势/短板、可复制/不可复制因素、行动建议和 30 天实验草案。
+- 为目标账号与对标账号生成迁移矩阵，并保持不同平台和账号基线独立。
 - 输出 JSON/Markdown 数据质量报告、不可变运行清单和项目状态。
 - 通过稳定错误码和 JSON Envelope 被 Agent 或自动化脚本调用。
 
@@ -119,7 +124,29 @@ uv run distiller validate --project ./demo-project --json
 `--video` 可填写内部 `vid_*`，也可填写项目内唯一的平台视频编号。最后一次 `validate`
 会同时检查分析文件 Schema、盲分析是否混入表现字段、模型输出哈希和证据引用。
 
-### 6. 使用 DuckDB 查询
+### 6. 分析评论并蒸馏账号
+
+```bash
+uv run distiller analyze comments --project ./demo-project \
+  --account acc_0776e1a4f82e23c02045 --json
+
+uv run distiller distill --project ./demo-project \
+  --account acc_0776e1a4f82e23c02045 --json
+
+uv run distiller validate --project ./demo-project --json
+```
+
+评论分析只使用脱敏副本，报告不会包含作者原始标识。Phase 4 Pattern 只会标记为观察或
+统计关联，不会自动升级为“验证规则”。每个 Pattern 都保存支持视频、反例、混杂因素和证据。
+
+完成目标账号和对标账号的蒸馏后，可以生成迁移矩阵：
+
+```bash
+uv run distiller compare --project ./demo-project \
+  --target acc_target --benchmarks acc_benchmark_1,acc_benchmark_2 --json
+```
+
+### 7. 使用 DuckDB 查询
 
 ```python
 from pathlib import Path
@@ -158,9 +185,11 @@ demo-project/
 ├── normalized/           # 标准化 Parquet
 ├── analyses/accounts/    # 内容寻址的分层样本清单
 ├── analyses/videos/      # 盲分析、单视频报告、证据索引和警告
-├── reports/accounts/     # JSON/Markdown 体检、证据索引和警告
+├── analyses/comments/    # 评论信号、需求聚类、证据索引和警告
+├── reports/accounts/     # 账号体检与账号蒸馏报告
+├── reports/comparisons/  # 对标迁移矩阵
 ├── runs/<run-id>/        # manifest 与质量报告
-├── knowledge-base/       # 后续 Phase 使用
+├── knowledge-base/       # 账号画像、Pattern 与后续规则资产
 └── STATUS.md
 ```
 
@@ -184,10 +213,11 @@ uv run python skills/video-account-distiller/scripts/install-skill.py \
 ## 当前支持范围
 
 支持离线项目、CSV/JSON/JSONL、SRT/VTT/TXT 字幕、七个平台字段映射、Parquet、DuckDB、
-稳健指标、代表性采样、账号体检和可追溯的单视频文本拆解。
+稳健指标、代表性采样、账号体检、单视频文本拆解、评论需求分析、Pattern/反例、账号蒸馏与
+对标迁移矩阵。
 
-尚未实现：真实平台抓取、评论意图、完整账号蒸馏、模式发现、内容评分、预测、发布复盘、
-画面/声音多模态以及团队协作 Adapter。详见
+尚未实现：真实平台抓取、内容评分、预测、发布复盘、Level 3/4 规则验证、画面/声音多模态
+以及团队协作 Adapter。详见
 [`docs/delivery-overview.md`](docs/delivery-overview.md)。
 
 ## 安全限制
@@ -197,7 +227,7 @@ uv run python skills/video-account-distiller/scripts/install-skill.py \
 - 不将缺失值写成 0。
 - 不提交原始用户数据、密钥、项目状态或本地缓存。
 - 评论作者标识在标准化表中只保存哈希。
-- 当前不包含网络模型 Provider；字幕可能含敏感信息，分享报告前需人工检查。
+- 当前不包含网络模型 Provider；字幕和评论可能含敏感信息，分享报告前需人工检查。
 
 ## 测试与质量门
 
@@ -222,6 +252,7 @@ uv run python tools/generate_large_fixture.py --output ./tmp/large-fixture --row
 - [数据合同](docs/data-contracts.md)
 - [分层采样与账号体检](docs/sampling-and-reporting.md)
 - [字幕与盲分析](docs/text-video-analysis.md)
+- [评论、Pattern 与账号蒸馏](docs/comment-and-account-distillation.md)
 - [模型 Provider 指南](docs/model-provider-guide.md)
 - [Adapter 指南](docs/adapter-guide.md)
 - [隐私与合规](docs/privacy-and-compliance.md)

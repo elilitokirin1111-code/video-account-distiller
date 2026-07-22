@@ -1,17 +1,19 @@
 # Structured model providers
 
-Phase 3 ships no network model client. Use `--model-output <json>` for an offline response file with
+Phase 3/4 ships no network model client. Use `--model-output <json>` for an offline response file with
 these top-level keys:
 
 ```json
 {
   "model_name": "provider-model-version",
   "video_fact_extraction": {},
-  "video_semantic_labeling": {}
+  "video_semantic_labeling": {},
+  "comment_intent": []
 }
 ```
 
-Either task value may be an array of candidates to exercise retry behavior. Every candidate is
+Task values may be arrays of candidates to exercise retry behavior. Comment analysis consumes one
+valid candidate per comment, and exhausted candidates fail rather than repeating. Every candidate is
 validated with strict Pydantic output Schema and transcript evidence references. Invalid responses
 are retried up to `models.max_schema_attempts`.
 
@@ -21,4 +23,5 @@ facts, limited heuristics, `unknown` semantic fields, low confidence, and explic
 
 Model-output bytes are copied to content-addressed local raw storage and hashed. Do not pass cloud
 content unless the user explicitly authorizes it and `privacy.allow_cloud_model_upload` is true;
-no bundled Phase 3 command uploads data.
+no bundled Phase 3/4 command uploads data. Redact comment identifiers before any authorized future
+provider receives them.

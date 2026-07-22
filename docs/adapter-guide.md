@@ -58,6 +58,14 @@ Sources are copied to `raw/imports/transcripts/`, validated into `staging/transc
 normalized to `transcripts.parquet`. This adapter performs no speech recognition and does not read
 media files.
 
+## Comment privacy boundary
+
+Comment exports use the normal file Adapter and platform mappings. `author_id` is converted to a
+SHA-256 `author_hash` during import; the raw identifier never enters normalized Parquet. Phase 4
+then creates a separate analysis copy that redacts common direct identifiers from comment text.
+Adapters must not pre-clean or overwrite the immutable source because validation and replay depend
+on exact source bytes.
+
 ## Future authorized adapters
 
 A live adapter must be separately scoped, authorized, rate-limited, and contract-tested. It may use

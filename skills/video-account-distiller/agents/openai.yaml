@@ -1,4 +1,4 @@
 interface:
   display_name: "Video Account Distiller"
-  short_description: "离线导入账号与字幕，生成盲分析、稳健指标和可追溯报告"
-  default_prompt: "Use $video-account-distiller to import offline video-account exports and transcripts, validate blind text labels, and generate evidence-linked account and single-video reports."
+  short_description: "离线蒸馏视频账号、评论需求、内容模式、反例与对标证据"
+  default_prompt: "Use $video-account-distiller to analyze offline video-account exports, distill comment needs and evidence-backed Patterns, and build an account or benchmark action plan."

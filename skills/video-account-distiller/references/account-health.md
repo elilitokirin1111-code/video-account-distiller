@@ -19,4 +19,6 @@ the report tied to the same deterministic sample request even if the project def
 
 Classify direct values as facts and cohort differences as statistical associations. Do not claim
 causality, content strategy, audience intent, semantic pillars, stable patterns, or guaranteed
-performance. Those require later phases and additional evidence.
+performance from an account-health report alone. Phase 3/4 artifacts may add text labels, comment
+needs, and candidate Patterns, but they remain separately scoped evidence rather than retroactive
+proof for Phase 2 findings.

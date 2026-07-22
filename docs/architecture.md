@@ -1,6 +1,6 @@
 # Architecture
 
-## Phase 0/1/2/3 data flow
+## Phase 0/1/2/3/4 data flow
 
 ```text
 CSV / JSON / JSONL
@@ -37,11 +37,22 @@ ReportService → report.json + report.md + evidence index + warnings
         └── VideoAnalysisService
                     ├── blind fact extraction + semantic labels
                     └── post-label performance context + video report
+        │
+        ├── normalized comments → redacted analysis copies
+        │                         └── CommentAnalysisService
+        │                             ├── intent/pain/objection labels
+        │                             └── account-local need clusters
+        │
+        └── AccountDistillationService
+                    ├── content clusters + account-local Patterns
+                    ├── support samples + counterexamples + confounders
+                    ├── account report + knowledge-base Patterns
+                    └── BenchmarkComparisonService → transfer matrix
 ```
 
 The Agent Skill orchestrates the CLI. Deterministic behavior lives in the Python package. Phase 3
-uses versioned prompts and a mockable text-provider boundary, but ships no network provider,
-browser control, or platform access.
+and Phase 4 use versioned prompts and a mockable text-provider boundary, but ship no network
+provider, browser control, or platform access.
 
 ## Components
 
@@ -55,6 +66,9 @@ browser control, or platform access.
 - `transcripts/`: SRT/VTT/TXT/JSON parsing, immutable raw storage, and normalized segments.
 - `features/`: blind content bundle, versioned prompts, structured provider validation, retry,
   conservative degradation, and post-label performance merge.
+- `comments/`: redacted comment copies, intent labeling, deterministic fallback, and need clusters.
+- `distillation/`: content clusters, Pattern evidence/counterexamples, account knowledge, and
+  benchmark transfer review.
 - `reports/`: null-safe account statistics, high/middle/low comparisons, evidence collection, and
   Jinja2 Markdown rendering.
 - `storage/`: project state, run manifests, atomic Parquet writes, and DuckDB views.
@@ -75,6 +89,12 @@ Phase 3 transcript imports are keyed by video plus raw hash. Single-video analys
 content-addressed `vta_*` IDs. `blind-analysis.json` is frozen before metric lookup; cited transcript
 segment IDs resolve through the video evidence index to normalized records and raw source hashes.
 
+Phase 4 comment analyses use stable `cma_*` IDs; raw authors remain hashed and direct identifiers
+are removed only from analysis copies. Account distillations use `dst_*`, Patterns use `pat_*`, and
+benchmark comparisons use `cmp_*`. Every referenced `evi_*` resolves to normalized records and raw
+hashes. Promoted and Robust-outlier videos remain visible as confounders but do not count as Pattern
+support or counterexamples.
+
 Normalized Parquet is reproducible from staging. Project state is stored in
 `.distiller-state.json`; later rule and task workflows may introduce SQLite without changing the
 Phase 1 table contracts.
@@ -87,6 +107,6 @@ missing raw inputs by recalculating SHA-256.
 
 ## Current boundaries
 
-Phase 4+ comment intent, full account distillation, pattern evidence, scoring, prediction,
-retrospective, visual/audio multimodal processing, and authorized live adapters are not present.
-Phase 3 analyzes transcript text only and cannot infer camera, image, music, or sound features.
+Phase 5+ scoring, prediction, retrospective, Level 3/4 rule validation, visual/audio multimodal
+processing, and authorized live adapters are not present. Phase 4 still cannot infer camera, image,
+music, sound, audience representativeness, causality, or validated rules.

@@ -7,6 +7,9 @@ analysis:
   recent_sample_fraction: 0.2
   use_robust_zscore: true
   log_transform_metrics: true
+  min_pattern_support: 3
+  min_validated_rule_support: 10
+  max_comments_per_analysis: 10000
 platforms:
   cross_platform_raw_metric_comparison: false
 privacy:

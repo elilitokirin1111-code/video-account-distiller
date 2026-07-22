@@ -25,14 +25,16 @@ contact any network service.
 
 ## Test layers
 
-- `tests/unit/`: formulas, models, transcript parsing, IDs, project state, sampling, and reports.
+- `tests/unit/`: formulas, models, transcript/comment privacy, IDs, project state, sampling, and reports.
 - `tests/contract/`: CLI JSON/error contracts, platform mapping, blind provider prompts, retries,
-  Phase 2/3 commands, and DuckDB guard.
+  Phase 2/3/4 commands, and DuckDB guard.
 - `tests/integration/`: full file-to-Parquet pipeline, idempotence, invalid rows, custom mappings,
-  cross-platform warnings, raw integrity, transcript normalization, and single-video analysis.
+  cross-platform warnings, raw integrity, transcript normalization, single-video analysis, comment
+  needs, account distillation, Pattern counterexamples, and transfer matrices.
 - `tests/golden/`: stable performance bands plus a 30-video, three-pillar Phase 2 sample-coverage
   fixture with outliers and promotion.
   Phase 3 Golden checks stable Hook, structure, CTA, emotion, and pillar labels.
+  Phase 4 Golden checks content-cluster coverage, Pattern support, and counterexample retention.
 
 ## Large offline fixture
 
@@ -84,6 +86,29 @@ uv run distiller validate --project ./demo-project --json
 Verify `blind-analysis.json` contains no performance keys; every cited segment ID exists in
 `evidence-index.json`; invalid model candidates retry; and degraded mode never produces a validated
 account rule. The video argument may be an internal `vid_*` or a unique platform video ID.
+
+## Phase 4 smoke test
+
+After comments, videos, and metrics are normalized and metrics are calculated:
+
+```bash
+uv run distiller analyze comments --project ./demo-project --account <acc_id> --json
+uv run distiller distill --project ./demo-project --account <acc_id> --json
+uv run distiller validate --project ./demo-project --json
+```
+
+Verify comment artifacts contain no raw author IDs or direct identifiers; every need cluster and
+Pattern evidence ID exists; every Pattern has support and a counterexample field; support and
+counterexample sets are disjoint; and maturity never exceeds Level 1.
+
+After distilling every account:
+
+```bash
+uv run distiller compare --project ./demo-project --target <acc_id> \
+  --benchmarks <benchmark_id_1>,<benchmark_id_2> --json
+```
+
+Verify cross-platform items keep separate baselines and never compare raw views.
 
 ## Skill validation
 
