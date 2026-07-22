@@ -130,3 +130,10 @@ def phase4_cross_platform_project(
     distiller.distill(account_id=target_id)
     distiller.distill(account_id=benchmark_id)
     return phase4_project
+
+
+@pytest.fixture
+def phase5_project(phase4_project: ProjectLayout) -> ProjectLayout:
+    account_id = stable_id("acc_", "douyin", "phase2-hotel")
+    AccountDistillationService(phase4_project).distill(account_id=account_id)
+    return phase4_project
