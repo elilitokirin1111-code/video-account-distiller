@@ -5,9 +5,11 @@ from pathlib import Path
 import pytest
 
 from video_account_distiller.ingestion import ImportService
+from video_account_distiller.metrics import MetricsService
 from video_account_distiller.models import Platform
 from video_account_distiller.normalization import NormalizationService
 from video_account_distiller.storage.project import ProjectLayout
+from video_account_distiller.utils.ids import stable_id
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -34,4 +36,16 @@ def normalized_project(project: ProjectLayout, fixtures_dir: Path) -> ProjectLay
         entity="comments", source=normal / "comments.json", platform=Platform.DOUYIN
     )
     NormalizationService(project).normalize()
+    return project
+
+
+@pytest.fixture
+def phase2_project(project: ProjectLayout, fixtures_dir: Path) -> ProjectLayout:
+    service = ImportService(project)
+    phase2 = fixtures_dir / "phase2"
+    service.import_file(entity="accounts", source=phase2 / "accounts.csv", platform=Platform.DOUYIN)
+    service.import_file(entity="videos", source=phase2 / "videos.csv", platform=Platform.DOUYIN)
+    service.import_file(entity="metrics", source=phase2 / "metrics.csv", platform=Platform.DOUYIN)
+    NormalizationService(project).normalize()
+    MetricsService(project).calculate(account_id=stable_id("acc_", "douyin", "phase2-hotel"))
     return project

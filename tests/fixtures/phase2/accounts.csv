@@ -1,0 +1,2 @@
+platform_account_id,handle,display_name,bio,follower_count_current,following_count_current,total_likes_current,video_count_current,verified,snapshot_at
+phase2-hotel,phase2_hotel,Phase 2 酒店样本,分层采样与报告离线样本,50000,120,980000,30,true,2026-07-20T10:00:00+08:00
