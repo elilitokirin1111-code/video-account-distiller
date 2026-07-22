@@ -158,6 +158,24 @@ evidence, `media_features.parquet`, DuckDB row count, and idempotent repeat beha
 unavailable fake backend in both degraded and `--strict-media` modes. Provider tests must be fully
 offline and cite valid shot/keyframe IDs.
 
+## Phase 7 smoke test
+
+Use only an offline Fixture or an explicitly authorized resource. For an export Fixture, create a
+`0.7.0` manifest containing the exact file SHA-256, then run:
+
+```bash
+uv run distiller import authorized-export --project ./demo-project \
+  --manifest ./authorized-export.json --dry-run --json
+uv run distiller team init --project ./demo-project --owner local-owner --json
+uv run distiller snapshot plan --project ./demo-project --dry-run --json
+uv run distiller validate --project ./demo-project --json
+```
+
+For connector contracts, inject fake HTTP responses. Verify pagination, header mapping, raw page
+preservation, identical-push reuse, missing credentials, HTTP 401/403, exhausted HTTP 429, malformed
+JSON, dry-run remote-write suppression, Batch task isolation, team-role validation, and due snapshot
+classification. The automated suite must remain network-disabled.
+
 ## Skill validation
 
 Run `skills-ref validate skills/video-account-distiller` when available. The repository-compatible

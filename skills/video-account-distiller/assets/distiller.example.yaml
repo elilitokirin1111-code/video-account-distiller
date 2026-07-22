@@ -35,6 +35,11 @@ media:
   max_audio_analysis_seconds: 600
   command_timeout_seconds: 180
   allow_degraded_without_ffmpeg: true
+collaboration:
+  request_timeout_seconds: 30
+  max_retries: 3
+  retry_base_seconds: 0.5
+  max_batch_rows: 500
 scoring:
   default_target_snapshot_age_hours: 72
   snapshot_plan_hours:

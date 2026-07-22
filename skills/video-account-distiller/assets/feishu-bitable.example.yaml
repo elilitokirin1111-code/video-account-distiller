@@ -1,0 +1,21 @@
+connector: feishu-bitable
+connector_id: hotel-operations
+app_token: replace-with-app-token
+table_id: replace-with-table-id
+token_env: FEISHU_BITABLE_TOKEN
+api_base: https://open.feishu.cn
+page_size: 500
+authorization:
+  grant_id: replace-with-grant-id
+  connector: feishu-bitable
+  confirmed_by: replace-with-operator-id
+  confirmed_at: 2026-07-22T00:00:00Z
+  scopes:
+    - read
+    - write
+  source_reference: bitable:replace-with-app-token/replace-with-table-id
+  expires_at: null
+retry:
+  max_retries: 3
+  base_seconds: 0.5
+  timeout_seconds: 30

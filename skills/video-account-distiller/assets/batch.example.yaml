@@ -1,0 +1,10 @@
+schema_version: "0.7.0"
+batch_id: replace-with-batch-id
+continue_on_error: true
+tasks:
+  - task_id: validate-export
+    operation: authorized-export
+    parameters:
+      manifest: ./authorized-export.json
+  - task_id: plan-snapshots
+    operation: snapshot-plan

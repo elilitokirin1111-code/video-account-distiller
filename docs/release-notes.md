@@ -14,6 +14,47 @@ changes.
 
 - None.
 
+## 0.7.0 — 2026-07-22
+
+### Added
+
+- Strict authorization grants, export manifests, Feishu/Google connector configs, Sync receipts,
+  Batch results, snapshot tasks, and Team policy contracts.
+- SHA-256-verified authorized platform-export ingestion through the existing immutable import
+  pipeline.
+- Official Feishu Bitable paginated read/batch-create and Google Sheets v4 values read/append
+  adapters behind an injectable dependency-free HTTP executor.
+- Bounded 429/5xx retry with `Retry-After`, plus stable `E_ADAPTER_AUTH`, `E_RATE_LIMIT`, and
+  `E_ADAPTER_RESPONSE` failures.
+- `distiller sync pull/push`, `import authorized-export`, `batch run`, `snapshot plan`, and
+  `team init/validate` commands with JSON and dry-run behavior where applicable.
+- Content-addressed raw collaboration pages and idempotent push receipts, batch/schedule outputs,
+  status counters, project validation, offline adapter contracts, integration tests, Skill routes,
+  templates, and Phase 7 documentation.
+
+### Changed
+
+- Package and Skill version advanced to `0.7.0`.
+- Project initialization adds collaboration raw/artifact directories and credential-name examples.
+- Normalized remote exports read Parquet directly so the collaboration layer does not add a hidden
+  timezone dependency to DuckDB result conversion.
+- Live-table grants are bound to exact canonical resources with timezone-aware timestamps; non-dry
+  Batch JSON returns its saved artifact path.
+
+### Migration
+
+- Core and Phase 2–6 Schemas remain unchanged; Phase 7 artifacts use Schema `0.7.0`.
+- Existing `distiller.yaml` and `.distiller-state.json` files load through defaults for the new
+  collaboration policy and timestamps.
+- No existing analysis, prediction, publication, media, or Parquet artifact is rewritten.
+
+### Security and compliance
+
+- Connector and team files contain environment-variable names but never token values.
+- Only user-provided exports and explicitly authorized official Feishu Bitable/Google Sheets APIs
+  are supported. No login automation, CAPTCHA handling, scraping, or rate-limit evasion was added.
+- The test suite disables network and injects fake provider responses for every adapter contract.
+
 ## 0.6.0 — 2026-07-22
 
 ### Added

@@ -321,3 +321,52 @@ requirements from later phases.
   while writing one traceable aggregate `MediaFeatureRecord` per analysis to Parquet/DuckDB.
 - **Reason:** Nested timelines remain readable and precisely validated, while account-level queries
   get a stable columnar table without flattening or duplicating every interval.
+
+## ID-044 — Advance the prior offline-only boundary for Phase 7
+
+- **Decision:** Add only explicitly authorized export ingestion and official Feishu Bitable/Google
+  Sheets APIs; continue to prohibit login automation, scraping, CAPTCHA handling, and platform-
+  control evasion.
+- **Reason:** The user requested the next milestone after Phase 6, and Phase 7 explicitly requires
+  authorized platform or export adapters plus collaboration tables. This supersedes ID-009 only for
+  those narrow official interfaces, not for unrestricted platform collection.
+
+## ID-045 — Keep credentials out of project and team configuration
+
+- **Decision:** Connector files store only an uppercase environment-variable name. Authorization
+  grants record who approved which read/write scope and when, but never store a token value.
+- **Reason:** Connector configs, team policy, manifests, logs, and Git history must remain safe to
+  inspect and share. A missing/expired grant or credential returns stable `E_ADAPTER_AUTH`.
+
+## ID-046 — Put retry and provider parsing behind a mockable HTTP executor
+
+- **Decision:** Implement bounded retry for HTTP 429/5xx, honor `Retry-After`, map exhausted limits
+  to `E_RATE_LIMIT`, map HTTP 401/403 to `E_ADAPTER_AUTH`, and test both official adapters with fake
+  executors rather than real network access.
+- **Reason:** Phase 7 needs reliable permission/rate-limit behavior while the acceptance suite must
+  remain offline, deterministic, and independent of any third-party account.
+
+## ID-047 — Treat collaboration pulls as immutable imports and pushes as content-addressed syncs
+
+- **Decision:** Preserve raw provider pages under `raw/collaboration/<connector>/<hash>.json`, route
+  pulled rows through the existing mapping/Pydantic/import pipeline, export only normalized
+  Parquet rows, and reuse a completed push receipt for identical connector/entity/content hashes.
+- **Reason:** This keeps analysis platform-neutral, maintains raw traceability, and prevents an
+  accidental repeated batch from appending identical rows twice.
+
+## ID-048 — Expose scheduling without installing a background scheduler
+
+- **Decision:** Generate stable due/future/available snapshot tasks from immutable publications and
+  normalized metric snapshots. Let an external scheduler invoke the JSON CLI; do not create an OS
+  service or silently collect platform data.
+- **Reason:** Phase 7 asks for a scheduled-snapshot interface, while deployment cadence, credentials,
+  and external side effects must stay under explicit operator control.
+
+## ID-049 — Bind live-table grants to one canonical resource
+
+- **Decision:** Require timezone-aware authorization timestamps and an exact connector-specific
+  source reference: `bitable:<app-token>/<table-id>` or
+  `sheets:<spreadsheet-id>/<range>`. Return a non-dry Batch result's artifact path directly in JSON.
+- **Reason:** A provider-level grant must not be reusable accidentally for another table. The path
+  addition also resolves the Phase 7 forward-test finding that callers otherwise had to discover
+  the Batch artifact by scanning the project tree.

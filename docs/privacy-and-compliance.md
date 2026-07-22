@@ -3,8 +3,9 @@
 ## Offline-first defaults
 
 Phase 0/1/2/5 performs no model calls. Phase 3/4 accepts local structured model-output files or uses a
-deterministic fallback; it ships no network model client and makes no live platform request. No
-credentials are required.
+deterministic fallback; it ships no network model client. Phase 7 may contact only a user-configured,
+explicitly authorized Feishu Bitable or Google Sheets official API. Offline analysis needs no
+credentials.
 
 ## Raw data
 
@@ -19,6 +20,8 @@ credentials are required.
 - Phase 5 script candidates are copied byte-for-byte under `raw/candidates/`; they may contain
   confidential campaign, price, product, employee, or customer information and require the same
   access controls as raw exports.
+- Phase 7 provider pages are copied under `raw/collaboration/` before mapping. They may include
+  collaboration-only fields or personal data and require the same access controls as raw exports.
 
 ## Comment privacy
 
@@ -65,11 +68,18 @@ reports should be reviewed before sharing. Retro keeps actual metric evidence an
 instead of hiding unfavorable results. Rule/Rubric proposals remain pending so a single publication
 cannot silently alter decision policy.
 
+Phase 7 connector YAML/JSON and `team.yaml` store only token environment-variable names, grants,
+roles, and resource identifiers. Actual tokens must come from the process environment or an external
+secret manager. Errors expose an HTTP/provider code when useful but never response headers, request
+authorization headers, or token values. Sync and Batch outputs record counts, hashes, IDs, and paths,
+not credentials.
+
 ## Platform compliance
 
 This repository does not implement scraping, login automation, CAPTCHA handling, anti-bot bypass,
-rate-limit bypass, or other platform-control evasion. Future collection must use authorized APIs,
-explicitly permitted adapters, or user-provided exports and must document platform-specific terms.
+rate-limit bypass, or other platform-control evasion. Collection is limited to authorized official
+APIs, explicitly permitted adapters, or user-provided exports. HTTP 429 responses receive bounded
+backoff and then fail; the software never attempts to evade a provider limit.
 
 ## User responsibilities
 

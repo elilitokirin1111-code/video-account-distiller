@@ -1,0 +1,17 @@
+{
+  "schema_version": "0.7.0",
+  "entity": "accounts",
+  "platform": "douyin",
+  "data_file": "replace-with-export.csv",
+  "data_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "exported_at": "2026-07-22T00:00:00Z",
+  "authorization": {
+    "grant_id": "replace-with-grant-id",
+    "connector": "authorized-export",
+    "confirmed_by": "replace-with-operator-id",
+    "confirmed_at": "2026-07-22T00:00:00Z",
+    "scopes": ["read"],
+    "source_reference": "replace-with-export-source",
+    "expires_at": null
+  }
+}

@@ -1,0 +1,27 @@
+connector: google-sheets
+connector_id: hotel-sheet
+spreadsheet_id: replace-with-spreadsheet-id
+range: Metrics!A:Z
+token_env: GOOGLE_SHEETS_TOKEN
+columns:
+  - video_id
+  - snapshot_at
+  - views
+  - likes
+  - comments
+  - shares
+  - saves
+authorization:
+  grant_id: replace-with-grant-id
+  connector: google-sheets
+  confirmed_by: replace-with-operator-id
+  confirmed_at: 2026-07-22T00:00:00Z
+  scopes:
+    - read
+    - write
+  source_reference: sheets:replace-with-spreadsheet-id/Metrics!A:Z
+  expires_at: null
+retry:
+  max_retries: 3
+  base_seconds: 0.5
+  timeout_seconds: 30

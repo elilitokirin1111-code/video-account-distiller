@@ -82,8 +82,21 @@ opens a browser. Tests inject a fake backend rather than requiring system codecs
 decoders must preserve metadata nulls, millisecond shot boundaries, deterministic keyframe
 evidence, bounded audio decoding, and stable `MediaBackendFailure` behavior.
 
-## Future authorized adapters
+## Phase 7 authorized and collaboration adapters
 
-A live adapter must be separately scoped, authorized, rate-limited, and contract-tested. It may use
-an official API or user-provided export only. Authentication, CAPTCHA bypass, stealth automation,
-or platform-control evasion is prohibited.
+`AuthorizedExportManifest` binds an entity/platform export to its SHA-256 and an explicit read
+grant before handing it to the existing `ImportService`. This is the preferred path for platform
+exports that do not require a live API.
+
+`FeishuBitableAdapter` and `GoogleSheetsAdapter` implement the mockable `CollaborationAdapter`
+contract. Both use fixed official API hosts, read tokens only from the configured environment
+variable, validate a separate read/write grant, and pass pulled rows through the normal mapping and
+Pydantic pipeline. Pushes read standardized Parquet rather than raw exports.
+
+The HTTP executor is injectable. Contract tests use fake responses for pagination, malformed data,
+HTTP 401/403, HTTP 429, retry exhaustion, and append responses; no test contacts a real service.
+Identical completed pushes reuse a content-addressed Sync receipt to avoid duplicate appends.
+
+See `authorized-collaboration-adapters.md` for connector Schemas, commands, batch manifests,
+snapshot scheduling, team policy, and the complete compliance boundary. Authentication bypass,
+CAPTCHA handling, stealth automation, scraping, or platform-control evasion remains prohibited.

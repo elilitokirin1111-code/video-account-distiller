@@ -1,4 +1,4 @@
 interface:
   display_name: "Video Account Distiller"
-  short_description: "离线完成账号蒸馏、本地视频多模态分析、脚本评分、预测与发布复盘"
-  default_prompt: "Use $video-account-distiller to analyze a user-provided local hotel video into timestamped shots, keyframes, audio features, and optional OCR evidence without uploading media."
+  short_description: "授权同步飞书与Google表格并完成账号蒸馏、预测和复盘"
+  default_prompt: "Use $video-account-distiller to import an explicitly authorized hotel metrics table, validate the evidence, and plan the next snapshots."

@@ -1,12 +1,12 @@
 ---
 name: video-account-distiller
-description: "Initialize, import, validate, normalize, analyze, distill, compare, score, predict, register, and retrospect on offline video-account exports, local MP4/MOV/MKV media, scripts, transcripts, comments, and metrics with robust metrics, timestamped shots/keyframes/audio/OCR evidence, Patterns/Rules, immutable predictions, and pending changes. Use for 拆解或蒸馏视频账号、分析本地视频画面声音、镜头切分、关键帧、OCR、分析评论、提炼用户需求、发现内容模式、寻找反例、对标迁移、脚本评分、发布前预测、登记发布、发布后复盘、导入字幕、账号体检或分层采样，using user-provided data from Douyin, Xiaohongshu, WeChat Channels, Bilibili, TikTok, YouTube, or Instagram Reels."
+description: "Initialize, import, validate, normalize, analyze, distill, compare, score, predict, register, and retrospect on video-account exports, explicitly authorized Feishu Bitable or Google Sheets data, local MP4/MOV/MKV media, scripts, transcripts, comments, and metrics with robust evidence, batch jobs, snapshot planning, and team policy. Use for 拆解或蒸馏视频账号、授权导出导入、飞书多维表格或 Google Sheets 同步、批量任务、定时快照计划、团队配置、分析本地视频、镜头切分、OCR、评论需求、内容模式、对标迁移、脚本评分、发布预测或复盘，using user-provided or explicitly authorized data from Douyin, Xiaohongshu, WeChat Channels, Bilibili, TikTok, YouTube, or Instagram Reels."
 ---
 
 # Video Account Distiller
 
 Use the Python package and `distiller` CLI for deterministic work. Keep source exports immutable and
-perform Phase 0/1/2/3/4/5/6 tasks fully offline.
+perform Phase 0/1/2/3/4/5/6 tasks offline and Phase 7 table sync only with explicit authorization.
 
 ## Load references
 
@@ -35,6 +35,9 @@ perform Phase 0/1/2/3/4/5/6 tasks fully offline.
 - Read `references/scoring-prediction.md` before scoring a script, creating a prediction,
   registering a publication, selecting a metric snapshot, running a Retro, or interpreting a
   Rule/Rubric change proposal.
+- Read `references/collaboration-adapters.md` before importing an authorized manifest, contacting
+  Feishu Bitable or Google Sheets, exporting normalized rows, running a batch, planning snapshots,
+  or editing team policy.
 - Read `references/privacy.md` for comments, identifiers, credentials, raw exports, or any request
   that could involve online collection.
 - Read the matching `references/platform-*.md` only when mapping that platform's export.
@@ -49,8 +52,9 @@ perform Phase 0/1/2/3/4/5/6 tasks fully offline.
 - Compare raw performance only within the same account/platform context. Use account-local robust
   metrics for ranking.
 - Emit machine JSON to stdout and logs/errors to stderr. Preserve stable `E_*` error codes.
-- Do not access real platforms, automate login, bypass CAPTCHA/rate limits/risk controls, scrape, or
-  start a browser. Never upload media in local mode. Phase 0/1/2/3/4/5/6 is offline only.
+- Access only a user-approved official table API or a user-provided export. Never automate login,
+  bypass CAPTCHA/rate limits/risk controls, scrape, reuse browser sessions, or start a browser.
+  Never upload media in local mode. Keep tokens in environment variables only.
 
 ## Route tasks
 
@@ -267,6 +271,29 @@ bounded and reports whether it was truncated.
 For custom SQL, use `video_account_distiller.storage.duckdb_store.DuckDBStore`. Allow only
 `SELECT`/`WITH` queries and return source IDs with analytical results.
 
+### Import or sync authorized collaboration data
+
+Read `references/collaboration-adapters.md` and require a recorded grant before proceeding. Prefer
+a user-provided export manifest when live API access is unnecessary:
+
+```bash
+uv run distiller import authorized-export --project <dir> \
+  --manifest <manifest.json> --json
+uv run distiller normalize --project <dir> --json
+```
+
+For an explicitly approved Feishu Bitable or Google Sheets resource, copy the matching example
+asset, keep the token value in the named environment variable, and run `sync pull` or a `sync push
+--dry-run`. Confirm connector/resource, entity, platform, row count, columns, scope, and retention
+before removing `--dry-run` from a push. Pulled rows still require mapping/Pydantic validation;
+run `normalize` after a successful import or pull before analysis or push. Pushes read only
+normalized Parquet. Never print token values or authorization headers.
+
+Use `batch run --dry-run` for multiple authorized tasks, `snapshot plan` to emit due work without
+collecting it, and `team init`/`team validate` for credential-free roles. Run project validation
+after non-dry work and return Sync/Batch paths plus stable adapter errors. `batch run --json`
+returns `artifact_path` for non-dry batches.
+
 ## Output contract
 
 Return a concise summary first:
@@ -291,8 +318,8 @@ uninstall this Skill.
 
 ## Current boundary
 
-Phase 6 supports local FFmpeg metadata, scene cuts, keyframes, audio features, optional schema-
-validated visual/OCR results, and timestamped evidence. It ships no network vision client and no
-live platform adapter. It does not auto-approve Level 4 rules: repeated controlled evidence and
-explicit human approval remain required. Do not fabricate visual/audio evidence, causality, or
-platform access.
+Phase 7 supports authorized export manifests and official Feishu Bitable/Google Sheets table APIs,
+not platform-page scraping or login automation. It exposes batches and snapshot plans but installs
+no background scheduler. Phase 6 still ships no network vision client. The system does not
+auto-approve Level 4 rules: repeated controlled evidence and explicit human approval remain
+required. Do not fabricate visual/audio evidence, causality, authorization, or platform access.

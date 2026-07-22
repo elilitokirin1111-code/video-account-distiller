@@ -1,6 +1,6 @@
 # Architecture
 
-## Phase 0/1/2/3/4/5/6 data flow
+## Phase 0/1/2/3/4/5/6/7 data flow
 
 ```text
 CSV / JSON / JSONL
@@ -65,11 +65,18 @@ ReportService → report.json + report.md + evidence index + warnings
                     ├── bounded PCM audio features
                     ├── optional visual/OCR Provider
                     └── timeline/evidence + media_features.parquet
+        │
+        └── explicit grant + official table/export source
+                    ├── AuthorizedExportManifest → ImportService
+                    ├── Feishu/Google Adapter → immutable raw pages → ImportService
+                    ├── normalized Parquet → content-addressed remote append
+                    └── Batch/Team/Snapshot interfaces → collaboration artifacts
 ```
 
 The Agent Skill orchestrates the CLI. Deterministic behavior lives in the Python package. Phase 3
-and Phase 4 use versioned prompts and a mockable text-provider boundary, but ship no network
-provider, browser control, or platform access.
+and Phase 4 use versioned prompts and a mockable text-provider boundary and ship no network model
+provider. Phase 7 network access is isolated behind mockable official-table adapters; it does not
+enter the analysis packages or use browser control.
 
 ## Components
 
@@ -90,6 +97,10 @@ provider, browser control, or platform access.
   publication registration, snapshot selection, prediction error, and pending-only Retro changes.
 - `media/`: local FFmpeg/FFprobe adapter, scene/keyframe/audio pipeline, and mockable visual/OCR
   provider boundary.
+- `adapters/collaboration.py`: fixed-host official API clients, injectable HTTP, authorization,
+  bounded retry, provider parsing, and table row contracts.
+- `collaboration/`: authorized export/import orchestration, normalized exports, idempotent Sync
+  receipts, batch execution, snapshot planning, and credential-free team policy.
 - `reports/`: null-safe account statistics, high/middle/low comparisons, evidence collection, and
   Jinja2 Markdown rendering.
 - `storage/`: project state, run manifests, atomic Parquet writes, and DuckDB views.
@@ -130,6 +141,12 @@ stable `shot_*` and `key_*` timestamp evidence, and aggregate `mdf_*` rows in
 `media_features.parquet`. Structured visual output is preserved under `raw/vision-outputs/`.
 Keyframe hashes and timeline copies are validated against the main media artifact.
 
+Phase 7 preserves official API pages under `raw/collaboration/<connector>/<sha256>.json`; pulled
+rows still pass through `MappingResolver`, strict Pydantic models, staging, and normalization. Sync
+receipts use `sync_*` IDs derived from connector, direction, entity, and content. Identical pushes
+reuse an existing receipt instead of appending again. Batch and schedule outputs live under
+`collaboration/`; `team.yaml` contains policy and environment-variable names but no secret values.
+
 Normalized Parquet is reproducible from staging. Project state is stored in
 `.distiller-state.json`; later rule and task workflows may introduce SQLite without changing the
 Phase 1 table contracts.
@@ -142,7 +159,8 @@ missing raw inputs by recalculating SHA-256.
 
 ## Current boundaries
 
-Authorized live and collaboration adapters remain Phase 7. Phase 6 measures local media and accepts
-optional schema-cited visual/OCR output, but it does not infer speech meaning, visual causality,
-audience representativeness, or automatically validated Level 4 rules. No bundled network vision
-provider uploads media.
+Phase 7 accesses only explicitly authorized user exports or the documented Feishu Bitable and Google
+Sheets APIs. It does not add platform scraping, login/browser automation, CAPTCHA handling, or a
+background data collector. Phase 6 media remains local, and no bundled network vision provider
+uploads media. The system still does not infer visual causality, audience representativeness, or
+automatically validated Level 4 rules.

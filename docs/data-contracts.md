@@ -5,6 +5,7 @@ Phase 3 transcript/text-analysis schema version: `0.3.0`.
 Phase 4 comment/distillation schema version: `0.4.0`.
 Phase 5 scoring/prediction/Retro schema version: `0.5.0`.
 Phase 6 local media-analysis schema version: `0.6.0`.
+Phase 7 collaboration schema version: `0.7.0`.
 
 The authoritative planning dictionary is `docs/planning/04_DATA_SCHEMA.md`; executable contracts
 are Pydantic models in `src/video_account_distiller/models/core.py` and reject unknown fields.
@@ -12,6 +13,8 @@ Phase 2 contracts are in `src/video_account_distiller/models/analysis.py` and us
 unknown-field policy. Phase 3 contracts are in `models/text_analysis.py`; Phase 4 contracts are in
 `models/distillation.py`; Phase 5 contracts are in `models/closed_loop.py`; Phase 6 contracts are in
 `models/media.py`.
+Phase 7 authorization, connector, Sync, Batch, Snapshot, and Team contracts are in
+`models/collaboration.py`.
 
 ## Core tables
 
@@ -63,10 +66,10 @@ imports, identical records collapse. Conflicting duplicates choose the latest `i
 
 ## Migration policy
 
-Version `0.6.0` does not rewrite existing accounts, videos, metrics, comments, derived metrics,
+Version `0.7.0` does not rewrite existing accounts, videos, metrics, comments, derived metrics,
 samples, reports, Patterns, or distillations. Existing project config/state files remain valid
-because scoring/media policy and timestamps have defaults. Phase 6 adds media-analysis artifacts and
-one independent aggregate table; prior core and Phase 2–5 schemas remain unchanged.
+because scoring/media/collaboration policy and timestamps have defaults. Phase 7 adds collaboration
+artifacts and state timestamps; prior core and Phase 2–6 schemas remain unchanged.
 
 ## Phase 2 analysis artifacts
 
@@ -167,3 +170,29 @@ produce Rule/Rubric change proposals.
 Shots require ordered non-negative intervals and exact durations. Keyframes cite one shot, timestamp,
 local path, and SHA-256. OCR cites an existing shot/keyframe and interval. Missing decoder/audio/
 visual information remains `null`, `skipped`, or absent; it is never represented as observed zero.
+
+## Phase 7 authorization and collaboration artifacts
+
+| Path | Contract | Identity |
+|---|---|---|
+| user-supplied manifest | `AuthorizedExportManifest` | entity + platform + data SHA-256 + grant |
+| user-supplied connector YAML/JSON | `FeishuBitableConfig` / `GoogleSheetsConfig` | connector ID |
+| `raw/authorized-manifests/<sha256>.json` | validated manifest copy | manifest SHA-256 |
+| `raw/collaboration/<connector>/<sha256>.json` | original provider pages | canonical payload SHA-256 |
+| `collaboration/syncs/<sync_*>/sync.json` | `SyncReceipt` | connector + direction + entity + content |
+| `collaboration/batches/<batch>/batch-result.json` | `BatchResult` | caller batch ID |
+| `collaboration/schedules/snapshot-plan.json` | `SnapshotScheduleResult` | generated task set |
+| `team.yaml` | `TeamConfig` | stable team ID |
+
+`AuthorizationGrant` carries an explicit connector, confirmer, timezone-aware timestamp, exact
+canonical resource reference, read/write scopes, and optional expiry. It never contains token
+material. Feishu grants use `bitable:<app-token>/<table-id>` and Google grants use
+`sheets:<spreadsheet-id>/<range>` so a grant for one table cannot authorize another. Connector
+configs accept only uppercase `token_env` names; Feishu hosts are restricted to official
+Feishu/Lark domains and Google Sheets uses its fixed v4 API host.
+
+Pulled provider rows are not normalized directly: the original pages are preserved, then the rows
+enter the existing mapping, Pydantic, quality, staging, deduplication, and Parquet pipeline. Pushes
+read only normalized Parquet. Batch errors use the standard JSON error object per task, and a
+non-dry result returns its `artifact_path`. Snapshot tasks are `future`, `due`, or `available` and
+do not claim that platform collection occurred.

@@ -4,9 +4,10 @@
 查询、分层采样、体检和文本级拆解抖音、小红书、视频号、Bilibili、TikTok、YouTube 与
 Instagram Reels 的账号导出数据、字幕和评论，并沉淀可复用的 Pattern 与对标实验。
 
-当前版本 `0.6.0` 完成规划中的 Phase 0～Phase 6：在数据内核、账号体检、单视频盲分析、
-账号蒸馏和发布复盘闭环之上，增加本地视频元数据、场景切分、关键帧、音频特征、可选 OCR/
-视觉 Provider 与镜头时间线。它不会登录或抓取真实平台，也不会在本地模式上传媒体。
+当前版本 `0.7.0` 完成规划中的 Phase 0～Phase 7：在数据内核、账号体检、单视频盲分析、
+账号蒸馏、发布复盘与本地多模态分析之上，增加带授权证明的导出导入、飞书多维表格与
+Google Sheets 官方 API、批量任务、快照计划接口和团队配置。它不会自动登录、抓取网页、
+绕过平台控制或在本地模式上传媒体。
 
 ## 能做什么
 
@@ -36,6 +37,10 @@ Instagram Reels 的账号导出数据、字幕和评论，并沉淀可复用的 
 - 以同账号历史分布生成 P25/P50/P75 预测区间，记录假设、置信度、版本和不可变输入哈希。
 - 将预测与已导入的视频发布记录关联，规划 T+1h/T+24h/T+3d/T+7d 数据快照。
 - 对实际快照计算预测误差，保留规则支持和反例，并生成待审批变更与下一轮实验。
+- 验证授权导出清单、文件 SHA-256 和读写范围，再进入已有不可变导入链路。
+- 通过可 Mock 的飞书多维表格和 Google Sheets 官方 API Adapter 双向同步表格数据。
+- 对 429/5xx 有界退避，并将权限、限流和异常响应映射为稳定错误码。
+- 运行可审计批量任务，输出快照到期计划，并维护不含凭证的团队角色配置。
 - 输出 JSON/Markdown 数据质量报告、不可变运行清单和项目状态。
 - 通过稳定错误码和 JSON Envelope 被 Agent 或自动化脚本调用。
 
@@ -202,7 +207,23 @@ uv run distiller validate --project ./demo-project --json
 生成带警告的降级产物。输出包含 `media-analysis.json`、`timeline.json`、`report.md`、
 `evidence-index.json`、`warnings.json`、关键帧以及 `media_features.parquet`。
 
-### 9. 使用 DuckDB 查询
+### 9. 使用授权协作 Adapter
+
+先复制 Skill 中的示例 Connector 配置，并只填写环境变量名、授权证明和表格标识；不要把
+令牌写入 YAML。预览远端写入不会发送请求：
+
+```bash
+uv run distiller sync push --project ./demo-project \
+  --connector-config ./google-sheets.yaml --entity metrics --dry-run --json
+
+uv run distiller snapshot plan --project ./demo-project --json
+uv run distiller team init --project ./demo-project --owner owner-id --json
+```
+
+授权导出、飞书/Google 配置、拉取、批处理和错误码详见
+[`docs/authorized-collaboration-adapters.md`](docs/authorized-collaboration-adapters.md)。
+
+### 10. 使用 DuckDB 查询
 
 ```python
 from pathlib import Path
@@ -251,6 +272,9 @@ demo-project/
 ├── predictions/          # 不可变 P25/P50/P75 预测
 ├── publications/         # 预测与实际视频发布关联
 ├── reports/retros/       # 预测误差、规则反例和下一轮实验
+├── raw/collaboration/    # 官方 API 原始响应的内容寻址副本
+├── collaboration/        # Sync、Batch 和快照计划产物
+├── team.yaml             # 不含凭证的角色与 Connector 策略
 ├── runs/<run-id>/        # manifest 与质量报告
 ├── knowledge-base/       # 账号画像、Pattern、Rule、Rubric、实验和复盘
 └── STATUS.md
@@ -277,15 +301,17 @@ uv run python skills/video-account-distiller/scripts/install-skill.py \
 
 支持离线项目、CSV/JSON/JSONL、SRT/VTT/TXT 字幕、七个平台字段映射、Parquet、DuckDB、
 稳健指标、代表性采样、账号体检、单视频文本/本地多模态拆解、评论需求分析、Pattern/反例、账号蒸馏、
-对标迁移矩阵、脚本评分、不可变区间预测、发布登记和快照复盘。
+对标迁移矩阵、脚本评分、不可变区间预测、发布登记、快照复盘、授权导出、飞书多维表格、
+Google Sheets、批量任务、快照计划和团队策略。
 
-尚未实现：真实平台抓取、自动批准 Level 4 规则以及团队协作 Adapter。视觉/OCR 只提供
-本地离线回放和可注入 Provider 合同，不内置网络模型客户端。Phase 5 仍只生成待审批的规则升级建议；详见
+尚未实现：网页抓取、浏览器登录自动化、自动批准 Level 4 规则和 Web 控制台。视觉/OCR 只提供
+本地离线回放和可注入 Provider 合同，不内置网络模型客户端；平台数据仅允许用户导出或
+明确授权的官方 API。Phase 5 仍只生成待审批的规则升级建议；详见
 [`docs/delivery-overview.md`](docs/delivery-overview.md)。
 
 ## 安全限制
 
-- 不访问真实平台，不绕过登录、验证码、风控、速率限制或服务条款。
+- 只访问显式授权的官方表格 API；不绕过登录、验证码、风控、速率限制或服务条款。
 - 不把不同平台的原始播放量直接比较。
 - 不将缺失值写成 0。
 - 不提交原始用户数据、密钥、项目状态或本地缓存。
@@ -316,6 +342,7 @@ uv run python tools/generate_large_fixture.py --output ./tmp/large-fixture --row
 - [分层采样与账号体检](docs/sampling-and-reporting.md)
 - [字幕与盲分析](docs/text-video-analysis.md)
 - [本地视频多模态分析](docs/local-media-analysis.md)
+- [授权平台与协作 Adapter](docs/authorized-collaboration-adapters.md)
 - [评论、Pattern 与账号蒸馏](docs/comment-and-account-distillation.md)
 - [评分、预测、发布与复盘](docs/scoring-prediction-retro.md)
 - [模型 Provider 指南](docs/model-provider-guide.md)

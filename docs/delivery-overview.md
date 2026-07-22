@@ -1,8 +1,8 @@
-# Phase 0/1/2/3/4/5/6 delivery overview
+# Phase 0/1/2/3/4/5/6/7 delivery overview
 
 ## What this delivery provides
 
-Version `0.6.0` establishes a production-oriented, offline data and reporting kernel plus a standard
+Version `0.7.0` establishes a production-oriented, offline-first data and reporting kernel plus a standard
 Agent Skill for video-account research. It imports user exports, preserves originals, maps and
 validates fields, deduplicates records, writes Parquet, exposes DuckDB views, calculates
 account-local robust metrics, reports project status through a stable Typer CLI, selects
@@ -18,6 +18,10 @@ prediction errors, retained counterexamples, pending-only change proposals, and 
 It now also analyzes local media through FFmpeg/FFprobe, builds a timestamped shot/keyframe/audio
 timeline, accepts optional schema-validated visual/OCR evidence, and exposes aggregate media
 features through Parquet and DuckDB without uploading the file.
+It now verifies authorized platform exports, synchronizes explicitly approved Feishu Bitable and
+Google Sheets resources through official APIs, preserves provider pages, protects identical pushes,
+isolates Batch task results, exposes scheduled snapshot work, and validates credential-free team
+policy without coupling the analysis kernel to either provider.
 
 ## Key user outcomes
 
@@ -53,6 +57,14 @@ features through Parquet and DuckDB without uploading the file.
 - Keep visual/OCR unknown by default or attach only provider output that cites exact shot/keyframe
   timestamps.
 - Degrade visibly when FFmpeg is unavailable, with an optional stable strict failure mode.
+- Require explicit read/write grants and environment-only credentials for collaboration adapters.
+- Preserve official provider pages before mapping and route pulled rows through the same strict
+  import/quality pipeline as offline exports.
+- Preview remote writes without sending them, reuse identical completed pushes, and surface partial
+  writes instead of silently treating them as complete.
+- Handle authorization, rate-limit, and provider-response failures with stable machine errors.
+- Run auditable batches, emit due/future/available snapshot tasks, and keep team roles free of
+  credential values.
 
 ## Verification evidence
 
@@ -62,21 +74,25 @@ workflow for Python 3.11 and 3.14.
 
 Final local acceptance on 2026-07-22 produced the following evidence:
 
-- Ruff passed with no findings; mypy passed across 98 source and test files.
-- All 88 offline tests passed with 90.04% statement coverage.
+- Ruff passed with no findings; mypy passed across 106 source and test files.
+- All 101 offline tests passed with 88.91% statement coverage.
 - The official Skill quick validator accepted the Skill; wrapper smoke tests cover data, sampling,
   report, transcript, blind-analysis, local media, comment, distillation, comparison, score,
-  prediction, publication, Retro, and status routes.
+  prediction, publication, Retro, authorized sync, Batch, Snapshot, Team, and status routes.
+- An independent offline Skill forward test completed authorized-export import, Team initialization,
+  Batch snapshot planning, validation, and status with network proxies blocked; its feedback added
+  the explicit normalize step and direct Batch `artifact_path` output.
 - A deterministic 100,000-video fixture imported all 100,000 rows in about 4.4 seconds and rebuilt
   the normalized Parquet tables in about 4.4 seconds on the delivery workstation, with zero rejected
   rows and zero data-quality warnings. Timings are indicative, not a cross-machine performance SLA.
 
 ## Not delivered yet
 
-Phase 7 authorized platform and collaboration adapters remain explicit future work. The repository
-does not include a cloud visual-model client or live collection. Level 4 approval remains
-intentionally human-governed and requires repeated controlled evidence; Phase 5 produces only
-pending proposals.
+The repository does not include platform-page scraping, browser/login automation, a cloud visual-
+model client, an installed background scheduler, or a Web console. Phase 7 online behavior is
+limited to explicitly authorized Feishu Bitable and Google Sheets official APIs; account-platform
+exports remain user-provided. Level 4 approval remains intentionally human-governed and requires
+repeated controlled evidence; Phase 5 produces only pending proposals.
 
 ## Handoff
 
@@ -84,5 +100,6 @@ Read `README.md` for Quick Start, `docs/data-contracts.md` for machine contracts
 `docs/comment-and-account-distillation.md` for Phase 4 interpretation,
 `docs/scoring-prediction-retro.md` for the Phase 5 learning loop,
 `docs/local-media-analysis.md` for Phase 6 media evidence,
+`docs/authorized-collaboration-adapters.md` for Phase 7 authorization and synchronization,
 `docs/adapter-guide.md` for field mappings, `docs/privacy-and-compliance.md` for boundaries, and
 `docs/release-notes.md` for current and future updates.
