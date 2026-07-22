@@ -1,4 +1,4 @@
-"""Typer command-line interface for the offline Phase 0/1 workflow."""
+"""Typer command-line interface for the offline data and report workflow."""
 
 from __future__ import annotations
 
@@ -15,6 +15,8 @@ from video_account_distiller.ingestion import ImportService
 from video_account_distiller.metrics import MetricsService
 from video_account_distiller.models import Platform
 from video_account_distiller.normalization import NormalizationService
+from video_account_distiller.reports import ReportService
+from video_account_distiller.sampling import SamplingService
 from video_account_distiller.status import project_status
 from video_account_distiller.storage.project import ProjectLayout
 from video_account_distiller.validation import validate_project
@@ -289,6 +291,60 @@ def metrics_command(
         result,
         json_output=json_output,
         human=f"Calculated {result['records']} metric records for {account}",
+    )
+
+
+@app.command("sample")
+def sample_command(
+    project: Path = typer.Option(..., "--project"),
+    account: str = typer.Option(..., "--account"),
+    size: int | None = typer.Option(None, "--size", min=1),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Select a deterministic stratified account sample."""
+
+    result = _execute(
+        lambda: SamplingService(ProjectLayout.open(project)).select(
+            account_id=account,
+            size=size,
+            dry_run=dry_run,
+        ),
+        json_output=json_output,
+    )
+    manifest = result["manifest"]
+    _emit(
+        result,
+        json_output=json_output,
+        human=(
+            f"Selected {manifest['selected_size']} of {manifest['population_size']} videos "
+            f"for {account}: {result['output']}"
+        ),
+    )
+
+
+@app.command("report")
+def report_command(
+    project: Path = typer.Option(..., "--project"),
+    account: str = typer.Option(..., "--account"),
+    sample_size: int | None = typer.Option(None, "--sample-size", min=1),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Generate a traceable JSON/Markdown account-health report."""
+
+    result = _execute(
+        lambda: ReportService(ProjectLayout.open(project)).generate_account_health(
+            account_id=account,
+            sample_size=sample_size,
+            dry_run=dry_run,
+        ),
+        json_output=json_output,
+    )
+    _emit(
+        result,
+        json_output=json_output,
+        human=f"Generated account-health report for {account}: {result['outputs'][0]}",
     )
 
 

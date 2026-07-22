@@ -30,6 +30,8 @@ class ProjectSection(BaseModel):
 
 class AnalysisSection(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    default_sample_size: int = Field(default=40, ge=1, le=500)
+    recent_sample_fraction: float = Field(default=0.20, gt=0, le=1)
     use_robust_zscore: bool = True
     log_transform_metrics: bool = True
     performance_weights: dict[str, float] = Field(default_factory=lambda: dict(DEFAULT_WEIGHTS))
@@ -58,12 +60,19 @@ class PrivacySection(BaseModel):
     allow_cloud_model_upload: bool = False
 
 
+class ReportsSection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    formats: list[str] = Field(default_factory=lambda: ["markdown", "json"])
+    include_evidence_index: bool = True
+
+
 class DistillerConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     project: ProjectSection
     analysis: AnalysisSection = Field(default_factory=AnalysisSection)
     platforms: PlatformSection = Field(default_factory=PlatformSection)
     privacy: PrivacySection = Field(default_factory=PrivacySection)
+    reports: ReportsSection = Field(default_factory=ReportsSection)
 
     def as_yaml(self) -> str:
         """Serialize the validated configuration as stable YAML."""

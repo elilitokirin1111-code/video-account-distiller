@@ -27,6 +27,10 @@ def project_status(project: ProjectLayout) -> dict[str, Any]:
         manifest_path = project.runs_dir / state.last_run_id / "manifest.json"
         if manifest_path.is_file():
             last_manifest = read_json(manifest_path)
+    sample_manifests = list(
+        (project.root / "analyses" / "accounts").glob("*/samples/*/sample-manifest.json")
+    )
+    account_reports = list((project.root / "reports" / "accounts").glob("*/*/report.json"))
     return {
         "ok": True,
         "schema_version": state.schema_version,
@@ -52,4 +56,10 @@ def project_status(project: ProjectLayout) -> dict[str, Any]:
             state.last_normalized_at.isoformat() if state.last_normalized_at else None
         ),
         "last_metrics_at": state.last_metrics_at.isoformat() if state.last_metrics_at else None,
+        "last_sample_at": state.last_sample_at.isoformat() if state.last_sample_at else None,
+        "last_report_at": state.last_report_at.isoformat() if state.last_report_at else None,
+        "artifacts": {
+            "sample_manifests": len(sample_manifests),
+            "account_health_reports": len(account_reports),
+        },
     }

@@ -1,0 +1,84 @@
+# 账号体检报告
+
+> 报告 ID：`{{ report.report_id }}`<br>
+> 运行 ID：`{{ report.run_id }}`<br>
+> 账号 ID：`{{ report.account_id }}`<br>
+> 平台：`{{ report.data_scope.platform }}`<br>
+> Schema：`{{ report.schema_version }}`
+
+## 执行摘要
+
+{% for finding in report.findings %}
+- **{{ finding.title }}**：{{ finding.statement }}<br>
+  分类：`{{ finding.classification }}`；置信度：`{{ finding.confidence }}`；证据：{% for evidence_id in finding.evidence_ids %}`{{ evidence_id }}`{% if not loop.last %}、{% endif %}{% endfor %}
+{% endfor %}
+
+## 数据范围与质量
+
+- 视频总数：{{ report.data_scope.population_size }}
+- 有指标快照的视频：{{ report.data_scope.metric_video_count }}
+- 观察期：{{ report.data_scope.period_start or "未知" }} 至 {{ report.data_scope.period_end or "未知" }}
+- 原始输入哈希数：{{ report.data_scope.input_hashes | length }}
+- 证据条目数：{{ evidence_count }}
+
+{% if report.warnings %}
+### 警告
+
+{% for warning in report.warnings %}
+- {{ warning }}
+{% endfor %}
+{% endif %}
+
+## 账号基础统计
+
+| 指标 | 数值 | 证据 |
+|---|---:|---|
+| 当前粉丝数 | {{ report.statistics.follower_count_current.value if report.statistics.follower_count_current.value is not none else "未知" }} | `{{ report.statistics.follower_count_current.evidence_id }}` |
+| 周发布频率 | {{ report.statistics.publishing_frequency_weekly.value if report.statistics.publishing_frequency_weekly.value is not none else "未知" }} | `{{ report.statistics.publishing_frequency_weekly.evidence_id }}` |
+| 发布间隔中位数（天） | {{ report.statistics.publication_gap_days.median if report.statistics.publication_gap_days.median is not none else "未知" }} | `{{ report.statistics.publication_gap_days.evidence_id }}` |
+| 视频时长中位数（秒） | {{ report.statistics.duration_seconds.median if report.statistics.duration_seconds.median is not none else "未知" }} | `{{ report.statistics.duration_seconds.evidence_id }}` |
+| 播放中位数 | {{ report.statistics.views.median if report.statistics.views.median is not none else "未知" }} | `{{ report.statistics.views.evidence_id }}` |
+| 互动率中位数 | {{ report.statistics.engagement_rate_by_view.median if report.statistics.engagement_rate_by_view.median is not none else "未知" }} | `{{ report.statistics.engagement_rate_by_view.evidence_id }}` |
+| 完播效率中位数 | {{ report.statistics.completion_efficiency.median if report.statistics.completion_efficiency.median is not none else "未知" }} | `{{ report.statistics.completion_efficiency.evidence_id }}` |
+| 高表现命中率 | {{ report.statistics.high_performance_rate.value if report.statistics.high_performance_rate.value is not none else "未知" }} | `{{ report.statistics.high_performance_rate.evidence_id }}` |
+| 最长连续低表现 | {{ report.statistics.longest_low_streak.value }} | `{{ report.statistics.longest_low_streak.evidence_id }}` |
+| 投流/广告视频 | {{ report.statistics.promoted_video_count.value }} | `{{ report.statistics.promoted_video_count.evidence_id }}` |
+| 异常视频 | {{ report.statistics.outlier_video_count.value }} | `{{ report.statistics.outlier_video_count.evidence_id }}` |
+
+## 表现分层
+
+{% for band, count in report.statistics.performance_bands.counts.items() %}
+- {{ band }}：{{ count }}
+{% endfor %}
+
+证据：`{{ report.statistics.performance_bands.evidence_id }}`
+
+## 内容支柱代理分布
+
+Phase 2 使用导入字段 `content_type` 作为内容支柱代理。
+
+{% for pillar, count in report.statistics.content_pillars.counts.items() %}
+- {{ pillar }}：{{ count }}
+{% endfor %}
+
+证据：`{{ report.statistics.content_pillars.evidence_id }}`
+
+## 高中低表现对照
+
+| 组别 | Bands | 视频数 | 播放中位数 | 互动率中位数 | 完播效率中位数 | 证据 |
+|---|---|---:|---:|---:|---:|---|
+{% for cohort in [report.comparison.high, report.comparison.middle, report.comparison.low] %}
+| {{ cohort.cohort }} | {{ cohort.bands | join(", ") }} | {{ cohort.video_count }} | {{ cohort.metrics.views.median if cohort.metrics.views.median is not none else "未知" }} | {{ cohort.metrics.engagement_rate_by_view.median if cohort.metrics.engagement_rate_by_view.median is not none else "未知" }} | {{ cohort.metrics.completion_efficiency.median if cohort.metrics.completion_efficiency.median is not none else "未知" }} | `{{ cohort.evidence_id }}` |
+{% endfor %}
+
+## 分层样本
+
+- 样本清单：`{{ report.sample_manifest_path }}`
+- 样本 ID：`{{ report.sample_manifest_id }}`
+
+## 证据索引
+
+- 证据索引：`{{ report.evidence_index_path }}`
+- 警告文件：`{{ report.warnings_path }}`
+
+本报告只陈述可复核事实和账号内统计关联，不生成因果结论、内容语义结论或表现保证。

@@ -1,4 +1,4 @@
-"""Pydantic data contracts for Phase 0 and Phase 1."""
+"""Pydantic data contracts for the offline normalized data kernel."""
 
 from __future__ import annotations
 
@@ -8,7 +8,13 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-SCHEMA_VERSION = "0.1.0"
+from video_account_distiller.version import (
+    CORE_SCHEMA_VERSION,
+    PACKAGE_VERSION,
+    SKILL_VERSION,
+)
+
+SCHEMA_VERSION = CORE_SCHEMA_VERSION
 NonNegativeInt = Annotated[int, Field(ge=0)]
 NonNegativeFloat = Annotated[float, Field(ge=0)]
 Rate = Annotated[float, Field(ge=0)]
@@ -241,8 +247,8 @@ class RunManifest(StrictModel):
     status: Literal["running", "success", "failed"] = "running"
     input_hashes: list[str] = Field(default_factory=list)
     config_hash: str | None = None
-    code_version: str = "0.1.0"
-    skill_version: str = "0.1.0"
+    code_version: str = PACKAGE_VERSION
+    skill_version: str = SKILL_VERSION
     processed_counts: dict[str, int] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
@@ -259,3 +265,5 @@ class ProjectState(StrictModel):
     last_run_id: str | None = None
     last_normalized_at: datetime | None = None
     last_metrics_at: datetime | None = None
+    last_sample_at: datetime | None = None
+    last_report_at: datetime | None = None

@@ -19,9 +19,9 @@ tmp/
 scratch/
 
 # Local analysis projects and user data
-content-research-project/
-raw/
-normalized/
-runs/
-reports/
+/content-research-project/
+/raw/
+/normalized/
+/runs/
+/reports/
 .distiller-state.json

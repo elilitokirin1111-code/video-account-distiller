@@ -83,7 +83,7 @@ class ProjectLayout:
         if not secrets_example.exists():
             atomic_write_text(
                 secrets_example,
-                "# Phase 0/1 is offline and needs no credentials.\n",
+                "# Offline phases need no credentials.\n",
             )
         return layout, already_initialized
 
