@@ -31,6 +31,9 @@ def project_status(project: ProjectLayout) -> dict[str, Any]:
         (project.root / "analyses" / "accounts").glob("*/samples/*/sample-manifest.json")
     )
     account_reports = list((project.root / "reports" / "accounts").glob("*/*/report.json"))
+    comment_analyses = list((project.root / "analyses" / "comments").glob("*/*/analysis.json"))
+    distillations = list((project.root / "reports" / "accounts").glob("*/*/distillation.json"))
+    comparisons = list((project.root / "reports" / "comparisons").glob("*/comparison.json"))
     return {
         "ok": True,
         "schema_version": state.schema_version,
@@ -64,11 +67,23 @@ def project_status(project: ProjectLayout) -> dict[str, Any]:
         "last_video_analysis_at": (
             state.last_video_analysis_at.isoformat() if state.last_video_analysis_at else None
         ),
+        "last_comment_analysis_at": (
+            state.last_comment_analysis_at.isoformat() if state.last_comment_analysis_at else None
+        ),
+        "last_distillation_at": (
+            state.last_distillation_at.isoformat() if state.last_distillation_at else None
+        ),
+        "last_comparison_at": (
+            state.last_comparison_at.isoformat() if state.last_comparison_at else None
+        ),
         "artifacts": {
             "sample_manifests": len(sample_manifests),
             "account_health_reports": len(account_reports),
             "video_analyses": len(
                 list((project.root / "analyses" / "videos").glob("*/*/analysis.json"))
             ),
+            "comment_analyses": len(comment_analyses),
+            "account_distillations": len(distillations),
+            "benchmark_comparisons": len(comparisons),
         },
     }

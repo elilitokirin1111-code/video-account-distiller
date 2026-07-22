@@ -1,0 +1,60 @@
+# 账号蒸馏报告
+
+- 账号：`{{ distillation.account_id }}`
+- 视频样本：{{ distillation.data_scope.video_count }}
+- 评论样本：{{ distillation.data_scope.comment_count }}
+- Pattern：{{ distillation.data_scope.pattern_count }}
+
+## 一句话定位
+
+{{ distillation.positioning.statement }}
+
+## 内容簇
+
+{% for cluster in distillation.content_clusters -%}
+- **{{ cluster.name }}**：{{ cluster.video_count }} 条，表现分中位数 {{ cluster.median_performance_score }},
+  高表现率 {{ cluster.high_performance_rate }}，证据 `{{ cluster.evidence_id }}`。
+{% endfor %}
+
+## 评论区需求
+
+{% for cluster in distillation.comment_need_clusters -%}
+- **{{ cluster.name }}**：{{ cluster.frequency }} 条；机会：{{ cluster.content_opportunities|join("；") or "待补充" }}；证据 `{{ cluster.evidence_id }}`。
+{% else -%}
+- 尚未生成评论需求分析。
+{% endfor %}
+
+## Pattern 与反例
+
+{% for pattern in distillation.patterns -%}
+### {{ pattern.name }}
+
+- 成熟度：Level {{ pattern.maturity_level }}；置信度：{{ "%.3f"|format(pattern.confidence) }}
+- 支持样本：{{ pattern.support_video_ids|join(", ") }}
+- 反例：{{ pattern.counterexample_video_ids|join(", ") or "当前样本未观察到，需主动验证" }}
+- 混杂因素：{{ pattern.confounders|join("；") or "未标记" }}
+- 证据：{{ pattern.evidence_ids|join(", ") }}
+
+{% else -%}
+当前没有达到最低支持数的 Pattern。
+{% endfor %}
+
+## 可执行动作
+
+{% for item in distillation.action_recommendations -%}
+- {{ item }}
+{% endfor %}
+
+## 30 天实验草案
+
+{% for item in distillation.experiment_plan -%}
+- {{ item }}
+{% else -%}
+- 补齐样本后再设计对照实验。
+{% endfor %}
+
+## 限制与警告
+
+{% for warning in distillation.warnings -%}
+- `{{ warning }}`
+{% endfor %}

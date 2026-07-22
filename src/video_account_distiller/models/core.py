@@ -291,3 +291,6 @@ class ProjectState(StrictModel):
     last_report_at: datetime | None = None
     last_transcript_at: datetime | None = None
     last_video_analysis_at: datetime | None = None
+    last_comment_analysis_at: datetime | None = None
+    last_distillation_at: datetime | None = None
+    last_comparison_at: datetime | None = None

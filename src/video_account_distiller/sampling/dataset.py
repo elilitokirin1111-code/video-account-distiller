@@ -98,6 +98,7 @@ def load_account_dataset(project: ProjectLayout, account_id: str) -> AccountData
     input_hashes = {account.raw_hash}
     input_hashes.update(video.raw_hash for video in videos)
     input_hashes.update(record.raw_hash for record in metrics.values())
+    input_hashes.update(record.raw_hash for record in derived.values())
     return AccountDataset(
         account=account,
         records=records,

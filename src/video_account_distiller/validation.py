@@ -8,7 +8,11 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 
 from video_account_distiller.models import (
+    AccountDistillation,
+    ArtifactEvidenceIndex,
+    BenchmarkComparison,
     BlindContentAnalysis,
+    CommentAnalysis,
     DataQualityIssue,
     SingleVideoAnalysis,
     VideoAnalysisEvidenceIndex,
@@ -132,6 +136,85 @@ def _validate_video_analysis(path: Path, project: ProjectLayout) -> list[str]:
     return [f"{project.relative(path)}: {message}" for message in errors]
 
 
+def _validate_phase4_artifact(
+    path: Path,
+    project: ProjectLayout,
+    model_type: type[CommentAnalysis] | type[AccountDistillation] | type[BenchmarkComparison],
+) -> list[str]:
+    errors: list[str] = []
+    directory = path.parent
+    evidence_path = directory / "evidence-index.json"
+    warnings_path = directory / "warnings.json"
+    report_path = directory / "report.md"
+    missing = [
+        item.name for item in (evidence_path, warnings_path, report_path) if not item.is_file()
+    ]
+    if missing:
+        return [f"{project.relative(path)}: missing artifacts: {', '.join(sorted(missing))}"]
+    try:
+        artifact = model_type.model_validate(read_json(path))
+        evidence = ArtifactEvidenceIndex.model_validate(read_json(evidence_path))
+        warnings = read_json(warnings_path)
+    except (OSError, ValueError, ValidationError) as exc:
+        return [f"{project.relative(path)}: {exc}"]
+    if not isinstance(warnings, list) or not all(isinstance(item, str) for item in warnings):
+        errors.append("warnings.json must contain a JSON array of strings")
+    evidence_ids = {item.evidence_id for item in evidence.items}
+    referenced: set[str] = set()
+    artifact_id: str
+    account_ids: set[str]
+    if isinstance(artifact, CommentAnalysis):
+        artifact_id = artifact.analysis_id
+        account_ids = {artifact.account_id}
+        referenced.update(item.evidence_id for item in artifact.signals)
+        referenced.update(item.evidence_id for item in artifact.need_clusters)
+        if artifact.evidence_index_path != project.relative(evidence_path):
+            errors.append("evidence_index_path does not point to the colocated artifact")
+        if artifact.warnings_path != project.relative(warnings_path):
+            errors.append("warnings_path does not point to the colocated artifact")
+    elif isinstance(artifact, AccountDistillation):
+        artifact_id = artifact.distillation_id
+        account_ids = {artifact.account_id}
+        referenced.update(artifact.positioning.evidence_ids)
+        referenced.update(item.evidence_id for item in artifact.content_clusters)
+        referenced.update(item.evidence_id for item in artifact.comment_need_clusters)
+        for pattern in artifact.patterns:
+            referenced.update(pattern.evidence_ids)
+            knowledge_path = (
+                project.root / "knowledge-base" / "patterns" / f"{pattern.pattern_id}.json"
+            )
+            if not knowledge_path.is_file():
+                errors.append(f"knowledge Pattern missing: {project.relative(knowledge_path)}")
+        if artifact.evidence_index_path != project.relative(evidence_path):
+            errors.append("evidence_index_path does not point to the colocated artifact")
+        if artifact.warnings_path != project.relative(warnings_path):
+            errors.append("warnings_path does not point to the colocated artifact")
+    else:
+        artifact_id = artifact.comparison_id
+        account_ids = {artifact.target_account_id, *artifact.benchmark_account_ids}
+        for item in artifact.transfer_matrix:
+            referenced.update(item.evidence_ids)
+        if artifact.evidence_index_path != project.relative(evidence_path):
+            errors.append("evidence_index_path does not point to the colocated artifact")
+        if artifact.warnings_path != project.relative(warnings_path):
+            errors.append("warnings_path does not point to the colocated artifact")
+    if artifact_id != evidence.artifact_id:
+        errors.append("artifact identity does not match evidence-index.json")
+    if account_ids != set(evidence.account_ids):
+        errors.append("artifact account IDs do not match evidence-index.json")
+    missing_evidence = sorted(referenced - evidence_ids)
+    if missing_evidence:
+        errors.append(f"artifact references missing evidence: {missing_evidence}")
+    empty_sources = sorted(
+        item.evidence_id
+        for item in evidence.items
+        if item.evidence_id in referenced and not item.sources
+    )
+    if empty_sources:
+        errors.append(f"referenced evidence has no normalized sources: {empty_sources}")
+    return [f"{project.relative(path)}: {message}" for message in errors]
+
+
 def validate_project(project: ProjectLayout) -> QualityReport:
     """Verify raw hashes, schemas, and Phase 3 analysis evidence boundaries."""
 
@@ -198,6 +281,35 @@ def validate_project(project: ProjectLayout) -> QualityReport:
                 )
             )
 
+    phase4_paths: list[tuple[Path, type[Any]]] = [
+        *[
+            (path, CommentAnalysis)
+            for path in sorted((project.root / "analyses" / "comments").glob("*/*/analysis.json"))
+        ],
+        *[
+            (path, AccountDistillation)
+            for path in sorted(
+                (project.root / "reports" / "accounts").glob("*/*/distillation.json")
+            )
+        ],
+        *[
+            (path, BenchmarkComparison)
+            for path in sorted((project.root / "reports" / "comparisons").glob("*/comparison.json"))
+        ],
+    ]
+    for path, model_type in phase4_paths:
+        for message in _validate_phase4_artifact(path, project, model_type):
+            issues.append(
+                DataQualityIssue(
+                    issue_id=stable_id("dqi_", manifest.run_id, project.relative(path), message),
+                    run_id=manifest.run_id,
+                    severity="error",
+                    code="analysis_artifact_invalid",
+                    entity="phase4_artifacts",
+                    message=message,
+                )
+            )
+
     warnings: list[str] = []
     if len(platforms) > 1:
         warnings.append(
@@ -213,6 +325,7 @@ def validate_project(project: ProjectLayout) -> QualityReport:
             "model_outputs": len(model_output_paths),
             "platforms": len(platforms),
             "video_analyses": len(analysis_paths),
+            "phase4_artifacts": len(phase4_paths),
             "errors": sum(issue.severity == "error" for issue in issues),
             "warnings": sum(issue.severity == "warning" for issue in issues) + len(warnings),
         },

@@ -10,6 +10,11 @@ from typing import Any, TypeVar
 
 import typer
 
+from video_account_distiller.comments import CommentAnalysisService
+from video_account_distiller.distillation import (
+    AccountDistillationService,
+    BenchmarkComparisonService,
+)
 from video_account_distiller.errors import EXIT_CODES, DistillerError, ErrorCode
 from video_account_distiller.features import VideoAnalysisService
 from video_account_distiller.ingestion import ImportService
@@ -428,6 +433,101 @@ def analyze_video_command(
         result,
         json_output=json_output,
         human=(f"Analyzed {video} with status={analysis['status']}: {result['outputs'][0]}"),
+    )
+
+
+@analyze_app.command("comments")
+def analyze_comments_command(
+    project: Path = typer.Option(..., "--project"),
+    account: str = typer.Option(..., "--account"),
+    model_output: Path | None = typer.Option(
+        None,
+        "--model-output",
+        help="Offline JSON containing one comment_intent candidate per model attempt.",
+    ),
+    max_attempts: int | None = typer.Option(None, "--max-attempts", min=1, max=5),
+    strict_model: bool = typer.Option(False, "--strict-model"),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Analyze redacted comments and cluster user needs."""
+
+    result = _execute(
+        lambda: CommentAnalysisService(ProjectLayout.open(project)).analyze(
+            account_id=account,
+            model_output=model_output,
+            max_attempts=max_attempts,
+            strict_model=strict_model,
+            dry_run=dry_run,
+        ),
+        json_output=json_output,
+    )
+    analysis = result["analysis"]
+    _emit(
+        result,
+        json_output=json_output,
+        human=(
+            f"Analyzed {analysis['comment_count']} comments into "
+            f"{len(analysis['need_clusters'])} need clusters"
+        ),
+    )
+
+
+@app.command("distill")
+def distill_command(
+    project: Path = typer.Option(..., "--project"),
+    account: str = typer.Option(..., "--account"),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Distill account clusters, patterns, counterexamples, and actions."""
+
+    result = _execute(
+        lambda: AccountDistillationService(ProjectLayout.open(project)).distill(
+            account_id=account,
+            dry_run=dry_run,
+        ),
+        json_output=json_output,
+    )
+    distillation = result["distillation"]
+    _emit(
+        result,
+        json_output=json_output,
+        human=(
+            f"Distilled {account}: {len(distillation['patterns'])} patterns; {result['outputs'][0]}"
+        ),
+    )
+
+
+@app.command("compare")
+def compare_command(
+    project: Path = typer.Option(..., "--project"),
+    target: str = typer.Option(..., "--target"),
+    benchmarks: str = typer.Option(
+        ..., "--benchmarks", help="Comma-separated benchmark account IDs."
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Generate a conservative benchmark transfer matrix."""
+
+    benchmark_ids = [item.strip() for item in benchmarks.split(",") if item.strip()]
+    result = _execute(
+        lambda: BenchmarkComparisonService(ProjectLayout.open(project)).compare(
+            target_account_id=target,
+            benchmark_account_ids=benchmark_ids,
+            dry_run=dry_run,
+        ),
+        json_output=json_output,
+    )
+    comparison = result["comparison"]
+    _emit(
+        result,
+        json_output=json_output,
+        human=(
+            f"Compared {len(comparison['benchmark_account_ids'])} benchmarks: "
+            f"{len(comparison['transfer_matrix'])} transfer items"
+        ),
     )
 
 

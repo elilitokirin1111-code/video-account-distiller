@@ -9,7 +9,11 @@ from typing import Protocol, TypeVar
 from pydantic import BaseModel, ValidationError
 
 from video_account_distiller.errors import DistillerError, ErrorCode
-from video_account_distiller.models import VideoFactExtraction, VideoSemanticAnnotation
+from video_account_distiller.models import (
+    CommentSignalAnnotation,
+    VideoFactExtraction,
+    VideoSemanticAnnotation,
+)
 from video_account_distiller.utils.hashing import sha256_file
 
 ResponseT = TypeVar("ResponseT", bound=BaseModel)
@@ -61,7 +65,7 @@ class StructuredFileProvider:
         self.model_name = str(payload.get("model_name") or self.path.name)
         self.input_hash = sha256_file(self.path)
         self._responses: dict[str, list[object]] = {}
-        for key in ("video_fact_extraction", "video_semantic_labeling"):
+        for key in ("video_fact_extraction", "video_semantic_labeling", "comment_intent"):
             value = payload.get(key)
             if isinstance(value, list):
                 self._responses[key] = list(value)
@@ -75,6 +79,8 @@ class StructuredFileProvider:
             return "video_fact_extraction"
         if issubclass(response_model, VideoSemanticAnnotation):
             return "video_semantic_labeling"
+        if issubclass(response_model, CommentSignalAnnotation):
+            return "comment_intent"
         raise ModelSchemaFailure(f"Unsupported response model: {response_model.__name__}")
 
     def generate_structured(
@@ -92,7 +98,9 @@ class StructuredFileProvider:
         if not candidates:
             raise ModelSchemaFailure(f"No response configured for {task}")
         index = self._cursor.get(task, 0)
-        candidate = candidates[min(index, len(candidates) - 1)]
+        if index >= len(candidates):
+            raise ModelSchemaFailure(f"No unused response candidate remains for {task}")
+        candidate = candidates[index]
         self._cursor[task] = index + 1
         try:
             return response_model.model_validate(candidate)

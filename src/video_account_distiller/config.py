@@ -35,6 +35,9 @@ class AnalysisSection(BaseModel):
     use_robust_zscore: bool = True
     log_transform_metrics: bool = True
     performance_weights: dict[str, float] = Field(default_factory=lambda: dict(DEFAULT_WEIGHTS))
+    min_pattern_support: int = Field(default=3, ge=2, le=100)
+    min_validated_rule_support: int = Field(default=10, ge=3, le=1000)
+    max_comments_per_analysis: int = Field(default=10000, ge=1, le=100000)
 
 
 class PlatformSection(BaseModel):

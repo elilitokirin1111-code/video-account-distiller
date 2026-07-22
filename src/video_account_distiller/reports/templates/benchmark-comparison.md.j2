@@ -1,0 +1,24 @@
+# 对标迁移矩阵
+
+- 目标账号：`{{ comparison.target_account_id }}`
+- 对标账号：{{ comparison.benchmark_account_ids|join(", ") }}
+
+| 来源账号 | Pattern | 平台 | 可复制度 | 结论 |
+|---|---|---|---|---|
+{% for item in comparison.transfer_matrix -%}
+| {{ item.source_account_id }} | {{ item.pattern_name }} | {{ item.platform_alignment }} | {{ item.replicability }} | {{ item.verdict }} |
+{% endfor %}
+
+## 推荐实验
+
+{% for item in comparison.recommended_experiments -%}
+- {{ item }}
+{% else -%}
+- 当前没有适合直接进入实验的迁移项。
+{% endfor %}
+
+## 限制与警告
+
+{% for warning in comparison.warnings -%}
+- `{{ warning }}`
+{% endfor %}

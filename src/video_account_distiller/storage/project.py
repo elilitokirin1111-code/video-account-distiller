@@ -38,6 +38,8 @@ PROJECT_DIRECTORIES = (
     "predictions",
     "publications",
     "reports",
+    "reports/accounts",
+    "reports/comparisons",
     "runs",
 )
 

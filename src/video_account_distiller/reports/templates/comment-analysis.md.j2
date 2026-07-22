@@ -1,0 +1,27 @@
+# 评论意图与需求报告
+
+- 账号：`{{ analysis.account_id }}`
+- 评论样本：{{ analysis.comment_count }}
+- 覆盖视频：{{ analysis.video_count }}
+- 状态：`{{ analysis.status }}`
+
+## 需求与意图簇
+
+{% for cluster in analysis.need_clusters -%}
+### {{ cluster.name }}
+
+- 频次：{{ cluster.frequency }}
+- 强度：{{ "%.3f"|format(cluster.intensity) }}
+- 覆盖视频：{{ cluster.video_ids|length }}
+- 代表评论 ID：{{ cluster.representative_comment_ids|join(", ") }}
+- 痛点：{{ cluster.pain_points|join("；") if cluster.pain_points else "未观察到" }}
+- 反对意见：{{ cluster.objections|join("；") if cluster.objections else "未观察到" }}
+- 内容机会：{{ cluster.content_opportunities|join("；") if cluster.content_opportunities else "待人工补充" }}
+- 证据：`{{ cluster.evidence_id }}`
+
+{% endfor -%}
+## 偏差与限制
+
+{% for warning in analysis.warnings -%}
+- `{{ warning }}`
+{% endfor %}

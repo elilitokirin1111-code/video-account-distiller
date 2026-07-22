@@ -30,6 +30,7 @@ class EvidenceSource(StrictModel):
         "metric_snapshots",
         "derived_metrics",
         "transcripts",
+        "comments",
     ]
     record_id: str
     source_record_id: str
