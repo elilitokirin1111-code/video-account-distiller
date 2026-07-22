@@ -46,7 +46,7 @@ def project_status(project: ProjectLayout) -> dict[str, Any]:
             "raw_hashes": sorted({receipt.raw_hash for receipt in state.imports}),
             "by_entity": {
                 entity: sum(receipt.entity == entity for receipt in state.imports)
-                for entity in ("accounts", "videos", "metrics", "comments")
+                for entity in ("accounts", "videos", "metrics", "comments", "transcripts")
             },
         },
         "normalized": table_counts,
@@ -58,8 +58,17 @@ def project_status(project: ProjectLayout) -> dict[str, Any]:
         "last_metrics_at": state.last_metrics_at.isoformat() if state.last_metrics_at else None,
         "last_sample_at": state.last_sample_at.isoformat() if state.last_sample_at else None,
         "last_report_at": state.last_report_at.isoformat() if state.last_report_at else None,
+        "last_transcript_at": (
+            state.last_transcript_at.isoformat() if state.last_transcript_at else None
+        ),
+        "last_video_analysis_at": (
+            state.last_video_analysis_at.isoformat() if state.last_video_analysis_at else None
+        ),
         "artifacts": {
             "sample_manifests": len(sample_manifests),
             "account_health_reports": len(account_reports),
+            "video_analyses": len(
+                list((project.root / "analyses" / "videos").glob("*/*/analysis.json"))
+            ),
         },
     }

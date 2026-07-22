@@ -11,6 +11,7 @@ from typing import Any, TypeVar
 import typer
 
 from video_account_distiller.errors import EXIT_CODES, DistillerError, ErrorCode
+from video_account_distiller.features import VideoAnalysisService
 from video_account_distiller.ingestion import ImportService
 from video_account_distiller.metrics import MetricsService
 from video_account_distiller.models import Platform
@@ -19,6 +20,7 @@ from video_account_distiller.reports import ReportService
 from video_account_distiller.sampling import SamplingService
 from video_account_distiller.status import project_status
 from video_account_distiller.storage.project import ProjectLayout
+from video_account_distiller.transcripts import TranscriptImportService
 from video_account_distiller.validation import validate_project
 
 app = typer.Typer(
@@ -27,7 +29,11 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 import_app = typer.Typer(help="Import user-provided offline exports.", no_args_is_help=True)
+analyze_app = typer.Typer(
+    help="Run blind, schema-validated content analysis.", no_args_is_help=True
+)
 app.add_typer(import_app, name="import")
+app.add_typer(analyze_app, name="analyze")
 
 T = TypeVar("T")
 
@@ -232,6 +238,45 @@ def import_comments(
     )
 
 
+@import_app.command("transcripts")
+def import_transcripts(
+    project: Path = typer.Option(..., "--project"),
+    file: Path = typer.Option(..., "--file"),
+    video: str = typer.Option(..., "--video"),
+    language: str | None = typer.Option(None, "--language"),
+    source_name: str = typer.Option("user_subtitle", "--source-name"),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Import SRT, VTT, TXT, JSON, or JSONL transcript segments."""
+
+    receipt, report, already_imported = _execute(
+        lambda: TranscriptImportService(ProjectLayout.open(project)).import_file(
+            video_id=video,
+            source=file,
+            language=language,
+            source_name=source_name,
+            dry_run=dry_run,
+        ),
+        json_output=json_output,
+    )
+    payload = {
+        "ok": report.error_count == 0,
+        "dry_run": dry_run,
+        "already_imported": already_imported,
+        "receipt": receipt.model_dump(mode="json") if receipt else None,
+        "quality": report.as_dict(),
+    }
+    _emit(
+        payload,
+        json_output=json_output,
+        human=(
+            f"transcripts: {report.stats['accepted_rows']} accepted, "
+            f"{report.stats['duplicate_rows']} duplicates for {video}"
+        ),
+    )
+
+
 @app.command("validate")
 def validate_command(
     project: Path = typer.Option(..., "--project"),
@@ -345,6 +390,44 @@ def report_command(
         result,
         json_output=json_output,
         human=f"Generated account-health report for {account}: {result['outputs'][0]}",
+    )
+
+
+@analyze_app.command("video")
+def analyze_video_command(
+    project: Path = typer.Option(..., "--project"),
+    video: str = typer.Option(..., "--video"),
+    model_output: Path | None = typer.Option(
+        None,
+        "--model-output",
+        help="Offline JSON containing schema-targeted model responses.",
+    ),
+    max_attempts: int | None = typer.Option(None, "--max-attempts", min=1, max=5),
+    strict_model: bool = typer.Option(
+        False,
+        "--strict-model",
+        help="Fail instead of using deterministic low-confidence fallback.",
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Analyze one transcript blindly, then attach account-local performance context."""
+
+    result = _execute(
+        lambda: VideoAnalysisService(ProjectLayout.open(project)).analyze(
+            video_id=video,
+            model_output=model_output,
+            max_attempts=max_attempts,
+            strict_model=strict_model,
+            dry_run=dry_run,
+        ),
+        json_output=json_output,
+    )
+    analysis = result["analysis"]
+    _emit(
+        result,
+        json_output=json_output,
+        human=(f"Analyzed {video} with status={analysis['status']}: {result['outputs'][0]}"),
     )
 
 

@@ -60,6 +60,14 @@ class PrivacySection(BaseModel):
     allow_cloud_model_upload: bool = False
 
 
+class ModelsSection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    text_provider: str | None = None
+    require_schema_validation: bool = True
+    max_schema_attempts: int = Field(default=2, ge=1, le=5)
+    allow_degraded_analysis: bool = True
+
+
 class ReportsSection(BaseModel):
     model_config = ConfigDict(extra="forbid")
     formats: list[str] = Field(default_factory=lambda: ["markdown", "json"])
@@ -72,6 +80,7 @@ class DistillerConfig(BaseModel):
     analysis: AnalysisSection = Field(default_factory=AnalysisSection)
     platforms: PlatformSection = Field(default_factory=PlatformSection)
     privacy: PrivacySection = Field(default_factory=PrivacySection)
+    models: ModelsSection = Field(default_factory=ModelsSection)
     reports: ReportsSection = Field(default_factory=ReportsSection)
 
     def as_yaml(self) -> str:

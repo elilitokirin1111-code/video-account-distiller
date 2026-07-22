@@ -11,6 +11,7 @@ from video_account_distiller.models import (
     Comment,
     DataQualityIssue,
     MetricSnapshot,
+    TranscriptSegment,
     Video,
 )
 from video_account_distiller.models.core import TraceFields
@@ -24,12 +25,14 @@ MODEL_BY_ENTITY: dict[str, type[TraceFields]] = {
     "videos": Video,
     "metrics": MetricSnapshot,
     "comments": Comment,
+    "transcripts": TranscriptSegment,
 }
 OUTPUT_BY_ENTITY = {
     "accounts": "accounts.parquet",
     "videos": "videos.parquet",
     "metrics": "metric_snapshots.parquet",
     "comments": "comments.parquet",
+    "transcripts": "transcripts.parquet",
 }
 
 

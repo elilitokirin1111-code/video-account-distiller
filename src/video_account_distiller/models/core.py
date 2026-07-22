@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from video_account_distiller.version import (
     CORE_SCHEMA_VERSION,
@@ -51,6 +51,7 @@ class DataQualityFlag(StrEnum):
     SUSPECTED_REPOST = "suspected_repost"
     DELETED_CONTENT = "deleted_content"
     METRIC_SNAPSHOT_INCONSISTENT = "metric_snapshot_inconsistent"
+    TRANSCRIPT_LOW_CONFIDENCE = "transcript_low_confidence"
     COMMENT_SAMPLE_PARTIAL = "comment_sample_partial"
     PLATFORM_METRIC_NOT_COMPARABLE = "platform_metric_not_comparable"
     SMALL_SAMPLE = "small_sample"
@@ -197,6 +198,26 @@ class Comment(TraceFields):
     language: str | None = None
 
 
+class TranscriptSegment(TraceFields):
+    segment_id: str
+    video_id: str
+    start_ms: NonNegativeInt | None = None
+    end_ms: NonNegativeInt | None = None
+    text: str = Field(min_length=1)
+    speaker: str | None = None
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    language: str | None = None
+    source: str
+
+    @model_validator(mode="after")
+    def validate_timing(self) -> TranscriptSegment:
+        """Reject reversed subtitle intervals while preserving unknown timing as null."""
+
+        if self.start_ms is not None and self.end_ms is not None and self.end_ms < self.start_ms:
+            raise ValueError("end_ms must be greater than or equal to start_ms")
+        return self
+
+
 class DataQualityIssue(StrictModel):
     schema_version: str = SCHEMA_VERSION
     issue_id: str
@@ -213,7 +234,7 @@ class DataQualityIssue(StrictModel):
 
 class FieldMapping(StrictModel):
     schema_version: str = SCHEMA_VERSION
-    entity: Literal["accounts", "videos", "metrics", "comments"]
+    entity: Literal["accounts", "videos", "metrics", "comments", "transcripts"]
     platform: Platform
     fields: dict[str, str]
     timezone: str = "UTC"
@@ -222,9 +243,10 @@ class FieldMapping(StrictModel):
 
 class ImportReceipt(StrictModel):
     schema_version: str = SCHEMA_VERSION
-    entity: Literal["accounts", "videos", "metrics", "comments"]
+    entity: Literal["accounts", "videos", "metrics", "comments", "transcripts"]
     platform: Platform
     source_name: str
+    target_id: str | None = None
     raw_hash: str
     raw_path: str
     staging_path: str | None = None
@@ -267,3 +289,5 @@ class ProjectState(StrictModel):
     last_metrics_at: datetime | None = None
     last_sample_at: datetime | None = None
     last_report_at: datetime | None = None
+    last_transcript_at: datetime | None = None
+    last_video_analysis_at: datetime | None = None

@@ -12,13 +12,25 @@ from video_account_distiller.version import ANALYSIS_SCHEMA_VERSION
 
 PerformanceBand = Literal["S", "A", "B", "C", "D"]
 PerformanceCohort = Literal["high", "middle", "low", "unknown"]
-EvidenceClassification = Literal["fact", "statistical_association", "warning"]
+EvidenceClassification = Literal[
+    "fact",
+    "semantic_annotation",
+    "statistical_association",
+    "hypothesis",
+    "warning",
+]
 
 
 class EvidenceSource(StrictModel):
     """One normalized record supporting an evidence item."""
 
-    table: Literal["accounts", "videos", "metric_snapshots", "derived_metrics"]
+    table: Literal[
+        "accounts",
+        "videos",
+        "metric_snapshots",
+        "derived_metrics",
+        "transcripts",
+    ]
     record_id: str
     source_record_id: str
     raw_hash: str

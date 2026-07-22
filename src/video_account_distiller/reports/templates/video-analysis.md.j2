@@ -1,0 +1,82 @@
+# 单视频文本拆解报告
+
+> 分析 ID：`{{ analysis.analysis_id }}`<br>
+> 运行 ID：`{{ analysis.run_id }}`<br>
+> 视频 ID：`{{ analysis.video_id }}`<br>
+> 状态：`{{ analysis.status }}`<br>
+> Schema：`{{ analysis.schema_version }}`
+
+## 盲分析声明
+
+Hook、结构、情绪、CTA 和内容支柱标签在读取表现数据前已经冻结。单条视频只能形成事实、
+语义标签和待验证假设，不能直接升级为账号规律。
+
+## 可观察事实
+
+- 开头文本：{{ analysis.blind_analysis.facts.opening_text or "未知" }}
+- 结尾文本：{{ analysis.blind_analysis.facts.closing_text or "未知" }}
+- 字幕段数：{{ analysis.blind_analysis.facts.segment_count }}
+- 字符数：{{ analysis.blind_analysis.facts.character_count }}
+
+{% for fact in analysis.blind_analysis.facts.facts %}
+- `{{ fact.category }}` {{ fact.text }}；字幕证据：{% for id in fact.evidence_segment_ids %}`{{ id }}`{% if not loop.last %}、{% endif %}{% endfor %}
+{% endfor %}
+
+## Hook
+
+- 主类型：`{{ analysis.blind_analysis.semantics.hook.primary_type }}`
+- 文本：{{ analysis.blind_analysis.semantics.hook.hook_text or "未知" }}
+- 字幕证据：{% for id in analysis.blind_analysis.semantics.hook.evidence_segment_ids %}`{{ id }}`{% if not loop.last %}、{% endif %}{% endfor %}
+
+## 内容支柱与任务
+
+- 一级支柱：`{{ analysis.blind_analysis.semantics.primary_pillar }}`
+- 二级主题：{{ analysis.blind_analysis.semantics.secondary_topics | join("、") or "未知" }}
+- 用户任务：{{ analysis.blind_analysis.semantics.audience_tasks | join("、") or "未知" }}
+- 内容目标：`{{ analysis.blind_analysis.semantics.content_goal }}`
+- 置信度：{{ analysis.blind_analysis.semantics.confidence }}
+
+## 结构
+
+| 功能 | 开始 ms | 结束 ms | 摘要 | 字幕证据 |
+|---|---:|---:|---|---|
+{% for segment in analysis.blind_analysis.semantics.structure_segments %}
+| {{ segment.function }} | {{ segment.start_ms if segment.start_ms is not none else "未知" }} | {{ segment.end_ms if segment.end_ms is not none else "未知" }} | {{ segment.text_summary }} | {{ segment.evidence_segment_ids | join(", ") }} |
+{% endfor %}
+
+## CTA
+
+- 类型：`{{ analysis.blind_analysis.semantics.cta.primary_type }}`
+- 文本：{{ analysis.blind_analysis.semantics.cta.text or "无明确文本" }}
+
+## 情绪时间线
+
+{% if analysis.blind_analysis.semantics.emotion_timeline %}
+{% for point in analysis.blind_analysis.semantics.emotion_timeline %}
+- `{{ point.emotion }}`：{{ point.start_ms if point.start_ms is not none else "未知" }}–{{ point.end_ms if point.end_ms is not none else "未知" }} ms；证据 {{ point.evidence_segment_ids | join(", ") }}
+{% endfor %}
+{% else %}
+未在文本中形成可靠情绪标签。
+{% endif %}
+
+## 第二阶段：表现上下文
+
+- 表现层级：`{{ analysis.performance_context.performance_band or "未知" }}`
+- 播放量：{{ analysis.performance_context.views if analysis.performance_context.views is not none else "未知" }}
+- 互动率：{{ analysis.performance_context.engagement_rate_by_view if analysis.performance_context.engagement_rate_by_view is not none else "未知" }}
+- 完播效率：{{ analysis.performance_context.completion_efficiency if analysis.performance_context.completion_efficiency is not none else "未知" }}
+- 投流标记：{{ analysis.performance_context.is_promoted if analysis.performance_context.is_promoted is not none else "未知" }}
+
+这些指标只提供账号内表现背景，不证明任何内容标签导致了该表现。
+
+## 警告
+
+{% for warning in analysis.warnings %}
+- {{ warning }}
+{% endfor %}
+
+## 证据索引
+
+- 盲分析：`{{ analysis.blind_analysis_path }}`
+- 证据索引：`{{ analysis.evidence_index_path }}`
+- 警告文件：`{{ analysis.warnings_path }}`

@@ -16,6 +16,7 @@ TABLES = (
     "videos",
     "metric_snapshots",
     "comments",
+    "transcripts",
     "derived_metrics",
 )
 
