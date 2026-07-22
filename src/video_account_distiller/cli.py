@@ -10,6 +10,12 @@ from typing import Any, TypeVar
 
 import typer
 
+from video_account_distiller.closed_loop import (
+    PredictionService,
+    PublicationService,
+    RetroService,
+    ScoringService,
+)
 from video_account_distiller.comments import CommentAnalysisService
 from video_account_distiller.distillation import (
     AccountDistillationService,
@@ -26,6 +32,7 @@ from video_account_distiller.sampling import SamplingService
 from video_account_distiller.status import project_status
 from video_account_distiller.storage.project import ProjectLayout
 from video_account_distiller.transcripts import TranscriptImportService
+from video_account_distiller.utils.time import parse_datetime
 from video_account_distiller.validation import validate_project
 
 app = typer.Typer(
@@ -527,6 +534,146 @@ def compare_command(
         human=(
             f"Compared {len(comparison['benchmark_account_ids'])} benchmarks: "
             f"{len(comparison['transfer_matrix'])} transfer items"
+        ),
+    )
+
+
+@app.command("score")
+def score_command(
+    project: Path = typer.Option(..., "--project"),
+    account: str = typer.Option(..., "--account"),
+    script: Path = typer.Option(..., "--script"),
+    title: str | None = typer.Option(None, "--title"),
+    topic: str | None = typer.Option(None, "--topic"),
+    target_pillar: str | None = typer.Option(None, "--target-pillar"),
+    target_metric: str = typer.Option("performance_score", "--target-metric"),
+    planned_publish_hour: int | None = typer.Option(None, "--planned-publish-hour", min=0, max=23),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Score one script with an explainable account-local Rubric."""
+
+    result = _execute(
+        lambda: ScoringService(ProjectLayout.open(project)).score(
+            account_id=account,
+            script=script,
+            title=title,
+            topic=topic,
+            target_pillar=target_pillar,
+            target_metric=target_metric,
+            planned_publish_hour=planned_publish_hour,
+            dry_run=dry_run,
+        ),
+        json_output=json_output,
+    )
+    score = result["score"]
+    _emit(
+        result,
+        json_output=json_output,
+        human=f"Scored {score['candidate_id']}: {score['total_score']}/100",
+    )
+
+
+@app.command("predict")
+def predict_command(
+    project: Path = typer.Option(..., "--project"),
+    account: str = typer.Option(..., "--account"),
+    script: Path = typer.Option(..., "--script"),
+    title: str | None = typer.Option(None, "--title"),
+    topic: str | None = typer.Option(None, "--topic"),
+    target_pillar: str | None = typer.Option(None, "--target-pillar"),
+    target_metric: str = typer.Option("performance_score", "--target-metric"),
+    target_age_hours: int | None = typer.Option(None, "--target-age-hours", min=1),
+    planned_publish_hour: int | None = typer.Option(None, "--planned-publish-hour", min=0, max=23),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Score a script and save an immutable account-local prediction interval."""
+
+    result = _execute(
+        lambda: PredictionService(ProjectLayout.open(project)).predict(
+            account_id=account,
+            script=script,
+            title=title,
+            topic=topic,
+            target_pillar=target_pillar,
+            target_metric=target_metric,
+            target_age_hours=target_age_hours,
+            planned_publish_hour=planned_publish_hour,
+            dry_run=dry_run,
+        ),
+        json_output=json_output,
+    )
+    prediction = result["prediction"]
+    _emit(
+        result,
+        json_output=json_output,
+        human=(
+            f"Predicted {prediction['prediction_id']} at "
+            f"T+{prediction['target_snapshot_age_hours']}h"
+        ),
+    )
+
+
+@app.command("publish")
+def publish_command(
+    project: Path = typer.Option(..., "--project"),
+    prediction: str = typer.Option(..., "--prediction"),
+    video: str = typer.Option(..., "--video"),
+    published_at: str | None = typer.Option(None, "--published-at"),
+    url: str | None = typer.Option(None, "--url"),
+    notes: str | None = typer.Option(None, "--notes"),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Register a publication and its snapshot plan without changing the prediction."""
+
+    result = _execute(
+        lambda: PublicationService(ProjectLayout.open(project)).register(
+            prediction_id=prediction,
+            video_id=video,
+            published_at=parse_datetime(published_at),
+            url=url,
+            notes=notes,
+            dry_run=dry_run,
+        ),
+        json_output=json_output,
+    )
+    publication = result["publication"]
+    _emit(
+        result,
+        json_output=json_output,
+        human=f"Registered publication {publication['publication_id']}",
+    )
+
+
+@app.command("retro")
+def retro_command(
+    project: Path = typer.Option(..., "--project"),
+    publication: str = typer.Option(..., "--publication"),
+    snapshot: str = typer.Option("t3d", "--snapshot"),
+    target_age_hours: int | None = typer.Option(None, "--target-age-hours", min=1),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Review prediction error and propose pending rule/rubric changes."""
+
+    result = _execute(
+        lambda: RetroService(ProjectLayout.open(project)).run(
+            publication_id=publication,
+            snapshot=snapshot,
+            target_age_hours=target_age_hours,
+            dry_run=dry_run,
+        ),
+        json_output=json_output,
+    )
+    retro = result["retro"]
+    _emit(
+        result,
+        json_output=json_output,
+        human=(
+            f"Reviewed {publication}: {len(retro['prediction_errors'])} prediction errors, "
+            f"{len(retro['next_experiments'])} next experiments"
         ),
     )
 

@@ -1,0 +1,48 @@
+# 发布前预测：{{ candidate.title }}
+
+- Prediction ID: `{{ prediction.prediction_id }}`
+- Candidate ID: `{{ prediction.candidate_id }}`
+- Score: {{ "%.2f"|format(score.total_score) }}/100
+- Target age: T+{{ prediction.target_snapshot_age_hours }}h
+- Confidence: {{ prediction.confidence_band }} ({{ "%.2f"|format(prediction.confidence) }})
+- Immutable: `{{ prediction.immutable }}`
+- Run: `{{ prediction.run_id }}`
+
+## 账号内预测区间
+
+| 指标 | P25 | P50 | P75 |
+|---|---:|---:|---:|
+{% for name, interval in prediction.target_metrics.items() -%}
+| {{ name }} | {{ interval.p25 }} | {{ interval.p50 }} | {{ interval.p75 }} |
+{% endfor %}
+
+## 正向因素
+
+{% for item in prediction.positive_factors -%}
+- {{ item }}
+{% else -%}
+- 暂无高分因素。
+{% endfor %}
+
+## 负向因素
+
+{% for item in prediction.negative_factors -%}
+- {{ item }}
+{% else -%}
+- 暂无明显低分项。
+{% endfor %}
+
+## 不确定因素与假设
+
+{% for item in prediction.uncertainties -%}
+- 不确定：{{ item }}
+{% endfor %}
+{% for item in prediction.assumptions -%}
+- 假设：{{ item }}
+{% endfor %}
+
+本区间来自同账号历史分布，不承诺结果，也不与其他平台的原始播放量直接比较。
+
+{% for warning in prediction.warnings -%}
+- `{{ warning }}`
+{% endfor %}

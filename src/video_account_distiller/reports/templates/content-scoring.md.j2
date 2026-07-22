@@ -1,0 +1,48 @@
+# 内容评分：{{ candidate.title }}
+
+- Score ID: `{{ score.score_id }}`
+- Candidate ID: `{{ candidate.candidate_id }}`
+- Account: `{{ score.account_id }}`
+- Rubric: `{{ score.rubric_id }}` / `{{ score.rubric_version }}`
+- Total: **{{ "%.2f"|format(score.total_score) }}/100**
+- Run: `{{ score.run_id }}`
+
+## 分项评分
+
+| 维度 | 权重 | 得分 | 加权分 | 说明 |
+|---|---:|---:|---:|---|
+{% for item in score.dimension_scores -%}
+| {{ item.name }} | {{ "%.1f"|format(item.weight) }} | {{ "%.2f"|format(item.raw_score) }} | {{ "%.2f"|format(item.weighted_score) }} | {{ item.rationale }} |
+{% endfor %}
+
+## 优势
+
+{% for item in score.strengths -%}
+- {{ item }}
+{% else -%}
+- 当前没有达到 75 分的分项。
+{% endfor %}
+
+## 必改与弱项
+
+{% for item in score.required_fixes -%}
+- {{ item }}
+{% else -%}
+- 无硬性缺失项。
+{% endfor %}
+
+## 风险
+
+{% for item in score.risk_flags -%}
+- {{ item }}
+{% else -%}
+- 未发现内置规则覆盖的常见保证性风险。
+{% endfor %}
+
+## 解释边界
+
+评分用于发布前检查，不是播放量预测。低成熟度规则只能小幅校准分项，不能覆盖基础 Rubric。
+
+{% for warning in score.warnings -%}
+- `{{ warning }}`
+{% endfor %}

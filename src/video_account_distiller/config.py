@@ -71,6 +71,16 @@ class ModelsSection(BaseModel):
     allow_degraded_analysis: bool = True
 
 
+class ScoringSection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    default_target_snapshot_age_hours: int = Field(default=72, ge=1, le=8760)
+    snapshot_plan_hours: list[int] = Field(default_factory=lambda: [1, 24, 72, 168])
+    prediction_metrics: list[str] = Field(
+        default_factory=lambda: ["views", "engagement_rate_by_view"]
+    )
+    max_rule_score_adjustment: float = Field(default=5.0, ge=0, le=10)
+
+
 class ReportsSection(BaseModel):
     model_config = ConfigDict(extra="forbid")
     formats: list[str] = Field(default_factory=lambda: ["markdown", "json"])
@@ -84,6 +94,7 @@ class DistillerConfig(BaseModel):
     platforms: PlatformSection = Field(default_factory=PlatformSection)
     privacy: PrivacySection = Field(default_factory=PrivacySection)
     models: ModelsSection = Field(default_factory=ModelsSection)
+    scoring: ScoringSection = Field(default_factory=ScoringSection)
     reports: ReportsSection = Field(default_factory=ReportsSection)
 
     def as_yaml(self) -> str:

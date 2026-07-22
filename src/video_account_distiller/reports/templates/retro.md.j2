@@ -1,0 +1,45 @@
+# 发布复盘：{{ publication.publication_id }}
+
+- Retro ID: `{{ retro.retro_id }}`
+- Prediction ID: `{{ retro.prediction_id }}`
+- Video ID: `{{ retro.video_id }}`
+- Snapshot: {{ retro.target_snapshot_label }} / 实际 T+{{ "%.2f"|format(retro.actual_metrics.age_hours) }}h
+- Performance band: {{ retro.actual_metrics.performance_band or "unknown" }}
+- Run: `{{ retro.run_id }}`
+
+## 预测误差
+
+| 指标 | 实际 | 预测 P50 | 绝对误差 | 相对误差 | 区间位置 |
+|---|---:|---:|---:|---:|---|
+{% for item in retro.prediction_errors -%}
+| {{ item.metric }} | {{ item.actual if item.actual is not none else "unknown" }} | {{ item.predicted_p50 }} | {{ item.absolute_error if item.absolute_error is not none else "unknown" }} | {{ item.relative_error if item.relative_error is not none else "unknown" }} | {{ item.interval_position }} |
+{% endfor %}
+
+## 规则证据
+
+- 支持：{{ retro.supported_rule_ids|join(", ") or "无" }}
+- 反例：{{ retro.counterexample_rule_ids|join(", ") or "无" }}
+- 暂不判断：{{ retro.inconclusive_rule_ids|join(", ") or "无" }}
+
+## 待审批变更
+
+{% for item in retro.rule_change_proposals -%}
+- Rule `{{ item.rule_id }}`：{{ item.action }}，{{ item.from_version }} → {{ item.proposed_version }}；状态建议 {{ item.proposed_status }}。{{ item.rationale }}
+{% else -%}
+- 没有匹配到可审查规则。
+{% endfor %}
+{% for item in retro.rubric_change_proposals -%}
+- Rubric `{{ item.dimension_id }}`：{{ item.current_weight }} → {{ item.proposed_weight }}。{{ item.rationale }}
+{% endfor %}
+
+## 下一轮实验
+
+{% for item in retro.next_experiments -%}
+- `{{ item.experiment_id }}`：{{ item.hypothesis }}；变量={{ item.variable }}；最低样本={{ item.minimum_sample_size }}。
+{% endfor %}
+
+所有规则和权重变更均为 `pending`，本次复盘不会自动修改当前 Rubric 或 Rule。
+
+{% for warning in retro.warnings -%}
+- `{{ warning }}`
+{% endfor %}

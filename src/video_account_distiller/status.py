@@ -15,11 +15,23 @@ def project_status(project: ProjectLayout) -> dict[str, Any]:
     state = project.load_state()
     with DuckDBStore(project.normalized_dir) as store:
         table_counts = dict(store.iter_counts())
+        available_tables = store.available_tables()
         accounts = (
             store.query(
                 "SELECT account_id, platform, display_name FROM accounts ORDER BY account_id"
             )
-            if "accounts" in store.available_tables()
+            if "accounts" in available_tables
+            else []
+        )
+        recent_videos = (
+            store.query(
+                "SELECT video_id, account_id, platform_video_id, title, "
+                "CAST(published_at AS VARCHAR) AS published_at "
+                "FROM videos "
+                "ORDER BY published_at DESC NULLS LAST, video_id "
+                "LIMIT 20"
+            )
+            if "videos" in available_tables
             else []
         )
     last_manifest = None
@@ -34,6 +46,16 @@ def project_status(project: ProjectLayout) -> dict[str, Any]:
     comment_analyses = list((project.root / "analyses" / "comments").glob("*/*/analysis.json"))
     distillations = list((project.root / "reports" / "accounts").glob("*/*/distillation.json"))
     comparisons = list((project.root / "reports" / "comparisons").glob("*/comparison.json"))
+    scores = list((project.root / "reports" / "scoring").glob("*/*/score.json"))
+    predictions = list((project.root / "predictions").glob("*/prediction.json"))
+    publications = list((project.root / "publications").glob("*/publication.json"))
+    retros = list((project.root / "reports" / "retros").glob("*/*/retro.json"))
+    pending_rule_changes = 0
+    pending_rubric_changes = 0
+    for path in retros:
+        payload = read_json(path)
+        pending_rule_changes += len(payload.get("rule_change_proposals", []))
+        pending_rubric_changes += len(payload.get("rubric_change_proposals", []))
     return {
         "ok": True,
         "schema_version": state.schema_version,
@@ -54,6 +76,11 @@ def project_status(project: ProjectLayout) -> dict[str, Any]:
         },
         "normalized": table_counts,
         "accounts": accounts,
+        "videos": {
+            "total": table_counts.get("videos", 0),
+            "recent": recent_videos,
+            "truncated": table_counts.get("videos", 0) > len(recent_videos),
+        },
         "last_run": last_manifest,
         "last_normalized_at": (
             state.last_normalized_at.isoformat() if state.last_normalized_at else None
@@ -76,6 +103,14 @@ def project_status(project: ProjectLayout) -> dict[str, Any]:
         "last_comparison_at": (
             state.last_comparison_at.isoformat() if state.last_comparison_at else None
         ),
+        "last_scoring_at": state.last_scoring_at.isoformat() if state.last_scoring_at else None,
+        "last_prediction_at": (
+            state.last_prediction_at.isoformat() if state.last_prediction_at else None
+        ),
+        "last_publication_at": (
+            state.last_publication_at.isoformat() if state.last_publication_at else None
+        ),
+        "last_retro_at": state.last_retro_at.isoformat() if state.last_retro_at else None,
         "artifacts": {
             "sample_manifests": len(sample_manifests),
             "account_health_reports": len(account_reports),
@@ -85,5 +120,11 @@ def project_status(project: ProjectLayout) -> dict[str, Any]:
             "comment_analyses": len(comment_analyses),
             "account_distillations": len(distillations),
             "benchmark_comparisons": len(comparisons),
+            "content_scores": len(scores),
+            "predictions": len(predictions),
+            "publications": len(publications),
+            "retros": len(retros),
+            "pending_rule_changes": pending_rule_changes,
+            "pending_rubric_changes": pending_rubric_changes,
         },
     }

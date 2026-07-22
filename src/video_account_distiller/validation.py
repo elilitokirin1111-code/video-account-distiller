@@ -13,7 +13,14 @@ from video_account_distiller.models import (
     BenchmarkComparison,
     BlindContentAnalysis,
     CommentAnalysis,
+    ContentCandidate,
     DataQualityIssue,
+    Prediction,
+    Publication,
+    Retro,
+    Rubric,
+    Rule,
+    ScoreResult,
     SingleVideoAnalysis,
     VideoAnalysisEvidenceIndex,
 )
@@ -215,6 +222,206 @@ def _validate_phase4_artifact(
     return [f"{project.relative(path)}: {message}" for message in errors]
 
 
+def _validate_evidence_companions(
+    *,
+    artifact_id: str,
+    account_ids: set[str],
+    evidence_path: Path,
+    warnings_path: Path,
+    report_path: Path,
+    project: ProjectLayout,
+    referenced_evidence_ids: set[str] | None = None,
+) -> list[str]:
+    errors: list[str] = []
+    missing = [
+        item.name for item in (evidence_path, warnings_path, report_path) if not item.is_file()
+    ]
+    if missing:
+        return [f"missing artifacts: {', '.join(sorted(missing))}"]
+    try:
+        evidence = ArtifactEvidenceIndex.model_validate(read_json(evidence_path))
+        warnings = read_json(warnings_path)
+    except (OSError, ValueError, ValidationError) as exc:
+        return [str(exc)]
+    if evidence.artifact_id != artifact_id:
+        errors.append("artifact identity does not match evidence-index.json")
+    if set(evidence.account_ids) != account_ids:
+        errors.append("artifact account IDs do not match evidence-index.json")
+    if not isinstance(warnings, list) or not all(isinstance(item, str) for item in warnings):
+        errors.append("warnings.json must contain a JSON array of strings")
+    if referenced_evidence_ids is not None:
+        evidence_ids = {item.evidence_id for item in evidence.items}
+        missing_ids = sorted(referenced_evidence_ids - evidence_ids)
+        if missing_ids:
+            errors.append(f"artifact references missing evidence: {missing_ids}")
+        empty_sources = sorted(
+            item.evidence_id
+            for item in evidence.items
+            if item.evidence_id in referenced_evidence_ids and not item.sources
+        )
+        if empty_sources:
+            errors.append(f"referenced evidence has no normalized sources: {empty_sources}")
+    return errors
+
+
+def _validate_score(path: Path, project: ProjectLayout) -> list[str]:
+    errors: list[str] = []
+    directory = path.parent
+    try:
+        score = ScoreResult.model_validate(read_json(path))
+    except (OSError, ValueError, ValidationError) as exc:
+        return [f"{project.relative(path)}: {exc}"]
+    if score.score_id != directory.name:
+        errors.append("score_id does not match its content-addressed directory")
+    if score.account_id != directory.parent.name:
+        errors.append("account_id does not match scoring directory")
+    candidate_path = project.root / "candidates" / score.candidate_id / "candidate.json"
+    try:
+        candidate = ContentCandidate.model_validate(read_json(candidate_path))
+        script_path = project.root / candidate.script_path
+        if not script_path.is_file() or sha256_file(script_path) != candidate.script_hash:
+            errors.append("candidate script is missing or its immutable hash changed")
+    except (OSError, ValueError, ValidationError) as exc:
+        errors.append(f"candidate invalid: {exc}")
+    rubric_paths = list(
+        (project.root / "knowledge-base" / "rubrics" / score.account_id).glob(
+            f"{score.rubric_id}.json"
+        )
+    )
+    if not rubric_paths:
+        errors.append("score Rubric is missing")
+    else:
+        try:
+            Rubric.model_validate(read_json(rubric_paths[0]))
+        except (OSError, ValueError, ValidationError) as exc:
+            errors.append(f"score Rubric invalid: {exc}")
+    errors.extend(
+        _validate_evidence_companions(
+            artifact_id=score.score_id,
+            account_ids={score.account_id},
+            evidence_path=directory / "evidence-index.json",
+            warnings_path=directory / "warnings.json",
+            report_path=directory / "report.md",
+            project=project,
+            referenced_evidence_ids=set(score.evidence_ids),
+        )
+    )
+    if score.evidence_index_path != project.relative(directory / "evidence-index.json"):
+        errors.append("evidence_index_path does not point to the colocated artifact")
+    if score.warnings_path != project.relative(directory / "warnings.json"):
+        errors.append("warnings_path does not point to the colocated artifact")
+    return [f"{project.relative(path)}: {message}" for message in errors]
+
+
+def _validate_prediction(path: Path, project: ProjectLayout) -> list[str]:
+    errors: list[str] = []
+    directory = path.parent
+    try:
+        prediction = Prediction.model_validate(read_json(path))
+    except (OSError, ValueError, ValidationError) as exc:
+        return [f"{project.relative(path)}: {exc}"]
+    if prediction.prediction_id != directory.name:
+        errors.append("prediction_id does not match its content-addressed directory")
+    if prediction.prediction_id != stable_id("pred_", prediction.input_hash):
+        errors.append("prediction_id does not match immutable input_hash")
+    score_paths = list((project.root / "reports" / "scoring").glob("*/*/score.json"))
+    if not any(item.parent.name == prediction.score_id for item in score_paths):
+        errors.append("linked score is missing")
+    errors.extend(
+        _validate_evidence_companions(
+            artifact_id=prediction.prediction_id,
+            account_ids={prediction.account_id},
+            evidence_path=directory / "evidence-index.json",
+            warnings_path=directory / "warnings.json",
+            report_path=directory / "report.md",
+            project=project,
+        )
+    )
+    if prediction.evidence_index_path != project.relative(directory / "evidence-index.json"):
+        errors.append("evidence_index_path does not point to the colocated artifact")
+    if prediction.warnings_path != project.relative(directory / "warnings.json"):
+        errors.append("warnings_path does not point to the colocated artifact")
+    return [f"{project.relative(path)}: {message}" for message in errors]
+
+
+def _validate_publication(path: Path, project: ProjectLayout) -> list[str]:
+    errors: list[str] = []
+    try:
+        publication = Publication.model_validate(read_json(path))
+    except (OSError, ValueError, ValidationError) as exc:
+        return [f"{project.relative(path)}: {exc}"]
+    if publication.publication_id != path.parent.name:
+        errors.append("publication_id does not match its content-addressed directory")
+    if publication.publication_id != stable_id("pub_", publication.input_hash):
+        errors.append("publication_id does not match immutable input_hash")
+    if publication.prediction_id is not None:
+        prediction_path = (
+            project.root / "predictions" / publication.prediction_id / "prediction.json"
+        )
+        if not prediction_path.is_file():
+            errors.append("linked prediction is missing")
+    candidate_path = project.root / "candidates" / publication.candidate_id / "candidate.json"
+    if not candidate_path.is_file():
+        errors.append("linked candidate is missing")
+    return [f"{project.relative(path)}: {message}" for message in errors]
+
+
+def _validate_retro(path: Path, project: ProjectLayout) -> list[str]:
+    errors: list[str] = []
+    directory = path.parent
+    try:
+        retro = Retro.model_validate(read_json(path))
+    except (OSError, ValueError, ValidationError) as exc:
+        return [f"{project.relative(path)}: {exc}"]
+    if retro.retro_id != directory.name:
+        errors.append("retro_id does not match its content-addressed directory")
+    if retro.publication_id != directory.parent.name:
+        errors.append("publication_id does not match Retro directory")
+    if set(retro.supported_rule_ids).intersection(retro.counterexample_rule_ids):
+        errors.append("supported and counterexample Rule IDs overlap")
+    for proposal in retro.rule_change_proposals:
+        rule_path = (
+            project.root
+            / "knowledge-base"
+            / "rules"
+            / proposal.rule_id
+            / f"{proposal.from_version}.json"
+        )
+        if not rule_path.is_file():
+            errors.append(f"source Rule version is missing: {proposal.rule_id}")
+    for experiment in retro.next_experiments:
+        experiment_path = (
+            project.root / "knowledge-base" / "experiments" / f"{experiment.experiment_id}.json"
+        )
+        if not experiment_path.is_file():
+            errors.append(f"next experiment artifact is missing: {experiment.experiment_id}")
+    review_path = (
+        project.root
+        / "knowledge-base"
+        / "reviews"
+        / retro.publication_id
+        / retro.retro_id
+        / "retro.json"
+    )
+    if not review_path.is_file():
+        errors.append("knowledge-base review copy is missing")
+    errors.extend(
+        _validate_evidence_companions(
+            artifact_id=retro.retro_id,
+            account_ids={retro.account_id},
+            evidence_path=directory / "evidence-index.json",
+            warnings_path=directory / "warnings.json",
+            report_path=directory / "report.md",
+            project=project,
+        )
+    )
+    if retro.evidence_index_path != project.relative(directory / "evidence-index.json"):
+        errors.append("evidence_index_path does not point to the colocated artifact")
+    if retro.warnings_path != project.relative(directory / "warnings.json"):
+        errors.append("warnings_path does not point to the colocated artifact")
+    return [f"{project.relative(path)}: {message}" for message in errors]
+
+
 def validate_project(project: ProjectLayout) -> QualityReport:
     """Verify raw hashes, schemas, and Phase 3 analysis evidence boundaries."""
 
@@ -310,6 +517,70 @@ def validate_project(project: ProjectLayout) -> QualityReport:
                 )
             )
 
+    phase5_checks: list[tuple[Path, str]] = [
+        *[
+            (path, "score")
+            for path in sorted((project.root / "reports" / "scoring").glob("*/*/score.json"))
+        ],
+        *[
+            (path, "prediction")
+            for path in sorted((project.root / "predictions").glob("*/prediction.json"))
+        ],
+        *[
+            (path, "publication")
+            for path in sorted((project.root / "publications").glob("*/publication.json"))
+        ],
+        *[
+            (path, "retro")
+            for path in sorted((project.root / "reports" / "retros").glob("*/*/retro.json"))
+        ],
+    ]
+    phase5_validators = {
+        "score": _validate_score,
+        "prediction": _validate_prediction,
+        "publication": _validate_publication,
+        "retro": _validate_retro,
+    }
+    for path, kind in phase5_checks:
+        for message in phase5_validators[kind](path, project):
+            issues.append(
+                DataQualityIssue(
+                    issue_id=stable_id("dqi_", manifest.run_id, project.relative(path), message),
+                    run_id=manifest.run_id,
+                    severity="error",
+                    code="closed_loop_artifact_invalid",
+                    entity="phase5_artifacts",
+                    message=message,
+                )
+            )
+
+    rule_paths = sorted((project.root / "knowledge-base" / "rules").glob("*/*.json"))
+    rubric_paths = sorted((project.root / "knowledge-base" / "rubrics").glob("*/*.json"))
+    knowledge_paths: list[tuple[Path, type[BaseModel]]] = [
+        *((path, Rule) for path in rule_paths),
+        *((path, Rubric) for path in rubric_paths),
+    ]
+    for path, knowledge_model_type in knowledge_paths:
+        try:
+            artifact = knowledge_model_type.model_validate(read_json(path))
+            if isinstance(artifact, Rule) and (
+                artifact.rule_id != path.parent.name or artifact.version != path.stem
+            ):
+                raise ValueError("Rule path does not match rule_id/version")
+            if isinstance(artifact, Rubric) and artifact.rubric_id != path.stem:
+                raise ValueError("Rubric path does not match rubric_id")
+        except (OSError, ValueError, ValidationError) as exc:
+            issues.append(
+                DataQualityIssue(
+                    issue_id=stable_id("dqi_", manifest.run_id, project.relative(path), str(exc)),
+                    run_id=manifest.run_id,
+                    severity="error",
+                    code="closed_loop_artifact_invalid",
+                    entity="phase5_knowledge",
+                    message=f"{project.relative(path)}: {exc}",
+                )
+            )
+
     warnings: list[str] = []
     if len(platforms) > 1:
         warnings.append(
@@ -326,6 +597,9 @@ def validate_project(project: ProjectLayout) -> QualityReport:
             "platforms": len(platforms),
             "video_analyses": len(analysis_paths),
             "phase4_artifacts": len(phase4_paths),
+            "phase5_artifacts": len(phase5_checks),
+            "rules": len(rule_paths),
+            "rubrics": len(rubric_paths),
             "errors": sum(issue.severity == "error" for issue in issues),
             "warnings": sum(issue.severity == "warning" for issue in issues) + len(warnings),
         },
