@@ -1,0 +1,13 @@
+project:
+  name: example-project
+  language: zh-CN
+  timezone: Asia/Shanghai
+analysis:
+  use_robust_zscore: true
+  log_transform_metrics: true
+platforms:
+  cross_platform_raw_metric_comparison: false
+privacy:
+  redact_usernames_in_reports: true
+  hash_comment_author_ids: true
+  allow_cloud_model_upload: false

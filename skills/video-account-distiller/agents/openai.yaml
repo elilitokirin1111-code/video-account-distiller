@@ -1,0 +1,4 @@
+interface:
+  display_name: "Video Account Distiller"
+  short_description: "离线导入、标准化并分析视频账号数据，计算可追溯的稳健表现指标"
+  default_prompt: "Use $video-account-distiller to turn offline video-account exports into validated Parquet datasets, DuckDB queries, robust performance metrics, and auditable status reports."
