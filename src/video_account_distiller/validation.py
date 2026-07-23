@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,7 @@ from video_account_distiller.models import (
     Retro,
     Rubric,
     Rule,
+    RunManifest,
     ScoreResult,
     SingleVideoAnalysis,
     SnapshotScheduleResult,
@@ -534,8 +536,8 @@ def _validate_retro(path: Path, project: ProjectLayout) -> list[str]:
     return [f"{project.relative(path)}: {message}" for message in errors]
 
 
-def validate_project(project: ProjectLayout) -> QualityReport:
-    """Verify raw hashes, schemas, and Phase 3 analysis evidence boundaries."""
+def validate_project(project: ProjectLayout, *, persist: bool = True) -> QualityReport:
+    """Verify raw hashes and schemas, optionally without recording a validation run."""
 
     state = project.load_state()
     raw_media_paths = sorted((project.root / "raw" / "media").glob("*"))
@@ -547,7 +549,16 @@ def validate_project(project: ProjectLayout) -> QualityReport:
             *(path.stem for path in vision_output_paths),
         }
     )
-    manifest = project.begin_run("validate", input_hashes=input_hashes)
+    manifest = (
+        project.begin_run("validate", input_hashes=input_hashes)
+        if persist
+        else RunManifest(
+            run_id=stable_id("run_", "read-only-validation", *input_hashes),
+            command="validate",
+            started_at=datetime.now(UTC),
+            input_hashes=input_hashes,
+        )
+    )
     issues: list[DataQualityIssue] = []
     platforms = {receipt.platform for receipt in state.imports}
 
@@ -835,13 +846,14 @@ def validate_project(project: ProjectLayout) -> QualityReport:
         issues=issues,
         warnings=warnings,
     )
-    report_paths = write_quality_report(report, project.runs_dir / manifest.run_id)
-    project.finish_run(
-        manifest,
-        success=report.error_count == 0,
-        processed_counts=report.stats,
-        output_files=[project.relative(path) for path in report_paths],
-        warnings=warnings,
-        errors=[issue.message for issue in issues if issue.severity == "error"],
-    )
+    if persist:
+        report_paths = write_quality_report(report, project.runs_dir / manifest.run_id)
+        project.finish_run(
+            manifest,
+            success=report.error_count == 0,
+            processed_counts=report.stats,
+            output_files=[project.relative(path) for path in report_paths],
+            warnings=warnings,
+            errors=[issue.message for issue in issues if issue.severity == "error"],
+        )
     return report

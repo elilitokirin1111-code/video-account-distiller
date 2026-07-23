@@ -108,6 +108,13 @@ from video_account_distiller.models.media import (
     VisionInputShot,
     VisionTaskTrace,
 )
+from video_account_distiller.models.system import (
+    CapabilityDiagnostic,
+    DoctorReport,
+    ProjectDiagnostic,
+    RuntimeDependency,
+    RuntimeExecutable,
+)
 from video_account_distiller.models.text_analysis import (
     BlindContentAnalysis,
     BlindVideoBundle,
@@ -130,6 +137,11 @@ from video_account_distiller.models.text_analysis import (
 )
 
 __all__ = [
+    "CapabilityDiagnostic",
+    "DoctorReport",
+    "ProjectDiagnostic",
+    "RuntimeDependency",
+    "RuntimeExecutable",
     "SCHEMA_VERSION",
     "Account",
     "AccountHealthReport",

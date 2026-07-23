@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "video-account-distiller"
-version = "0.7.0"
+version = "1.0.0"
 description = "Offline-first Agent Skill and Python toolkit for evidence-based video account analysis."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -42,7 +42,9 @@ packages = ["src/video_account_distiller"]
 [tool.hatch.build.targets.sdist]
 include = [
   "/src/video_account_distiller",
-  "/skills/video-account-distiller/assets/prompts",
+  "/skills/video-account-distiller",
+  "/tools/release_acceptance.py",
+  "/docs/production-release.md",
   "/LICENSE",
   "/README.md",
   "/pyproject.toml",

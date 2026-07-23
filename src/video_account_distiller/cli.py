@@ -29,6 +29,7 @@ from video_account_distiller.distillation import (
     AccountDistillationService,
     BenchmarkComparisonService,
 )
+from video_account_distiller.doctor import doctor_report
 from video_account_distiller.errors import EXIT_CODES, DistillerError, ErrorCode
 from video_account_distiller.features import VideoAnalysisService
 from video_account_distiller.ingestion import ImportService
@@ -43,6 +44,7 @@ from video_account_distiller.storage.project import ProjectLayout
 from video_account_distiller.transcripts import TranscriptImportService
 from video_account_distiller.utils.time import parse_datetime
 from video_account_distiller.validation import validate_project
+from video_account_distiller.version import PACKAGE_VERSION
 
 app = typer.Typer(
     name="distiller",
@@ -73,9 +75,28 @@ app.add_typer(team_app, name="team")
 T = TypeVar("T")
 
 
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(PACKAGE_VERSION)
+        raise typer.Exit()
+
+
+@app.callback()
+def root_callback(
+    version: bool = typer.Option(
+        False,
+        "--version",
+        callback=_version_callback,
+        is_eager=True,
+        help="Show the installed package version and exit.",
+    ),
+) -> None:
+    """Run the distiller command-line toolkit."""
+
+
 def _emit(payload: Any, *, json_output: bool, human: str | None = None) -> None:
     if json_output:
-        typer.echo(json.dumps(payload, ensure_ascii=False, default=str))
+        typer.echo(json.dumps(payload, ensure_ascii=True, default=str))
     else:
         typer.echo(human or json.dumps(payload, ensure_ascii=False, indent=2, default=str))
 
@@ -85,7 +106,7 @@ def _execute(operation: Callable[[], T], *, json_output: bool) -> T:
         return operation()
     except DistillerError as exc:
         if json_output:
-            typer.echo(json.dumps(exc.as_dict(), ensure_ascii=False), file=sys.stdout)
+            typer.echo(json.dumps(exc.as_dict(), ensure_ascii=True), file=sys.stdout)
         else:
             typer.echo(f"{exc.code.value}: {exc.message}", err=True)
         raise typer.Exit(exc.exit_code) from exc
@@ -96,7 +117,7 @@ def _execute(operation: Callable[[], T], *, json_output: bool) -> T:
             details={"type": type(exc).__name__, "reason": str(exc)},
         )
         if json_output:
-            typer.echo(json.dumps(wrapped.as_dict(), ensure_ascii=False), file=sys.stdout)
+            typer.echo(json.dumps(wrapped.as_dict(), ensure_ascii=True), file=sys.stdout)
         else:
             typer.echo(f"{wrapped.code.value}: {wrapped.message}: {exc}", err=True)
         raise typer.Exit(wrapped.exit_code) from exc
@@ -136,6 +157,25 @@ def init_command(
         json_output=json_output,
         human=("Project already initialized" if already_initialized else "Project initialized")
         + f": {layout.root}",
+    )
+
+
+@app.command("doctor")
+def doctor_command(
+    project: Path | None = typer.Option(None, "--project", help="Optional project to validate."),
+    json_output: bool = typer.Option(False, "--json", help="Emit one JSON object."),
+) -> None:
+    """Inspect installation and project readiness without changing state."""
+
+    report = _execute(lambda: doctor_report(project), json_output=json_output)
+    payload = report.model_dump(mode="json")
+    _emit(
+        payload,
+        json_output=json_output,
+        human=(
+            f"video-account-distiller {report.package_version}: "
+            + ("ready" if report.ok else "attention required")
+        ),
     )
 
 
