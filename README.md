@@ -48,6 +48,7 @@ Robust 指标、账号体检和蒸馏链路。它不使用浏览器、Cookie、�
 - 输出 JSON/Markdown 数据质量报告、不可变运行清单和项目状态。
 - 通过稳定错误码和 JSON Envelope 被 Agent 或自动化脚本调用。
 - 从一个抖音主页链接读取公开账号资料与 1～100 条作品，并一键生成账号报告和蒸馏结果。
+- 可选从公开评论数最高的少量作品采集一级评论，并自动进入脱敏评论需求分析。
 - 预演付费 Provider 调用、显式确认费用，并将完整响应作为内容寻址的不可变原始证据。
 
 ## 安装
@@ -99,6 +100,11 @@ uv run distiller account analyze --project ./demo-project \
   --url "https://www.douyin.com/user/<sec-user-id>" \
   --count 10 --sort latest --confirm-provider-cost --json
 ```
+
+默认不采集评论。需要增强用户需求与异议分析时，可先追加
+`--comments-per-video 20 --comment-video-limit 3 --dry-run` 查看新增调用次数，确认后再将
+`--dry-run` 替换为 `--confirm-provider-cost`。评论原始响应属于敏感数据，标准化时作者
+标识会哈希，分析副本会继续做直接标识符脱敏。
 
 不要把密钥粘贴到聊天、项目配置或 Git。完整边界、错误码与首次真实验收清单见
 [`docs/phase8-account-url-analysis.md`](docs/phase8-account-url-analysis.md)。
@@ -337,9 +343,9 @@ uv run python skills/video-account-distiller/scripts/install-skill.py \
 稳健指标、代表性采样、账号体检、单视频文本/本地多模态拆解、评论需求分析、Pattern/反例、账号蒸馏、
 对标迁移矩阵、脚本评分、不可变区间预测、发布登记、快照复盘、授权导出、飞书多维表格、
 Google Sheets、批量任务、快照计划、团队策略，以及通过文档化 TikHub API 进行的抖音
-公开主页解析。
+公开主页解析与限额公开评论采样。
 
-尚未实现：平台网页直接抓取、浏览器登录自动化、评论正文自动采集、视频下载、自动批准
+尚未实现：平台网页直接抓取、浏览器登录自动化、评论回复树、视频下载、自动批准
 Level 4 规则和 Web 控制台。视觉/OCR 只提供本地离线回放和可注入 Provider 合同，不内置
 网络模型客户端；平台数据仅允许用户导出、明确授权的官方 API 或用户批准的文档化固定主机
 Provider。Phase 5 仍只生成待审批的规则升级建议；详见

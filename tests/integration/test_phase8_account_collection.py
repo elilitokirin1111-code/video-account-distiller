@@ -8,6 +8,7 @@ from video_account_distiller.models import (
     AccountCollectionBatch,
     AccountCollectionRequest,
     CollectedAccount,
+    CollectedComment,
     CollectedMetricSnapshot,
     CollectedVideo,
     CollectionProviderKind,
@@ -29,6 +30,7 @@ class FixtureAccountProvider:
         platform_account_id = "MS4wLjABAAAAphase8-hotel"
         videos: list[CollectedVideo] = []
         metrics: list[CollectedMetricSnapshot] = []
+        comments: list[CollectedComment] = []
         for index in range(request.count):
             video_id = f"74000000000000000{index:02d}"
             videos.append(
@@ -61,6 +63,26 @@ class FixtureAccountProvider:
                     metric_source="fixture:tikhub",
                 )
             )
+            if index < request.comment_video_limit and request.comments_per_video > 0:
+                for comment_index in range(request.comments_per_video):
+                    comments.append(
+                        CollectedComment(
+                            platform_comment_id=(
+                                f"75000000000000000{index:02d}{comment_index:02d}"
+                            ),
+                            video_id=video_id,
+                            author_hash=f"{index:064x}",
+                            text=(
+                                f"住客问题 {index + 1}-{comment_index + 1}："
+                                "亲子入住需要提前准备什么？"
+                            ),
+                            created_at=fetched_at - timedelta(hours=comment_index + 1),
+                            like_count=comment_index + 1,
+                            is_creator_reply=False,
+                            is_pinned=comment_index == 0,
+                            language="zh-CN",
+                        )
+                    )
         return AccountCollectionBatch(
             provider=CollectionProviderKind.TIKHUB,
             profile_url=request.profile_url,
@@ -84,6 +106,7 @@ class FixtureAccountProvider:
             ),
             videos=videos,
             metrics=metrics,
+            comments=comments,
             raw_pages=[
                 ProviderRawPage(
                     endpoint="/fixture/account",
@@ -101,6 +124,8 @@ def test_account_url_runs_existing_normalized_report_and_distillation_pipeline(
     request = AccountCollectionRequest(
         profile_url="https://www.douyin.com/user/MS4wLjABAAAAphase8-hotel",
         count=10,
+        comments_per_video=2,
+        comment_video_limit=2,
     )
 
     result = AccountCollectionService(project, provider).analyze_url(
@@ -112,16 +137,21 @@ def test_account_url_runs_existing_normalized_report_and_distillation_pipeline(
     assert provider.calls == 1
     assert result["account"]["account_id"] == account_id
     assert result["collection"]["videos"] == 10
+    assert result["collection"]["comments"] == 4
+    assert result["collection"]["comment_videos"] == 2
     assert result["normalization"]["counts"]["accounts"] == 1
     assert result["normalization"]["counts"]["videos"] == 10
     assert result["normalization"]["counts"]["metrics"] == 10
+    assert result["normalization"]["counts"]["comments"] == 4
     assert result["metrics"]["records"] == 10
+    assert result["comment_analysis"]["analysis"]["comment_count"] == 4
     assert result["report"]["report"]["data_scope"]["population_size"] == 10
     assert result["distillation"]["distillation"]["data_scope"]["video_count"] == 10
     raw_artifact = project.root / Path(result["collection"]["raw_artifact"])
     assert raw_artifact.is_file()
     assert (project.normalized_dir / "accounts.parquet").is_file()
     assert (project.normalized_dir / "derived_metrics.parquet").is_file()
+    assert (raw_artifact.parent / "comments.json").is_file()
     assert validate_project(project).error_count == 0
 
     videos_path = raw_artifact.parent / "videos.json"

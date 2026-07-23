@@ -16,6 +16,7 @@ def test_account_analyze_help_is_available() -> None:
 
     assert result.exit_code == 0
     assert "Usage:" in result.stdout
+    assert "--comments-per-video" in result.stdout
 
 
 def test_account_analyze_dry_run_requires_no_token_and_does_not_write(
@@ -42,6 +43,37 @@ def test_account_analyze_dry_run_requires_no_token_and_does_not_write(
     assert payload["dry_run"] is True
     assert payload["provider_calls"]["total_max"] == 4
     assert not list((project.root / "raw" / "account-collections").rglob("*.json"))
+
+
+def test_account_analyze_dry_run_includes_bounded_comment_calls(
+    project: ProjectLayout,
+) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "account",
+            "analyze",
+            "--project",
+            str(project.root),
+            "--url",
+            "https://www.douyin.com/user/demo",
+            "--count",
+            "25",
+            "--comments-per-video",
+            "20",
+            "--comment-video-limit",
+            "2",
+            "--dry-run",
+            "--json",
+        ],
+    )
+
+    payload = json.loads(result.stdout)
+    assert result.exit_code == 0
+    assert payload["provider_calls"]["homepage_post_pages_max"] == 2
+    assert payload["provider_calls"]["comment_video_pages_max"] == 2
+    assert payload["provider_calls"]["total_max"] == 6
+    assert payload["billing"]["chargeable_calls_max"] == 6
 
 
 def test_account_analyze_requires_cost_confirmation_before_provider_call(

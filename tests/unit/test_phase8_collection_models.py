@@ -48,3 +48,24 @@ def test_collection_request_builder_exposes_stable_error() -> None:
         )
 
     assert captured.value.code == ErrorCode.PROFILE_URL_INVALID
+
+
+def test_collection_request_bounds_optional_comment_sampling() -> None:
+    request = AccountCollectionRequest(
+        profile_url="https://www.douyin.com/user/demo",
+        comments_per_video=20,
+        comment_video_limit=10,
+    )
+
+    assert request.comments_per_video == 20
+    assert request.comment_video_limit == 10
+    with pytest.raises(ValidationError):
+        AccountCollectionRequest(
+            profile_url="https://www.douyin.com/user/demo",
+            comments_per_video=21,
+        )
+    with pytest.raises(ValidationError):
+        AccountCollectionRequest(
+            profile_url="https://www.douyin.com/user/demo",
+            comment_video_limit=11,
+        )

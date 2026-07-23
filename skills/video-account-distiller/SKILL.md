@@ -97,18 +97,26 @@ uv run distiller account analyze --project <dir> --url <douyin-homepage> \
   --count 10 --sort latest --dry-run --json
 ```
 
+Keep comment sampling disabled unless the user wants audience-demand analysis. When requested, add
+`--comments-per-video <1-20> --comment-video-limit <1-10>` to the preview. Explain that each sampled
+video adds at most one Provider call and that the command prioritizes collected videos with higher
+public comment counts.
+
 Require the user to approve the public account, expected call count, Provider cost, and retention.
 Require `TIKHUB_API_KEY` in the local environment; never ask the user to paste it into chat or a
 project file. Then run:
 
 ```bash
 uv run distiller account analyze --project <dir> --url <douyin-homepage> \
-  --count 10 --sort latest --confirm-provider-cost --json
+  --count 10 --sort latest [--comments-per-video 20 --comment-video-limit 3] \
+  --confirm-provider-cost --json
 ```
 
 Return the internal account ID, accepted/rejected row counts, immutable Provider batch path,
-public-field warnings, report path, distillation path, and the next `validate` command. Never claim
-that homepage data includes private completion, watch-time, traffic-source, or audience fields.
+public-field warnings, optional redacted comment-analysis path, report path, distillation path, and
+the next `validate` command. Treat raw Provider comment pages as sensitive retained evidence and
+never claim that homepage data includes private completion, watch-time, traffic-source, or audience
+fields.
 
 ### Import data
 
@@ -358,10 +366,10 @@ uninstall this Skill.
 ## Current boundary
 
 Package `1.0.0` stabilizes the completed Phase 0–7 workflow. The main line adds Phase 8 collection
-schema `0.8.0` but remains pre-release until a real-token acceptance run passes. Phase 8 supports
+schema `0.8.1` but remains pre-release until a real-token acceptance run passes. Phase 8 supports
 only user-approved Douyin URLs through the documented TikHub API; it does not scrape platform pages,
-automate login, use cookies, handle CAPTCHA, or install a background collector. The first version
-does not collect comment text or download media. Phase 6 still ships no network vision client. The
-system does not auto-approve Level 4 rules: repeated controlled evidence and explicit human approval
-remain required. Do not fabricate visual/audio evidence, causality, authorization, or platform
-access.
+automate login, use cookies, handle CAPTCHA, or install a background collector. Public top-level
+comment sampling is optional, one-page-per-video, cost-bounded, and privacy-minimized; replies and
+media downloads remain unsupported. Phase 6 still ships no network vision client. The system does
+not auto-approve Level 4 rules: repeated controlled evidence and explicit human approval remain
+required. Do not fabricate visual/audio evidence, causality, authorization, or platform access.

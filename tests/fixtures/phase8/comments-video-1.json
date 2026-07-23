@@ -1,0 +1,32 @@
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "comments": [
+      {
+        "cid": "7500000000000000001",
+        "text": "带孩子入住有儿童拖鞋吗？",
+        "create_time": 1751414400,
+        "digg_count": 36,
+        "is_top": 1,
+        "user": {
+          "sec_uid": "guest-private-id-1",
+          "nickname": "住客甲"
+        }
+      },
+      {
+        "cid": "7500000000000000002",
+        "text": "有的，可以提前联系前台准备。",
+        "create_time": 1751418000,
+        "digg_count": 8,
+        "reply_id": "7500000000000000001",
+        "user": {
+          "sec_uid": "MS4wLjABAAAAhotel-demo",
+          "nickname": "示例酒店"
+        }
+      }
+    ],
+    "has_more": 1,
+    "cursor": 20
+  }
+}

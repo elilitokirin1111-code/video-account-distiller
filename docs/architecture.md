@@ -9,9 +9,10 @@ Douyin homepage URL
 AccountCollectionService → fixed-host authorized Provider
         │                   ├── URL → sec_user_id
         │                   ├── public account profile
-        │                   └── paginated public homepage posts
+        │                   ├── paginated public homepage posts
+        │                   └── optional bounded public comment samples
         ▼
-immutable raw Provider batch + canonical accounts/videos/metrics JSON
+immutable raw Provider batch + canonical accounts/videos/metrics/comments JSON
         │
         └──────────────────────────────────────────────┐
                                                        ▼
@@ -115,8 +116,9 @@ platform-control evasion.
   bounded retry, provider parsing, and table row contracts.
 - `collaboration/`: authorized export/import orchestration, normalized exports, idempotent Sync
   receipts, batch execution, snapshot planning, and credential-free team policy.
-- `collection/`: Douyin URL validation, fixed-host Provider access, bounded pagination, public-field
-  mapping, immutable response storage, and orchestration into the existing import/analysis kernel.
+- `collection/`: Douyin URL validation, fixed-host Provider access, bounded post/comment sampling,
+  public-field mapping, immutable response storage, and orchestration into the existing
+  import/analysis kernel.
 - `reports/`: null-safe account statistics, high/middle/low comparisons, evidence collection, and
   Jinja2 Markdown rendering.
 - `storage/`: project state, run manifests, atomic Parquet writes, and DuckDB views.

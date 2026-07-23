@@ -424,3 +424,15 @@ requirements from later phases.
 - **Reason:** Offline provider contracts prove deterministic behavior but cannot prove a live
   subscription, current provider payload, or account-specific availability. Version promotion
   should follow that final operational evidence rather than precede it.
+
+## ID-056 — Make public comment collection opt-in and cost-bounded
+
+- **Decision:** Keep homepage comment collection disabled by default. When explicitly requested,
+  sample at most 20 top-level comments from each of at most 10 already-collected videos, prioritizing
+  public comment count. Include every added comment page in dry-run call totals, preserve the raw
+  Provider page, hash author identifiers in canonical rows, and run the existing redacted comment
+  analysis before distillation.
+- **Reason:** Comment text materially improves pain-point, objection, and content-opportunity
+  analysis, but multiplies Provider calls and expands the personal-data footprint. A one-page,
+  high-signal, explicitly enabled sample creates predictable cost and privacy limits while reusing
+  the tested Phase 4 pipeline.

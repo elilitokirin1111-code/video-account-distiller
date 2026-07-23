@@ -53,12 +53,15 @@ def test_tikhub_provider_maps_and_paginates_documented_responses(
             _response(phase8 / "profile.json"),
             _response(phase8 / "posts-page-1.json"),
             _response(phase8 / "posts-page-2.json"),
+            _response(phase8 / "comments-video-1.json"),
         ]
     )
     request = AccountCollectionRequest(
         profile_url="https://www.douyin.com/user/MS4wLjABAAAAhotel-demo",
         count=3,
         sort=CollectionSort.LATEST,
+        comments_per_video=2,
+        comment_video_limit=1,
     )
 
     result = TikHubAccountProvider(executor=executor, sleep=lambda _: None).collect(request)
@@ -74,12 +77,23 @@ def test_tikhub_provider_maps_and_paginates_documented_responses(
     assert result.videos[0].hashtags == ["酒店", "旅行"]
     assert result.metrics[0].views == 260000
     assert "max_cursor=10" in str(executor.requests[3]["url"])
+    assert len(result.comments) == 2
+    assert result.comments[0].video_id == "7300000000000000001"
+    assert result.comments[0].author_hash is not None
+    assert result.comments[1].is_creator_reply is True
+    assert "fetch_video_comments" in str(executor.requests[4]["url"])
+    assert "aweme_id=7300000000000000001" in str(executor.requests[4]["url"])
+    assert "count=2" in str(executor.requests[4]["url"])
     assert all(
         request_item["headers"]["Authorization"] == "Bearer test-token-never-serialize"  # type: ignore[index]
         for request_item in executor.requests
     )
     assert "test-token-never-serialize" not in json.dumps(
         result.model_dump(mode="json"),
+        ensure_ascii=False,
+    )
+    assert "guest-private-id-1" not in json.dumps(
+        [comment.model_dump(mode="json") for comment in result.comments],
         ensure_ascii=False,
     )
 
@@ -108,6 +122,35 @@ def test_tikhub_provider_maps_http_auth_and_rate_limit_errors(
     with pytest.raises(DistillerError) as rate_error:
         limited.collect(request)
     assert rate_error.value.code == ErrorCode.RATE_LIMIT
+
+
+def test_optional_comment_failure_degrades_without_discarding_account_data(
+    fixtures_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TIKHUB_API_KEY", "test-token")
+    phase8 = fixtures_dir / "phase8"
+    executor = FakeHttpExecutor(
+        [
+            _response(phase8 / "resolve.json"),
+            _response(phase8 / "profile.json"),
+            _response(phase8 / "posts-page-1.json"),
+            HttpResponse(403, b"{}"),
+        ]
+    )
+    request = AccountCollectionRequest(
+        profile_url="https://www.douyin.com/user/MS4wLjABAAAAhotel-demo",
+        count=1,
+        comments_per_video=20,
+        comment_video_limit=1,
+    )
+
+    result = TikHubAccountProvider(executor=executor, sleep=lambda _: None).collect(request)
+
+    assert len(result.videos) == 1
+    assert result.comments == []
+    assert "comment_collection_degraded:E_ADAPTER_AUTH" in result.warnings
+    assert "provider_returned_no_usable_public_comments" in result.warnings
 
 
 def test_tikhub_provider_requires_credential(

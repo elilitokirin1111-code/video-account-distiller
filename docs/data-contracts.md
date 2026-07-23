@@ -6,7 +6,7 @@ Phase 4 comment/distillation schema version: `0.4.0`.
 Phase 5 scoring/prediction/Retro schema version: `0.5.0`.
 Phase 6 local media-analysis schema version: `0.6.0`.
 Phase 7 collaboration schema version: `0.7.0`.
-Phase 8 account-collection schema version: `0.8.0`.
+Phase 8 account-collection schema version: `0.8.1`.
 
 The authoritative planning dictionary is `docs/planning/04_DATA_SCHEMA.md`; executable contracts
 are Pydantic models in `src/video_account_distiller/models/core.py` and reject unknown fields.
@@ -205,18 +205,25 @@ do not claim that platform collection occurred.
 
 | Path | Contract | Identity |
 |---|---|---|
-| CLI request | `AccountCollectionRequest` | URL + count + sort + Provider |
+| CLI request | `AccountCollectionRequest` | URL + count + sort + bounded comment options + Provider |
 | Provider result | `AccountCollectionBatch` | strict provider-neutral batch |
 | `raw/account-collections/<provider>/<sha256>/provider-batch.json` | full batch and original pages | canonical payload SHA-256 |
 | `raw/account-collections/<provider>/<sha256>/accounts.json` | `CollectedAccount[]` | Provider account ID |
 | `raw/account-collections/<provider>/<sha256>/videos.json` | `CollectedVideo[]` | Provider video ID |
 | `raw/account-collections/<provider>/<sha256>/metrics.json` | `CollectedMetricSnapshot[]` | video ID + collection time |
+| `raw/account-collections/<provider>/<sha256>/comments.json` | optional `CollectedComment[]` | Provider comment ID |
 
 `AccountCollectionRequest` allows only HTTPS `douyin.com` hosts, no URL credentials, and no custom
-port. Counts are limited to 1～100. `Collected*` models contain only canonical fields accepted by
-the offline importer; Provider-specific aliases remain in `collection/providers.py`.
+port. Video counts are limited to 1～100. Comment sampling is disabled by default, capped at 20
+top-level comments for each of at most 10 high-comment collected videos, and adds at most one
+Provider call per sampled video. `Collected*` models contain only canonical fields accepted by the
+offline importer; Provider-specific aliases remain in `collection/providers.py`.
 
 Unknown public fields stay `null`. In particular, the current follower count is not substituted for
 `follower_count_at_publish`, and missing completion/watch-time data is not fabricated. The full
 Provider response is preserved before canonical rows enter the existing immutable import,
 Pydantic, staging, deduplication, Parquet, and evidence pipeline.
+
+Raw Provider comment pages may contain public usernames and source identifiers. Canonical
+`CollectedComment` rows retain only an `author_hash`; the importer and Phase 4 redaction pipeline
+remain the privacy boundary for normalized and reported comment data.

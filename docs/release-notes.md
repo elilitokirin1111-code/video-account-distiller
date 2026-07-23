@@ -10,6 +10,9 @@ changes.
 
 - Phase 8 collection schema `0.8.0` and strict request, canonical account/video/metric, raw-page,
   and Provider batch contracts.
+- Backward-compatible collection schema `0.8.1` with optional canonical comments, one-page
+  high-comment-video sampling, immutable comment companions, and automatic redacted comment
+  analysis before account distillation.
 - `distiller account analyze` for a user-approved Douyin homepage URL, bounded 1～100 post
   pagination, `latest`/`popular` order, no-network dry-run, and explicit paid-call confirmation.
 - Fixed-host TikHub Provider with environment-only credential, bounded retry, stable
@@ -23,6 +26,8 @@ changes.
 
 - The development Skill can now route user-approved public Douyin homepage analysis without using
   browser state, cookies, login automation, CAPTCHA handling, or direct platform-page scraping.
+- Comment sampling remains disabled by default; `--comments-per-video` and
+  `--comment-video-limit` add explicit bounded calls that are included in dry-run billing output.
 - Package and Skill remain `1.0.0` until a real-token paid acceptance run succeeds; existing core
   and Phase 2～7 artifact schemas are unchanged.
 

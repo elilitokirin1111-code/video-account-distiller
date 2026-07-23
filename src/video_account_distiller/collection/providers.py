@@ -22,6 +22,7 @@ from video_account_distiller.models import (
     AccountCollectionBatch,
     AccountCollectionRequest,
     CollectedAccount,
+    CollectedComment,
     CollectedMetricSnapshot,
     CollectedVideo,
     CollectionProviderKind,
@@ -29,11 +30,13 @@ from video_account_distiller.models import (
     ProviderRawPage,
     RetryPolicy,
 )
+from video_account_distiller.utils.hashing import hash_text
 
 TIKHUB_BASE_URLS = {"https://api.tikhub.dev", "https://api.tikhub.io"}
 RESOLVE_PATH = "/api/v1/douyin/web/get_sec_user_id"
 PROFILE_PATH = "/api/v1/douyin/app/v3/handler_user_profile"
 POSTS_PATH = "/api/v1/douyin/app/v3/fetch_user_post_videos"
+COMMENTS_PATH = "/api/v1/douyin/web/fetch_video_comments"
 
 
 class AccountCollectionProvider(Protocol):
@@ -228,6 +231,11 @@ def _text(value: object) -> str | None:
     return normalized or None
 
 
+def _optional_id(value: object) -> str | None:
+    normalized = _text(value)
+    return None if normalized in {None, "0"} else normalized
+
+
 def _nested(mapping: dict[str, Any], key: str) -> dict[str, Any]:
     return _mapping(mapping.get(key)) or {}
 
@@ -361,6 +369,41 @@ def _map_post(
     return video, metric
 
 
+def _map_comment(
+    comment: dict[str, Any],
+    *,
+    video_id: str,
+    platform_account_id: str,
+) -> CollectedComment | None:
+    comment_id = _optional_id(_first_present(comment, ("cid", "comment_id", "id")))
+    text = _text(_first_present(comment, ("text", "content", "comment_text")))
+    if comment_id is None or text is None:
+        return None
+    user = _nested(comment, "user")
+    author_id = _optional_id(_first_present(user, ("sec_uid", "uid", "unique_id", "short_id")))
+    pinned = _boolean(_first_present(comment, ("is_pinned", "is_top", "is_stick")))
+    if pinned is None:
+        stick_position = _nonnegative_int(comment.get("stick_position"))
+        pinned = stick_position > 0 if stick_position is not None else None
+    return CollectedComment(
+        platform_comment_id=comment_id,
+        video_id=video_id,
+        parent_comment_id=_optional_id(
+            _first_present(
+                comment,
+                ("parent_comment_id", "reply_id", "reply_to_comment_id"),
+            )
+        ),
+        author_hash=hash_text(author_id) if author_id is not None else None,
+        text=text,
+        created_at=_epoch(_first_present(comment, ("create_time", "created_at", "create_at"))),
+        like_count=_nonnegative_int(_first_present(comment, ("digg_count", "like_count"))),
+        is_creator_reply=(author_id == platform_account_id if author_id is not None else None),
+        is_pinned=pinned,
+        language=_text(comment.get("language")),
+    )
+
+
 class TikHubAccountProvider:
     """Collect public Douyin account metadata through the documented TikHub API."""
 
@@ -476,11 +519,66 @@ class TikHubAccountProvider:
             if not has_more or not items or next_cursor is None or next_cursor == cursor:
                 break
             cursor = next_cursor
-        warnings: list[str] = []
+        comments: list[CollectedComment] = []
+        sampled_comment_videos = 0
+        videos_without_comments = 0
+        comment_warnings: list[str] = []
+        if request.comments_per_video > 0:
+            comment_targets = sorted(
+                metrics,
+                key=lambda item: (
+                    item.comments is None,
+                    -(item.comments or 0),
+                    item.video_id,
+                ),
+            )[: request.comment_video_limit]
+            comment_seen: set[str] = set()
+            for target in comment_targets:
+                sampled_comment_videos += 1
+                try:
+                    comment_page = self._get(
+                        COMMENTS_PATH,
+                        {
+                            "aweme_id": target.video_id,
+                            "cursor": 0,
+                            "count": request.comments_per_video,
+                        },
+                        fetched_at=fetched_at,
+                    )
+                except DistillerError as exc:
+                    comment_warnings.append(f"comment_collection_degraded:{exc.code.value}")
+                    break
+                pages.append(comment_page)
+                comment_items = _first_list(
+                    _provider_data(comment_page.payload),
+                    ("comments", "comment_list", "items"),
+                )
+                accepted_for_video = 0
+                for item in comment_items[: request.comments_per_video]:
+                    mapped_comment = _map_comment(
+                        item,
+                        video_id=target.video_id,
+                        platform_account_id=platform_account_id,
+                    )
+                    if mapped_comment is None or mapped_comment.platform_comment_id in comment_seen:
+                        continue
+                    comment_seen.add(mapped_comment.platform_comment_id)
+                    comments.append(mapped_comment)
+                    accepted_for_video += 1
+                if accepted_for_video == 0:
+                    videos_without_comments += 1
+        warnings = comment_warnings
         if len(videos) < request.count:
             warnings.append("provider_returned_fewer_videos_than_requested")
         if any(metric.views is None for metric in metrics):
             warnings.append("some_public_view_counts_are_missing")
+        if request.comments_per_video > 0 and not comments:
+            warnings.append("provider_returned_no_usable_public_comments")
+        elif videos_without_comments:
+            warnings.append(
+                f"sampled_videos_without_usable_comments:{videos_without_comments}/"
+                f"{sampled_comment_videos}"
+            )
         return AccountCollectionBatch(
             provider=CollectionProviderKind.TIKHUB,
             profile_url=request.profile_url,
@@ -489,6 +587,7 @@ class TikHubAccountProvider:
             account=account,
             videos=videos,
             metrics=metrics,
+            comments=comments,
             raw_pages=pages,
             warnings=warnings,
         )
@@ -515,6 +614,8 @@ def build_collection_request(
     count: int,
     sort: CollectionSort,
     provider: CollectionProviderKind,
+    comments_per_video: int = 0,
+    comment_video_limit: int = 3,
 ) -> AccountCollectionRequest:
     """Convert validation failures into a stable public error contract."""
 
@@ -524,6 +625,8 @@ def build_collection_request(
             count=count,
             sort=sort,
             provider=provider,
+            comments_per_video=comments_per_video,
+            comment_video_limit=comment_video_limit,
         )
     except ValidationError as exc:
         raise DistillerError(

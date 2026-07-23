@@ -834,6 +834,11 @@ def validate_project(project: ProjectLayout, *, persist: bool = True) -> Quality
                 "videos.json": [item.model_dump(mode="json") for item in batch.videos],
                 "metrics.json": [item.model_dump(mode="json") for item in batch.metrics],
             }
+            comments_companion = path.parent / "comments.json"
+            if batch.comments or comments_companion.is_file():
+                companions["comments.json"] = [
+                    item.model_dump(mode="json") for item in batch.comments
+                ]
             for filename, expected in companions.items():
                 companion = path.parent / filename
                 if not companion.is_file() or sha256_json(read_json(companion)) != sha256_json(

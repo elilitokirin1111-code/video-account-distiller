@@ -30,23 +30,39 @@ uv run distiller validate --project <dir> --json
 Use `--sort popular` only when the user requests a popularity-oriented sample. Counts are 1–100;
 the default 10 matches a quick benchmark scan.
 
+Comment text is disabled by default. When the user needs pain-point, objection, or demand analysis,
+preview a bounded sample first:
+
+```bash
+uv run distiller account analyze --project <dir> --url <url> \
+  --count 20 --comments-per-video 20 --comment-video-limit 3 --dry-run --json
+```
+
+This adds at most one comment call for each sampled video. The Provider selects already-collected
+videos by visible comment count and reads only the first top-level comment page. After cost and
+retention approval, replace `--dry-run` with `--confirm-provider-cost`.
+
 ## Interpret
 
 The command returns:
 
 - public account profile and internal `acc_*` ID;
 - public videos and visible interaction snapshots;
+- optional public top-level comments from a bounded high-comment-video sample;
 - immutable Provider response and per-entity import quality;
 - normalized Parquet and account-local robust metrics;
 - account-health and distillation artifacts.
 
 Public homepage data usually lacks completion rate, average watch time, follower count at
-publication, comment text, traffic source, audience composition, and promotion truth. Preserve
-these as unknown. Do not substitute current followers for publication-time followers.
+publication, full comment coverage/reply trees, traffic source, audience composition, and
+promotion truth. Preserve these as unknown. Do not substitute current followers for
+publication-time followers.
 
-Expect `comment_analysis_missing` and low semantic-coverage warnings until the user adds authorized
-comments, subtitles, or local video analysis. Describe the initial output as quantitative homepage
-distillation, not full creative-semantic learning.
+Expect `comment_analysis_missing` when comment sampling is disabled or yields no usable rows, and
+expect low semantic-coverage warnings until the user adds subtitles or local video analysis.
+Describe the initial output as quantitative homepage distillation, not full creative-semantic
+learning. Raw comment pages may contain public identifiers; canonical rows retain only author
+hashes and analysis uses the existing direct-identifier redaction pipeline.
 
 ## Failure handling
 
@@ -56,6 +72,11 @@ distillation, not full creative-semantic learning.
 - `E_RATE_LIMIT`: preserve bounded retry behavior and retry later.
 - `E_ADAPTER_RESPONSE`: retain no invented data; update only the Provider mapping when a documented
   payload changes.
+
+If only the optional comment endpoint fails, expect
+`comment_collection_degraded:<E_* code>` in collection warnings. Stop further comment calls, keep
+the valid account/video/metric batch, and describe the result as quantitative-only rather than
+discarding the successful core collection.
 
 For first live acceptance, use 10 videos, validate the project, manually compare three public posts,
 and verify that outputs and Git contain no credential or authorization header.

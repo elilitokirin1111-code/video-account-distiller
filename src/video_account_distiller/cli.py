@@ -194,6 +194,20 @@ def account_analyze_command(
     url: str = typer.Option(..., "--url", help="Public Douyin account homepage URL."),
     count: int = typer.Option(10, "--count", min=1, max=100),
     sort: CollectionSort = typer.Option(CollectionSort.LATEST, "--sort"),
+    comments_per_video: int = typer.Option(
+        0,
+        "--comments-per-video",
+        min=0,
+        max=20,
+        help="Collect up to this many public comments from each sampled video; 0 disables.",
+    ),
+    comment_video_limit: int = typer.Option(
+        3,
+        "--comment-video-limit",
+        min=1,
+        max=10,
+        help="Maximum high-comment videos sampled when comment collection is enabled.",
+    ),
     provider: CollectionProviderKind = typer.Option(
         CollectionProviderKind.TIKHUB,
         "--provider",
@@ -218,6 +232,8 @@ def account_analyze_command(
             count=count,
             sort=sort,
             provider=provider,
+            comments_per_video=comments_per_video,
+            comment_video_limit=comment_video_limit,
         )
         layout = ProjectLayout.open(project)
         collection_provider = build_account_provider(provider)
@@ -235,7 +251,7 @@ def account_analyze_command(
         collection = result["collection"]
         human = (
             f"Analyzed {account['display_name'] or account['account_id']}: "
-            f"{collection['videos']} videos; "
+            f"{collection['videos']} videos, {collection['comments']} comments; "
             f"{result['distillation']['outputs'][0]}"
         )
     _emit(result, json_output=json_output, human=human)

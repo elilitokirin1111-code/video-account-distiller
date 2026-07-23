@@ -23,8 +23,10 @@ homepage after explicit cost confirmation.
   access controls as raw exports.
 - Phase 7 provider pages are copied under `raw/collaboration/` before mapping. They may include
   collaboration-only fields or personal data and require the same access controls as raw exports.
-- Phase 8 public account batches are copied under `raw/account-collections/` before mapping. Public
-  availability does not make them unrestricted; apply the user's retention and sharing policy.
+- Phase 8 public account batches are copied under `raw/account-collections/` before mapping. When
+  optional comment sampling is enabled, raw pages may include public usernames and identifiers.
+  Public availability does not make them unrestricted; apply the user's retention and sharing
+  policy.
 
 ## Comment privacy
 
@@ -79,7 +81,8 @@ not credentials.
 
 Phase 8 reads `TIKHUB_API_KEY` only from the process environment and allows only
 `api.tikhub.dev`/`api.tikhub.io`. Dry-run makes no request. Real calls require explicit cost
-confirmation, and outputs never contain the token or authorization header.
+confirmation, and outputs never contain the token or authorization header. Comment collection is
+off by default and independently bounded by per-video and sampled-video caps.
 
 ## Platform compliance
 

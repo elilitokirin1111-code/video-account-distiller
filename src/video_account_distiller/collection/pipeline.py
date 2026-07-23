@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from video_account_distiller.collection.providers import AccountCollectionProvider
+from video_account_distiller.comments import CommentAnalysisService
 from video_account_distiller.distillation import AccountDistillationService
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.ingestion import ImportService
@@ -67,6 +68,26 @@ class AccountCollectionService:
 
         if dry_run:
             page_count = (request.count + 19) // 20
+            comment_calls = (
+                min(request.count, request.comment_video_limit)
+                if request.comments_per_video > 0
+                else 0
+            )
+            would_write = [
+                "raw/account-collections/",
+                "staging/accounts/",
+                "staging/videos/",
+                "staging/metrics/",
+                "normalized/*.parquet",
+                "reports/accounts/",
+            ]
+            if comment_calls:
+                would_write.extend(
+                    [
+                        "staging/comments/",
+                        "analyses/comments/",
+                    ]
+                )
             return {
                 "ok": True,
                 "dry_run": True,
@@ -75,16 +96,15 @@ class AccountCollectionService:
                     "resolve_profile_url": 1,
                     "account_profile": 1,
                     "homepage_post_pages_max": page_count,
-                    "total_max": page_count + 2,
+                    "comment_video_pages_max": comment_calls,
+                    "total_max": page_count + comment_calls + 2,
                 },
-                "would_write": [
-                    "raw/account-collections/",
-                    "staging/accounts/",
-                    "staging/videos/",
-                    "staging/metrics/",
-                    "normalized/*.parquet",
-                    "reports/accounts/",
-                ],
+                "billing": {
+                    "chargeable_calls_max": page_count + comment_calls + 2,
+                    "unit_price": "check the provider marketplace for each endpoint",
+                    "currency": "provider_account_currency",
+                },
+                "would_write": would_write,
             }
         if not confirm_provider_cost:
             raise DistillerError(
@@ -112,21 +132,27 @@ class AccountCollectionService:
         account_path = batch_dir / "accounts.json"
         videos_path = batch_dir / "videos.json"
         metrics_path = batch_dir / "metrics.json"
+        comments_path = batch_dir / "comments.json"
         account_rows = [batch.account.model_dump(mode="json")]
         video_rows = [item.model_dump(mode="json") for item in batch.videos]
         metric_rows = [item.model_dump(mode="json") for item in batch.metrics]
+        comment_rows = [item.model_dump(mode="json") for item in batch.comments]
         _write_immutable_json(raw_path, batch_payload)
         _write_immutable_json(account_path, account_rows)
         _write_immutable_json(videos_path, video_rows)
         _write_immutable_json(metrics_path, metric_rows)
+        if comment_rows:
+            _write_immutable_json(comments_path, comment_rows)
 
         importer = ImportService(self.project)
         imports: dict[str, Any] = {}
-        sources: tuple[tuple[EntityName, Path], ...] = (
+        sources: list[tuple[EntityName, Path]] = [
             ("accounts", account_path),
             ("videos", videos_path),
             ("metrics", metrics_path),
-        )
+        ]
+        if comment_rows:
+            sources.append(("comments", comments_path))
         for entity, source in sources:
             receipt, quality, already_imported = importer.import_file(
                 entity=entity,
@@ -148,6 +174,11 @@ class AccountCollectionService:
         normalization = NormalizationService(self.project).normalize()
         metrics = MetricsService(self.project).calculate(account_id=account_id)
         report = ReportService(self.project).generate_account_health(account_id=account_id)
+        comment_analysis = (
+            CommentAnalysisService(self.project).analyze(account_id=account_id)
+            if batch.comments
+            else None
+        )
         distillation = AccountDistillationService(self.project).distill(account_id=account_id)
         return {
             "ok": True,
@@ -165,6 +196,8 @@ class AccountCollectionService:
                 "fetched_at": batch.fetched_at.isoformat(),
                 "videos": len(batch.videos),
                 "metrics": len(batch.metrics),
+                "comments": len(batch.comments),
+                "comment_videos": len({item.video_id for item in batch.comments}),
                 "raw_artifact": self.project.relative(raw_path),
                 "warnings": batch.warnings,
             },
@@ -172,5 +205,6 @@ class AccountCollectionService:
             "normalization": normalization,
             "metrics": metrics,
             "report": report,
+            "comment_analysis": comment_analysis,
             "distillation": distillation,
         }

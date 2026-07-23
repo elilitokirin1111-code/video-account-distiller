@@ -48,6 +48,8 @@ class AccountCollectionRequest(StrictModel):
     count: int = Field(default=10, ge=1, le=100)
     sort: CollectionSort = CollectionSort.LATEST
     provider: CollectionProviderKind = CollectionProviderKind.TIKHUB
+    comments_per_video: int = Field(default=0, ge=0, le=20)
+    comment_video_limit: int = Field(default=3, ge=1, le=10)
 
     @field_validator("profile_url")
     @classmethod
@@ -139,6 +141,26 @@ class CollectedMetricSnapshot(StrictModel):
         return _timezone_aware(value)
 
 
+class CollectedComment(StrictModel):
+    """Privacy-minimized public comment row compatible with the offline importer."""
+
+    platform_comment_id: str = Field(min_length=1)
+    video_id: str = Field(min_length=1)
+    parent_comment_id: str | None = None
+    author_hash: str | None = None
+    text: str
+    created_at: datetime | None = None
+    like_count: int | None = Field(default=None, ge=0)
+    is_creator_reply: bool | None = None
+    is_pinned: bool | None = None
+    language: str | None = None
+
+    @field_validator("created_at")
+    @classmethod
+    def require_timezone(cls, value: datetime | None) -> datetime | None:
+        return _timezone_aware(value)
+
+
 class ProviderRawPage(StrictModel):
     """One immutable provider response retained for audit and reprocessing."""
 
@@ -163,6 +185,7 @@ class AccountCollectionBatch(StrictModel):
     account: CollectedAccount
     videos: list[CollectedVideo]
     metrics: list[CollectedMetricSnapshot]
+    comments: list[CollectedComment] = Field(default_factory=list)
     raw_pages: list[ProviderRawPage] = Field(min_length=1)
     warnings: list[str] = Field(default_factory=list)
 
@@ -185,4 +208,9 @@ class AccountCollectionBatch(StrictModel):
             raise ValueError("collected metric video IDs must be unique")
         if set(metric_ids) != set(video_ids):
             raise ValueError("collected metrics must match collected videos exactly")
+        comment_ids = [comment.platform_comment_id for comment in self.comments]
+        if len(comment_ids) != len(set(comment_ids)):
+            raise ValueError("collected comment IDs must be unique")
+        if any(comment.video_id not in video_ids for comment in self.comments):
+            raise ValueError("every collected comment must belong to a collected video")
         return self

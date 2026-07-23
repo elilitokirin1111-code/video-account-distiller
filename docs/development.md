@@ -207,6 +207,9 @@ fallback is:
 python /path/to/skill-creator/scripts/quick_validate.py skills/video-account-distiller
 ```
 
+On Windows with a non-UTF-8 system locale, set `PYTHONUTF8=1` or add `python -X utf8` so the
+validator can read Chinese Skill text.
+
 ## Stable release acceptance
 
 Before tagging a stable version:
