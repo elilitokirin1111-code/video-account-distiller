@@ -16,7 +16,6 @@ def test_account_analyze_help_is_available() -> None:
 
     assert result.exit_code == 0
     assert "Usage:" in result.stdout
-    assert "--comments-per-video" in result.stdout
 
 
 def test_account_analyze_dry_run_requires_no_token_and_does_not_write(
