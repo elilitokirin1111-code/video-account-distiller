@@ -214,10 +214,13 @@ do not claim that platform collection occurred.
 | `raw/account-collections/<provider>/<sha256>/comments.json` | optional `CollectedComment[]` | Provider comment ID |
 
 `AccountCollectionRequest` allows only HTTPS `douyin.com` hosts, no URL credentials, and no custom
-port. Video counts are limited to 1～100. Comment sampling is disabled by default, capped at 20
-top-level comments for each of at most 10 high-comment collected videos, and adds at most one
-Provider call per sampled video. `Collected*` models contain only canonical fields accepted by the
-offline importer; Provider-specific aliases remain in `collection/providers.py`.
+port. Video counts are limited to 1～100. The default Provider is `mediacrawler`; `tikhub` is an
+explicit alternative. Comment sampling defaults to 10 top-level comments for each of at most three
+high-comment collected videos, is capped at 20 comments for each of at most 10 videos, and can be
+disabled with `comments_per_video=0`. `Collected*` models contain only canonical fields accepted by
+the offline importer; Provider-specific execution remains in `collection/mediacrawler.py` or
+`collection/providers.py`, while canonical aliases stay centralized in the collection mapping
+helpers.
 
 Unknown public fields stay `null`. In particular, the current follower count is not substituted for
 `follower_count_at_publish`, and missing completion/watch-time data is not fabricated. The full

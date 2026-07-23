@@ -17,6 +17,10 @@ changes.
   pagination, `latest`/`popular` order, no-network dry-run, and explicit paid-call confirmation.
 - Fixed-host TikHub Provider with environment-only credential, bounded retry, stable
   authorization/rate-limit/response errors, and injectable offline HTTP tests.
+- Pinned `NanmiCoder/MediaCrawler` Git submodule and controlled sidecar Provider for the declared
+  personal non-commercial learning/research workflow.
+- Visible dedicated Chrome profile with manual authentication, stable runtime/login/timeout errors,
+  offline bridge Fixtures, and a third-party licensing notice.
 - Immutable Provider batches and canonical companions under `raw/account-collections/`, routed
   through the existing import, Parquet, robust-metric, report, and account-distillation services.
 - Phase 8 project validation, status counters, `doctor` capability, offline Fixtures, CLI/provider
@@ -24,10 +28,13 @@ changes.
 
 ### Changed
 
-- The development Skill can now route user-approved public Douyin homepage analysis without using
-  browser state, cookies, login automation, CAPTCHA handling, or direct platform-page scraping.
-- Comment sampling remains disabled by default; `--comments-per-video` and
-  `--comment-video-limit` add explicit bounded calls that are included in dry-run billing output.
+- The default `account analyze` provider is now MediaCrawler and the command completes collection,
+  immutable import, Parquet/DuckDB normalization, metrics, comment analysis, reporting, and
+  distillation in one run. TikHub remains available through `--provider tikhub`.
+- Comment sampling defaults to 10 comments from each of at most three high-comment collected
+  videos; `--comments-per-video 0` disables it.
+- Only the controlled MediaCrawler bridge is approved: visible Chrome and manual authentication,
+  with no proxy, stealth, automatic-login, CAPTCHA, or risk-control-evasion features.
 - TikHub Douyin homepage posts now default to the welcome-credit-compatible Web endpoint. Operators
   with paid credit can opt into the more stable APP V3 endpoint with
   `TIKHUB_DOUYIN_POSTS_MODE=app-v3`; there is no automatic paid fallback.

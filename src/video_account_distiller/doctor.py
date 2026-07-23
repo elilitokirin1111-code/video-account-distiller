@@ -9,6 +9,10 @@ import sys
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
+from video_account_distiller.collection.mediacrawler import (
+    chrome_executable,
+    mediacrawler_runtime_available,
+)
 from video_account_distiller.models.system import (
     CapabilityDiagnostic,
     DoctorReport,
@@ -43,6 +47,11 @@ def _executable(name: str) -> RuntimeExecutable:
     return RuntimeExecutable(name=name, available=path is not None, path=path)
 
 
+def _chrome() -> RuntimeExecutable:
+    path = chrome_executable()
+    return RuntimeExecutable(name="chrome", available=path is not None, path=path)
+
+
 def _project_diagnostic(path: Path) -> ProjectDiagnostic:
     root = path.expanduser().resolve()
     exists = root.is_dir()
@@ -74,7 +83,13 @@ def doctor_report(project: Path | None = None) -> DoctorReport:
     """Inspect a local installation without changing project or credential state."""
 
     dependencies = [_dependency(name) for name in REQUIRED_DEPENDENCIES]
-    executables = [_executable("ffmpeg"), _executable("ffprobe")]
+    executables = [
+        _executable("ffmpeg"),
+        _executable("ffprobe"),
+        _executable("node"),
+        _executable("uv"),
+        _chrome(),
+    ]
     executable_state = {item.name: item.available for item in executables}
     python_supported = sys.version_info >= (3, 11)
     core_ready = python_supported and all(item.version is not None for item in dependencies)
@@ -97,6 +112,12 @@ def doctor_report(project: Path | None = None) -> DoctorReport:
         capabilities=CapabilityDiagnostic(
             core=core_ready,
             local_media=executable_state["ffmpeg"] and executable_state["ffprobe"],
+            mediacrawler_douyin=(
+                mediacrawler_runtime_available()
+                and executable_state["node"]
+                and executable_state["uv"]
+                and executable_state["chrome"]
+            ),
             tikhub_douyin=bool(os.environ.get("TIKHUB_API_KEY")),
             feishu_bitable=bool(os.environ.get("FEISHU_BITABLE_TOKEN")),
             google_sheets=bool(os.environ.get("GOOGLE_SHEETS_TOKEN")),

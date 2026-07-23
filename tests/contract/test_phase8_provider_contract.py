@@ -8,7 +8,12 @@ import pytest
 from video_account_distiller.adapters.collaboration import HttpResponse
 from video_account_distiller.collection import TikHubAccountProvider
 from video_account_distiller.errors import DistillerError, ErrorCode
-from video_account_distiller.models import AccountCollectionRequest, CollectionSort, RetryPolicy
+from video_account_distiller.models import (
+    AccountCollectionRequest,
+    CollectionProviderKind,
+    CollectionSort,
+    RetryPolicy,
+)
 
 
 class FakeHttpExecutor:
@@ -61,6 +66,7 @@ def test_tikhub_provider_maps_and_paginates_documented_responses(
         profile_url="https://www.douyin.com/user/MS4wLjABAAAAhotel-demo",
         count=3,
         sort=CollectionSort.LATEST,
+        provider=CollectionProviderKind.TIKHUB,
         comments_per_video=2,
         comment_video_limit=1,
     )
@@ -120,6 +126,8 @@ def test_tikhub_provider_can_opt_into_paid_app_posts_endpoint(
         profile_url="https://www.douyin.com/user/MS4wLjABAAAAhotel-demo",
         count=1,
         sort=CollectionSort.POPULAR,
+        provider=CollectionProviderKind.TIKHUB,
+        comments_per_video=0,
     )
 
     result = TikHubAccountProvider(
@@ -149,6 +157,7 @@ def test_tikhub_provider_maps_http_auth_and_rate_limit_errors(
     request = AccountCollectionRequest(
         profile_url="https://www.douyin.com/user/demo",
         count=1,
+        provider=CollectionProviderKind.TIKHUB,
     )
     auth = TikHubAccountProvider(
         executor=FakeHttpExecutor([HttpResponse(401, b"{}")]),
@@ -185,6 +194,7 @@ def test_optional_comment_failure_degrades_without_discarding_account_data(
     request = AccountCollectionRequest(
         profile_url="https://www.douyin.com/user/MS4wLjABAAAAhotel-demo",
         count=1,
+        provider=CollectionProviderKind.TIKHUB,
         comments_per_video=20,
         comment_video_limit=1,
     )
@@ -208,6 +218,7 @@ def test_tikhub_provider_requires_credential(
             AccountCollectionRequest(
                 profile_url="https://www.douyin.com/user/demo",
                 count=1,
+                provider=CollectionProviderKind.TIKHUB,
             )
         )
 

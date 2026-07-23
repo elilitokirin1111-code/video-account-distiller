@@ -16,6 +16,7 @@ from video_account_distiller.version import COLLECTION_SCHEMA_VERSION
 class CollectionProviderKind(StrEnum):
     """Supported authorized account collection providers."""
 
+    MEDIACRAWLER = "mediacrawler"
     TIKHUB = "tikhub"
 
 
@@ -47,8 +48,8 @@ class AccountCollectionRequest(StrictModel):
     profile_url: str = Field(min_length=1, max_length=2048)
     count: int = Field(default=10, ge=1, le=100)
     sort: CollectionSort = CollectionSort.LATEST
-    provider: CollectionProviderKind = CollectionProviderKind.TIKHUB
-    comments_per_video: int = Field(default=0, ge=0, le=20)
+    provider: CollectionProviderKind = CollectionProviderKind.MEDIACRAWLER
+    comments_per_video: int = Field(default=10, ge=0, le=20)
     comment_video_limit: int = Field(default=3, ge=1, le=10)
 
     @field_validator("profile_url")

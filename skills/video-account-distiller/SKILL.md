@@ -1,13 +1,13 @@
 ---
 name: video-account-distiller
-description: "Initialize, collect, import, validate, normalize, analyze, distill, compare, score, predict, register, and retrospect on video accounts from user-approved Douyin homepage URLs, offline exports, explicitly authorized Feishu Bitable or Google Sheets data, local media, scripts, transcripts, comments, and metrics. Use for 抖音主页链接一键解析、账号拆解或蒸馏、授权导出导入、正式环境验收、飞书或 Google Sheets 同步、批量任务、本地视频分析、评论需求、内容模式、对标迁移、脚本评分、发布预测或复盘，with immutable raw evidence, robust metrics, stable errors, and explicit Provider cost/credential controls."
+description: "Initialize, collect, import, validate, normalize, analyze, distill, compare, score, predict, register, and retrospect on video accounts from user-approved Douyin homepage URLs, offline exports, explicitly authorized Feishu Bitable or Google Sheets data, local media, scripts, transcripts, comments, and metrics. Use for 抖音主页链接一键解析、MediaCrawler 本地非商业研究采集、TikHub 可选 API 采集、账号拆解或蒸馏、正式环境验收、批量任务、本地视频分析、评论需求、内容模式、对标迁移、脚本评分、发布预测或复盘，with immutable raw evidence, robust metrics, stable errors, manual-browser authentication boundaries, and explicit paid-Provider controls."
 ---
 
 # Video Account Distiller
 
 Use the Python package and `distiller` CLI for deterministic work. Keep source exports immutable.
 Perform Phase 0–6 tasks offline, Phase 7 table sync only with explicit authorization, and Phase 8
-homepage collection only through the documented fixed-host Provider after explicit cost approval.
+homepage collection only through the bounded MediaCrawler or TikHub adapters.
 
 ## Load references
 
@@ -57,9 +57,10 @@ homepage collection only through the documented fixed-host Provider after explic
 - Compare raw performance only within the same account/platform context. Use account-local robust
   metrics for ranking.
 - Emit machine JSON to stdout and logs/errors to stderr. Preserve stable `E_*` error codes.
-- Access only a user-approved documented fixed-host Provider, official table API, or user-provided
-  export. Never automate login, bypass CAPTCHA/rate limits/risk controls, scrape platform pages,
-  reuse browser sessions, or start a browser. Never upload media in local mode. Keep tokens in
+- Access only a user-approved bounded Provider, official table API, or user-provided export. The
+  MediaCrawler adapter may start its dedicated visible Chrome profile; require the user to perform
+  login or verification manually. Never automate credentials/CAPTCHA, invoke proxy or stealth
+  features, or bypass rate limits/risk controls. Never upload media in local mode. Keep tokens in
   environment variables only.
 
 ## Route tasks
@@ -76,7 +77,8 @@ distiller doctor --project <dir> --json
 ```
 
 Treat `doctor` as read-only. Report core readiness separately from optional local-media,
-TikHub-Douyin, Feishu-Bitable, and Google-Sheets capabilities. Never print credential values.
+MediaCrawler-Douyin, TikHub-Douyin, Feishu-Bitable, and Google-Sheets capabilities. Never print
+credential values or browser-session data.
 
 ### Initialize
 
@@ -90,27 +92,26 @@ Do not overwrite existing config or state. Return the created paths and next imp
 
 ### Analyze a Douyin account homepage
 
-Read `references/account-url-collection.md`. Always preview before a paid call:
+Read `references/account-url-collection.md`. Always preview first:
 
 ```bash
 uv run distiller account analyze --project <dir> --url <douyin-homepage> \
   --count 10 --sort latest --dry-run --json
 ```
 
-Keep comment sampling disabled unless the user wants audience-demand analysis. When requested, add
-`--comments-per-video <1-20> --comment-video-limit <1-10>` to the preview. Explain that each sampled
-video adds at most one Provider call and that the command prioritizes collected videos with higher
-public comment counts.
-
-Require the user to approve the public account, expected call count, Provider cost, and retention.
-Require `TIKHUB_API_KEY` in the local environment; never ask the user to paste it into chat or a
-project file. Then run:
+Require the user to approve the public account and retention scope. The CLI defaults to the pinned
+MediaCrawler research Provider and a bounded 10-comment sample from at most three high-comment
+videos. Use `--comments-per-video 0` when the user requests a smaller data scope. Then run:
 
 ```bash
 uv run distiller account analyze --project <dir> --url <douyin-homepage> \
-  --count 10 --sort latest [--comments-per-video 20 --comment-video-limit 3] \
-  --confirm-provider-cost --json
+  --count 10 --sort latest --json
 ```
+
+On first use, allow the pinned sidecar environment to prepare and a visible Chrome window to open.
+The user must manually complete login or platform verification. For TikHub, require
+`--provider tikhub`, an environment-only `TIKHUB_API_KEY`, a dry-run billing preview, and
+`--confirm-provider-cost`.
 
 Return the internal account ID, accepted/rejected row counts, immutable Provider batch path,
 public-field warnings, optional redacted comment-analysis path, report path, distillation path, and
@@ -366,10 +367,12 @@ uninstall this Skill.
 ## Current boundary
 
 Package `1.0.0` stabilizes the completed Phase 0–7 workflow. The main line adds Phase 8 collection
-schema `0.8.1` but remains pre-release until a real-token acceptance run passes. Phase 8 supports
-only user-approved Douyin URLs through the documented TikHub API; it does not scrape platform pages,
-automate login, use cookies, handle CAPTCHA, or install a background collector. Public top-level
-comment sampling is optional, one-page-per-video, cost-bounded, and privacy-minimized; replies and
-media downloads remain unsupported. Phase 6 still ships no network vision client. The system does
-not auto-approve Level 4 rules: repeated controlled evidence and explicit human approval remain
-required. Do not fabricate visual/audio evidence, causality, authorization, or platform access.
+schema `0.8.1` and a complete homepage-to-distillation workflow. The default provider is the pinned
+MediaCrawler source for declared personal non-commercial research; preserve its third-party notice
+and reassess authorization before commercial use. Only the controlled bridge is approved: visible
+Chrome, dedicated profile, manual authentication, bounded posts/comments, and no proxy, stealth,
+automatic login, CAPTCHA, or risk-control-evasion features. TikHub remains an optional paid API
+provider. Replies and media downloads remain unsupported. Phase 6 still ships no network vision
+client. The system does not auto-approve Level 4 rules; repeated controlled evidence and explicit
+human approval remain required. Do not fabricate visual/audio evidence, causality, authorization,
+or platform access.

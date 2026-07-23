@@ -178,25 +178,29 @@ classification. The automated suite must remain network-disabled.
 
 ## Phase 8 smoke test
 
-Keep automated tests network-disabled and inject `HttpResponse` Fixtures for URL resolution,
-profile, and paginated posts. Verify URL/host rejection, latest/popular ordering, pagination,
-unknown-vs-zero mapping, authorization, bounded 429 handling, no token leakage, cost confirmation,
-immutable companion validation, and full URL-to-distillation orchestration.
+Keep automated tests network-disabled. Inject bridge-result Fixtures for MediaCrawler and
+`HttpResponse` Fixtures for TikHub. Verify URL rejection, latest/popular ordering, pagination,
+unknown-vs-zero mapping, manual-login errors, missing runtime, authorization, bounded 429 handling,
+no secret leakage, TikHub cost confirmation, immutable companion validation, and full
+URL-to-distillation orchestration.
 
-For a separately approved live acceptance, set `TIKHUB_API_KEY` only in the local environment and
-run:
+For a separately approved live MediaCrawler acceptance, initialize the submodule, run `doctor`, and
+then run:
 
 ```bash
+git submodule update --init --recursive
+uv run distiller doctor --json
 uv run distiller account analyze --project ./demo-project \
   --url <approved-douyin-homepage> --count 10 --dry-run --json
 uv run distiller account analyze --project ./demo-project \
-  --url <approved-douyin-homepage> --count 10 \
-  --confirm-provider-cost --json
+  --url <approved-douyin-homepage> --count 10 --json
 uv run distiller validate --project ./demo-project --json
 ```
 
-Manually compare three public posts and inspect logs/Git for secrets. Do not tag a new stable
-version until the live Provider payload, counts, billing, validation, and secret checks pass.
+Complete login or platform verification manually in visible Chrome. Manually compare three public
+posts and inspect logs/Git for credentials, Cookie content, or browser-profile files. Test TikHub
+separately with `--provider tikhub` only when cost has been approved. Do not tag a new stable version
+until live Provider payload, count, validation, scope, licensing, and secret checks pass.
 
 ## Skill validation
 

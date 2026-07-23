@@ -623,6 +623,12 @@ def build_account_provider(
 ) -> AccountCollectionProvider:
     """Build one account provider behind a stable CLI-facing factory."""
 
+    if kind == CollectionProviderKind.MEDIACRAWLER:
+        from video_account_distiller.collection.mediacrawler import (
+            MediaCrawlerAccountProvider,
+        )
+
+        return MediaCrawlerAccountProvider()
     if kind == CollectionProviderKind.TIKHUB:
         return TikHubAccountProvider(executor=executor)
     raise DistillerError(

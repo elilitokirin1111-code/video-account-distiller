@@ -195,7 +195,7 @@ def account_analyze_command(
     count: int = typer.Option(10, "--count", min=1, max=100),
     sort: CollectionSort = typer.Option(CollectionSort.LATEST, "--sort"),
     comments_per_video: int = typer.Option(
-        0,
+        10,
         "--comments-per-video",
         min=0,
         max=20,
@@ -209,19 +209,20 @@ def account_analyze_command(
         help="Maximum high-comment videos sampled when comment collection is enabled.",
     ),
     provider: CollectionProviderKind = typer.Option(
-        CollectionProviderKind.TIKHUB,
+        CollectionProviderKind.MEDIACRAWLER,
         "--provider",
+        help="Collection engine. MediaCrawler is the local non-commercial research default.",
     ),
     confirm_provider_cost: bool = typer.Option(
         False,
         "--confirm-provider-cost",
-        help="Confirm that the authorized provider may charge for API calls.",
+        help="Required only for providers that may charge for API calls, such as TikHub.",
     ),
     json_output: bool = typer.Option(False, "--json"),
     dry_run: bool = typer.Option(
         False,
         "--dry-run",
-        help="Validate and show maximum API calls without credentials or writes.",
+        help="Validate and show bounded collection work without opening a browser or writing.",
     ),
 ) -> None:
     """Turn one Douyin homepage URL into normalized metrics and account distillation."""

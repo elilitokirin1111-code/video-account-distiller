@@ -12,7 +12,12 @@ from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.ingestion import ImportService
 from video_account_distiller.ingestion.importer import EntityName
 from video_account_distiller.metrics import MetricsService
-from video_account_distiller.models import AccountCollectionRequest, ImportReceipt, Platform
+from video_account_distiller.models import (
+    AccountCollectionRequest,
+    CollectionProviderKind,
+    ImportReceipt,
+    Platform,
+)
 from video_account_distiller.normalization import NormalizationService
 from video_account_distiller.quality import QualityReport
 from video_account_distiller.reports import ReportService
@@ -67,10 +72,24 @@ class AccountCollectionService:
         """Collect one homepage and create account-health and distillation artifacts."""
 
         if dry_run:
-            page_count = (request.count + 19) // 20
+            page_size = 18 if request.provider == CollectionProviderKind.MEDIACRAWLER else 20
+            collection_count = (
+                min(max(request.count * 3, request.count), 100)
+                if (
+                    request.provider == CollectionProviderKind.MEDIACRAWLER
+                    and request.sort.value == "popular"
+                )
+                else request.count
+            )
+            page_count = (collection_count + page_size - 1) // page_size
             comment_calls = (
                 min(request.count, request.comment_video_limit)
                 if request.comments_per_video > 0
+                else 0
+            )
+            detail_calls = (
+                collection_count
+                if request.provider == CollectionProviderKind.MEDIACRAWLER
                 else 0
             )
             would_write = [
@@ -96,17 +115,42 @@ class AccountCollectionService:
                     "resolve_profile_url": 1,
                     "account_profile": 1,
                     "homepage_post_pages_max": page_count,
+                    "video_detail_calls_max": detail_calls,
                     "comment_video_pages_max": comment_calls,
-                    "total_max": page_count + comment_calls + 2,
+                    "total_max": page_count + detail_calls + comment_calls + 2,
                 },
                 "billing": {
-                    "chargeable_calls_max": page_count + comment_calls + 2,
-                    "unit_price": "check the provider marketplace for each endpoint",
-                    "currency": "provider_account_currency",
+                    "chargeable_calls_max": (
+                        0
+                        if request.provider == CollectionProviderKind.MEDIACRAWLER
+                        else page_count + comment_calls + 2
+                    ),
+                    "unit_price": (
+                        "none; local non-commercial research runtime"
+                        if request.provider == CollectionProviderKind.MEDIACRAWLER
+                        else "check the provider marketplace for each endpoint"
+                    ),
+                    "currency": (
+                        None
+                        if request.provider == CollectionProviderKind.MEDIACRAWLER
+                        else "provider_account_currency"
+                    ),
                 },
+                "runtime": (
+                    {
+                        "browser": "visible Chrome with a dedicated persistent profile",
+                        "login": "manual when required",
+                        "first_run": "uv prepares the pinned MediaCrawler environment",
+                    }
+                    if request.provider == CollectionProviderKind.MEDIACRAWLER
+                    else None
+                ),
                 "would_write": would_write,
             }
-        if not confirm_provider_cost:
+        if (
+            request.provider == CollectionProviderKind.TIKHUB
+            and not confirm_provider_cost
+        ):
             raise DistillerError(
                 ErrorCode.PROVIDER_COST_CONFIRMATION_REQUIRED,
                 "Paid provider calls require explicit cost confirmation",

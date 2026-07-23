@@ -40,7 +40,13 @@ def test_account_analyze_dry_run_requires_no_token_and_does_not_write(
     payload = json.loads(result.stdout)
     assert result.exit_code == 0
     assert payload["dry_run"] is True
-    assert payload["provider_calls"]["total_max"] == 4
+    assert payload["request"]["provider"] == "mediacrawler"
+    assert payload["provider_calls"]["homepage_post_pages_max"] == 2
+    assert payload["provider_calls"]["video_detail_calls_max"] == 25
+    assert payload["provider_calls"]["comment_video_pages_max"] == 3
+    assert payload["provider_calls"]["total_max"] == 32
+    assert payload["billing"]["chargeable_calls_max"] == 0
+    assert payload["runtime"]["login"] == "manual when required"
     assert not list((project.root / "raw" / "account-collections").rglob("*.json"))
 
 
@@ -70,9 +76,10 @@ def test_account_analyze_dry_run_includes_bounded_comment_calls(
     payload = json.loads(result.stdout)
     assert result.exit_code == 0
     assert payload["provider_calls"]["homepage_post_pages_max"] == 2
+    assert payload["provider_calls"]["video_detail_calls_max"] == 25
     assert payload["provider_calls"]["comment_video_pages_max"] == 2
-    assert payload["provider_calls"]["total_max"] == 6
-    assert payload["billing"]["chargeable_calls_max"] == 6
+    assert payload["provider_calls"]["total_max"] == 31
+    assert payload["billing"]["chargeable_calls_max"] == 0
 
 
 def test_account_analyze_requires_cost_confirmation_before_provider_call(
@@ -87,6 +94,8 @@ def test_account_analyze_requires_cost_confirmation_before_provider_call(
             str(project.root),
             "--url",
             "https://www.douyin.com/user/demo",
+            "--provider",
+            "tikhub",
             "--json",
         ],
     )

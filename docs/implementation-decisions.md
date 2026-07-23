@@ -447,3 +447,38 @@ requirements from later phases.
   the APP V3 homepage-post endpoint as paid-credit-only. The Web endpoint has the same bounded
   pagination contract but is documented as potentially less stable. An explicit opt-in preserves
   the more stable paid path without risking an unexpected charge or changing normalized schemas.
+
+## ID-058 — Pin MediaCrawler as an explicitly third-party research component
+
+- **Decision:** Add `NanmiCoder/MediaCrawler` as a Git submodule pinned to commit
+  `0625e01a6bc717a3fc9c96d3dac7fb8957043838`. Preserve its upstream license and add
+  `THIRD_PARTY_NOTICES.md`. Limit the bundled path to the user's declared personal,
+  non-commercial learning and research scope; require a new licensing review before commercial
+  use, hosted service, paid delivery, or redistribution beyond the upstream terms.
+- **Reason:** A pinned source tree and lockfile make the research runtime reproducible and
+  auditable, while a clear third-party boundary prevents the root MIT license from being
+  misinterpreted as relicensing MediaCrawler. The notice preserves learning/reference attribution
+  without making an unsupported commercial-rights claim.
+
+## ID-059 — Use a controlled MediaCrawler sidecar instead of its full crawler workflow
+
+- **Decision:** Invoke only MediaCrawler's Douyin client, parsing, and signing code from a separate
+  locked `uv` process. Launch visible Chrome with a dedicated persistent profile and require manual
+  user authentication. Disable proxies and do not invoke upstream stealth injection,
+  automatic-login, slider/CAPTCHA, or risk-control-evasion paths.
+- **Reason:** The project needs the useful data-collection capability but must keep authentication
+  and platform controls under direct user control. A strict JSON sidecar preserves process and
+  dependency isolation, stable errors, offline contract testing, and the existing provider-neutral
+  analysis kernel.
+
+## ID-060 — Make MediaCrawler the default complete homepage-to-distillation workflow
+
+- **Decision:** Default the CLI and request model to `mediacrawler`, sample up to 10 top-level
+  comments from each of at most three high-comment collected videos, and keep TikHub as an explicit
+  optional paid Provider. A single `account analyze` command must still preserve raw pages and
+  hashes, import and validate canonical rows, rebuild Parquet/DuckDB, calculate robust metrics, and
+  generate comment analysis, account health, and distillation artifacts.
+- **Reason:** The requested operating model is a usable end-to-end workflow from one homepage URL,
+  not a disconnected collector or manual export bridge. Reusing `AccountCollectionService` keeps
+  all existing evidence, privacy, and validation contracts intact while removing a mandatory
+  third-party API charge from the default personal-research path.

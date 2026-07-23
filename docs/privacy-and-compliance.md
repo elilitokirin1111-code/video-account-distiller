@@ -5,8 +5,9 @@
 Phase 0/1/2/5 performs no model calls. Phase 3/4 accepts local structured model-output files or uses a
 deterministic fallback; it ships no network model client. Phase 7 may contact only a user-configured,
 explicitly authorized Feishu Bitable or Google Sheets official API. Offline analysis needs no
-credentials. Phase 8 may contact only the fixed-host TikHub API for a user-approved public Douyin
-homepage after explicit cost confirmation.
+credentials. Phase 8 may use the controlled, pinned MediaCrawler adapter for a user-approved public
+Douyin homepage in the declared personal non-commercial research scope, or the optional fixed-host
+TikHub API after explicit cost confirmation.
 
 ## Raw data
 
@@ -24,7 +25,7 @@ homepage after explicit cost confirmation.
 - Phase 7 provider pages are copied under `raw/collaboration/` before mapping. They may include
   collaboration-only fields or personal data and require the same access controls as raw exports.
 - Phase 8 public account batches are copied under `raw/account-collections/` before mapping. When
-  optional comment sampling is enabled, raw pages may include public usernames and identifiers.
+  comment sampling is enabled, raw pages may include public usernames and identifiers.
   Public availability does not make them unrestricted; apply the user's retention and sharing
   policy.
 
@@ -79,18 +80,27 @@ secret manager. Errors expose an HTTP/provider code when useful but never respon
 authorization headers, or token values. Sync and Batch outputs record counts, hashes, IDs, and paths,
 not credentials.
 
-Phase 8 reads `TIKHUB_API_KEY` only from the process environment and allows only
-`api.tikhub.dev`/`api.tikhub.io`. Dry-run makes no request. Real calls require explicit cost
-confirmation, and outputs never contain the token or authorization header. Comment collection is
-off by default and independently bounded by per-video and sampled-video caps.
+Phase 8 MediaCrawler collection may open a dedicated visible Chrome profile under the user's home
+directory. The user completes login and platform verification manually. The project does not copy
+Cookie values, local storage, passwords, or session material into analysis artifacts, logs, or Git.
+The CLI comment defaults remain bounded and can be disabled with `--comments-per-video 0`.
+
+The optional TikHub route reads `TIKHUB_API_KEY` only from the process environment and allows only
+`api.tikhub.dev`/`api.tikhub.io`. Dry-run makes no request. Real TikHub calls require explicit cost
+confirmation, and outputs never contain the token or authorization header.
 
 ## Platform compliance
 
-This repository does not implement scraping, login automation, CAPTCHA handling, anti-bot bypass,
-rate-limit bypass, or other platform-control evasion. Collection is limited to authorized official
-APIs, explicitly permitted fixed-host Providers for user-approved public URLs, or user-provided
-exports. HTTP 429 responses receive bounded backoff and then fail; the software never attempts to
-evade a provider limit.
+The controlled MediaCrawler path reads public pages only for a user-approved URL and bounded sample.
+It does not invoke upstream proxy, stealth, automatic-login, slider/CAPTCHA, or risk-control-evasion
+features. Platform challenges remain manual user actions; unresolved challenges stop with a stable
+error. Other collection is limited to authorized official APIs, the optional fixed-host TikHub
+Provider, or user-provided exports. HTTP 429 responses receive bounded backoff and then fail; the
+software never attempts to evade a provider limit.
+
+MediaCrawler keeps its upstream non-commercial learning license. Preserve
+`THIRD_PARTY_NOTICES.md` and the submodule license, and complete a separate licensing review before
+commercial use, hosted service, or paid delivery.
 
 ## User responsibilities
 

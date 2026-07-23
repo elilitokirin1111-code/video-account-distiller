@@ -24,14 +24,14 @@ isolates Batch task results, exposes scheduled snapshot work, and validates cred
 policy without coupling the analysis kernel to either provider.
 
 After the `1.0.0` release, the main development line adds a Phase 8 pre-release route that accepts
-a user-approved Douyin homepage URL, retrieves public profile/posts through the documented TikHub
-API, preserves the complete response, and sends canonical account/video/metric rows through the
-same import, Parquet, robust-metric, report, and distillation kernel. It does not use a browser,
-login state, cookies, CAPTCHA handling, or direct platform-page scraping.
+a user-approved Douyin homepage URL. Its default personal non-commercial research path uses a
+pinned MediaCrawler source and controlled visible-Chrome sidecar; TikHub remains an optional paid
+API. Both preserve complete responses and send canonical account/video/metric/comment rows through
+the same import, Parquet, robust-metric, comment-analysis, report, and distillation kernel.
 
 ## Key user outcomes
 
-- Start a repeatable research project without opening a platform session.
+- Start a repeatable research project from offline exports or a user-approved homepage.
 - Trace every normalized record back to its source hash and run.
 - Keep unknown metrics as `null` and reject impossible negatives.
 - Avoid direct raw comparisons across platforms.
@@ -71,8 +71,9 @@ login state, cookies, CAPTCHA handling, or direct platform-page scraping.
 - Handle authorization, rate-limit, and provider-response failures with stable machine errors.
 - Run auditable batches, emit due/future/available snapshot tasks, and keep team roles free of
   credential values.
-- Preview the bounded paid calls for one Douyin homepage, require explicit cost confirmation, and
-  turn its public profile and 1～100 public posts into a traceable quantitative distillation.
+- Preview the bounded calls for one Douyin homepage and turn its public profile, 1～100 posts, and
+  bounded top-level comments into a traceable distillation. Require cost confirmation only for the
+  optional paid TikHub route.
 
 ## Verification evidence
 
@@ -99,21 +100,22 @@ Final production acceptance on 2026-07-23 produced the following evidence:
   the normalized Parquet tables in about 4.4 seconds on the delivery workstation, with zero rejected
   rows and zero data-quality warnings. Timings are indicative, not a cross-machine performance SLA.
 
-The Phase 8 main-line increment was accepted offline with 126 tests and 88.93% statement coverage.
-Provider contracts cover URL allowlisting, pagination, public-field mapping, credential absence,
-HTTP authorization/rate-limit errors, cost confirmation, secret non-disclosure, immutable response
-validation, and the complete URL-to-distillation integration path. A real-token paid acceptance run
-remains required before a new stable version is tagged.
+The current Phase 8 main-line increment is accepted offline with 138 tests and 88.17% statement
+coverage. Provider contracts cover URL allowlisting, MediaCrawler sidecar pagination and manual
+login errors, public-field mapping, pinned-runtime absence, TikHub credentials and HTTP
+authorization/rate-limit errors, paid-call confirmation, secret non-disclosure, immutable response
+validation, and the complete URL-to-distillation integration path. A live MediaCrawler acceptance
+run remains required before a new stable version is tagged.
 
 ## Not delivered yet
 
-The repository does not include direct platform-page scraping, browser/login automation, comment
-text collection from a homepage, video downloading, a cloud visual-model client, an installed
-background scheduler, or a Web console. Phase 7 online behavior is limited to explicitly authorized
-Feishu Bitable and Google Sheets official APIs. Phase 8 uses only the documented fixed-host TikHub
-Provider for a user-approved public Douyin URL and has not yet completed a real-token acceptance
-run. Level 4 approval remains intentionally human-governed and requires repeated controlled
-evidence; Phase 5 produces only pending proposals.
+The repository does not include credential/CAPTCHA automation, proxy or stealth evasion, comment
+reply trees, video downloading, a cloud visual-model client, an installed background scheduler, or
+a Web console. Phase 7 online behavior is limited to explicitly authorized Feishu Bitable and
+Google Sheets official APIs. Phase 8's default MediaCrawler adapter is limited to personal
+non-commercial learning/research and still requires live environment acceptance; TikHub is an
+optional paid route. Level 4 approval remains intentionally human-governed and requires repeated
+controlled evidence; Phase 5 produces only pending proposals.
 
 ## Handoff
 

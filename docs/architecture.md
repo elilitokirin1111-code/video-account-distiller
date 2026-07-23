@@ -6,11 +6,13 @@
 Douyin homepage URL
         │
         ▼
-AccountCollectionService → fixed-host authorized Provider
-        │                   ├── URL → sec_user_id
-        │                   ├── public account profile
-        │                   ├── paginated public homepage posts
-        │                   └── optional bounded public comment samples
+AccountCollectionService → bounded Provider adapter
+        │                   ├── MediaCrawler controlled sidecar
+        │                   │     └── visible Chrome + manual authentication
+        │                   └── optional fixed-host TikHub API
+        │                         ├── URL → sec_user_id
+        │                         ├── public account profile/posts
+        │                         └── bounded public comment samples
         ▼
 immutable raw Provider batch + canonical accounts/videos/metrics/comments JSON
         │
@@ -89,9 +91,12 @@ ReportService → report.json + report.md + evidence index + warnings
 The Agent Skill orchestrates the CLI. Deterministic behavior lives in the Python package. Phase 3
 and Phase 4 use versioned prompts and a mockable text-provider boundary and ship no network model
 provider. Phase 7 network access is isolated behind mockable official-table adapters. Phase 8
-account access is isolated behind a separate fixed-host, mockable paid Provider. Neither path
-enters the analysis packages or uses browser control, login state, cookies, CAPTCHA handling, or
-platform-control evasion.
+account access is isolated behind the `AccountCollectionProvider` protocol. Its default
+MediaCrawler implementation runs in the upstream pinned `uv` environment and returns one strict
+JSON envelope to the parent process; the optional TikHub implementation keeps its injectable HTTP
+boundary. Neither implementation enters the analysis packages. Only the controlled MediaCrawler
+bridge may launch a browser: a visible dedicated Chrome profile with manual authentication and no
+proxy, stealth, automatic-login, CAPTCHA, or platform-control-evasion feature.
 
 ## Components
 
@@ -116,9 +121,11 @@ platform-control evasion.
   bounded retry, provider parsing, and table row contracts.
 - `collaboration/`: authorized export/import orchestration, normalized exports, idempotent Sync
   receipts, batch execution, snapshot planning, and credential-free team policy.
-- `collection/`: Douyin URL validation, fixed-host Provider access, bounded post/comment sampling,
-  public-field mapping, immutable response storage, and orchestration into the existing
-  import/analysis kernel.
+- `collection/`: Douyin URL validation, provider selection, controlled MediaCrawler sidecar,
+  optional fixed-host TikHub access, bounded post/comment sampling, public-field mapping, immutable
+  response storage, and orchestration into the existing import/analysis kernel.
+- `third_party/MediaCrawler`: Git submodule pinned to an audited commit and governed by its own
+  non-commercial learning license; it is not relicensed by the root project.
 - `reports/`: null-safe account statistics, high/middle/low comparisons, evidence collection, and
   Jinja2 Markdown rendering.
 - `storage/`: project state, run manifests, atomic Parquet writes, and DuckDB views.
@@ -168,7 +175,9 @@ reuse an existing receipt instead of appending again. Batch and schedule outputs
 Phase 8 preserves a complete provider-neutral batch and all original response pages under
 `raw/account-collections/<provider>/<sha256>/`. Canonical account, video, and metric JSON files in
 the same directory then enter `ImportService`; Provider payloads never become report inputs
-directly. `TIKHUB_API_KEY` remains an environment variable and is never persisted or returned.
+directly. The MediaCrawler browser profile lives outside the project and repository. Browser
+session contents are never copied into artifacts. `TIKHUB_API_KEY` remains an environment variable
+and is never persisted or returned.
 
 Normalized Parquet is reproducible from staging. Project state is stored in
 `.distiller-state.json`; later rule and task workflows may introduce SQLite without changing the
@@ -182,14 +191,16 @@ missing raw inputs by recalculating SHA-256.
 
 `distiller doctor` composes package/dependency discovery with `validate_project(persist=False)`.
 It reads the same contracts as normal validation but creates no run directory and does not update
-project state. Its capability flags report optional FFmpeg, TikHub-Douyin, and collaboration
-readiness without revealing credential values.
+project state. Its capability flags report optional FFmpeg, MediaCrawler-Douyin, TikHub-Douyin,
+and collaboration readiness without revealing credential values or browser-session data.
 
 ## Current boundaries
 
 Phase 7 accesses only explicitly authorized user exports or the documented Feishu Bitable and Google
-Sheets APIs. Phase 8 accepts a user-provided Douyin homepage and accesses the documented TikHub API
-only after explicit cost confirmation. It does not add platform-page scraping, login/browser
-automation, cookies, CAPTCHA handling, or a background collector. Phase 6 media remains local, and
-no bundled network vision provider uploads media. The system still does not infer visual causality,
-audience representativeness, or automatically validated Level 4 rules.
+Sheets APIs. Phase 8 accepts a user-provided Douyin homepage. The default MediaCrawler path is
+restricted to the declared personal non-commercial research scope and its controlled bridge;
+TikHub remains an optional paid API route with explicit cost confirmation. The project does not
+automate credentials, CAPTCHA/slider handling, proxy rotation, stealth, risk-control evasion, or a
+background collector. Phase 6 media remains local, and no bundled network vision provider uploads
+media. The system still does not infer visual causality, audience representativeness, or
+automatically validated Level 4 rules.

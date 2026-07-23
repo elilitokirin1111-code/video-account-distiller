@@ -6,12 +6,13 @@ Instagram Reels 的账号导出数据、字幕和评论，并沉淀可复用的 
 
 正式版本 `1.0.0` 完成规划中的 Phase 0～Phase 7：在数据内核、账号体检、单视频盲分析、
 账号蒸馏、发布复盘与本地多模态分析之上，增加带授权证明的导出导入、飞书多维表格与
-Google Sheets 官方 API、批量任务、快照计划接口和团队配置。它不会自动登录、抓取网页、
-绕过平台控制或在本地模式上传媒体。
+Google Sheets 官方 API、批量任务、快照计划接口和团队配置。离线分析不会上传媒体。
 
-当前主线同时提供 Phase 8 预发布能力：输入用户确认的抖音主页链接，通过文档化、需要
-密钥的 TikHub API 自动读取公开账号资料和近期作品，再复用已有的数据校验、Parquet、
-Robust 指标、账号体检和蒸馏链路。它不使用浏览器、Cookie、登录自动化或验证码绕过。
+当前主线同时提供 Phase 8 预发布能力：输入用户确认的抖音主页链接，默认通过仓库锁定的
+MediaCrawler 本地研究 Provider 读取公开账号资料、近期作品和有界一级评论，再复用已有的
+原始哈希、数据校验、Parquet、DuckDB、Robust 指标、评论分析、账号体检和蒸馏链路。
+首次运行会打开专用的可见 Chrome，登录和平台验证由用户手动完成；项目不调用代理池、
+隐身脚本、自动登录、验证码处理或风控绕过。TikHub 保留为可选付费 API Provider。
 
 ## 能做什么
 
@@ -48,8 +49,9 @@ Robust 指标、账号体检和蒸馏链路。它不使用浏览器、Cookie、�
 - 输出 JSON/Markdown 数据质量报告、不可变运行清单和项目状态。
 - 通过稳定错误码和 JSON Envelope 被 Agent 或自动化脚本调用。
 - 从一个抖音主页链接读取公开账号资料与 1～100 条作品，并一键生成账号报告和蒸馏结果。
-- 可选从公开评论数最高的少量作品采集一级评论，并自动进入脱敏评论需求分析。
-- 预演付费 Provider 调用、显式确认费用，并将完整响应作为内容寻址的不可变原始证据。
+- 从公开评论数最高的少量作品有界采集一级评论，并自动进入脱敏评论需求分析。
+- 本地 MediaCrawler 默认链路不产生 Provider API 费用；可选 TikHub 调用先预演并显式确认费用。
+- 将完整 Provider 响应作为内容寻址的不可变原始证据。
 
 ## 安装
 
@@ -57,13 +59,17 @@ Robust 指标、账号体检和蒸馏链路。它不使用浏览器、Cookie、�
 并在 CI 中验证 Python 3.11 和 3.14。
 
 ```bash
-git clone https://github.com/elilitokirin1111-code/video-account-distiller.git
+git clone --recurse-submodules \
+  https://github.com/elilitokirin1111-code/video-account-distiller.git
 cd video-account-distiller
 uv sync
 uv run distiller --help
 uv run distiller --version
 uv run distiller doctor --json
 ```
+
+已有工作副本先运行 `git submodule update --init --recursive`。默认主页采集还需要本机
+Node.js 与 Chrome；`doctor` 会分别报告这些可选能力。
 
 如果在 Windows 的中文路径中使用 Python 3.11，且 editable 安装未能加载，可使用：
 
@@ -73,7 +79,8 @@ uv sync --no-editable
 
 正式工作环境优先从 [GitHub Releases](https://github.com/elilitokirin1111-code/video-account-distiller/releases)
 下载 wheel 和 `SHA256SUMS.txt`，校验后安装。完整步骤、环境自检和首次上线清单见
-[`docs/production-release.md`](docs/production-release.md)。
+[`docs/production-release.md`](docs/production-release.md)。默认 MediaCrawler 主页采集依赖
+带子模块的源码工作副本；第三方源码不会被根项目 wheel 重新打包。
 
 ## Quick Start
 
@@ -83,9 +90,9 @@ uv sync --no-editable
 uv run distiller init ./demo-project --json
 ```
 
-### 可选：从抖音主页链接直接解析
+### 从抖音主页链接直接解析
 
-先预演，不需要密钥、不会访问网络或写入项目：
+先预演；不会访问网络、启动浏览器或写入项目：
 
 ```bash
 uv run distiller account analyze --project ./demo-project \
@@ -93,24 +100,25 @@ uv run distiller account analyze --project ./demo-project \
   --count 10 --sort latest --dry-run --json
 ```
 
-真实执行前，在本机环境设置 `TIKHUB_API_KEY`，确认预计调用次数和 Provider 计费，再运行：
+确认采集范围后执行完整链路：
 
 ```bash
 uv run distiller account analyze --project ./demo-project \
   --url "https://www.douyin.com/user/<sec-user-id>" \
-  --count 10 --sort latest --confirm-provider-cost --json
+  --count 10 --sort latest --json
 ```
 
-主页作品默认使用支持欢迎赠送额度的 Web 接口；充值后可设置
-`TIKHUB_DOUYIN_POSTS_MODE=app-v3` 选择官方提示更稳定、但当前不支持赠送额度的 APP V3
-接口。项目不会自动切换到付费接口。
+首次运行会准备 MediaCrawler 的锁定环境并打开可见 Chrome。请在窗口内手动登录或完成
+平台验证；专用登录状态保存在用户目录，不写入项目。默认从最多 3 条高评论作品各采集
+10 条一级评论；可用 `--comments-per-video 0` 关闭。
 
-默认不采集评论。需要增强用户需求与异议分析时，可先追加
-`--comments-per-video 20 --comment-video-limit 3 --dry-run` 查看新增调用次数，确认后再将
-`--dry-run` 替换为 `--confirm-provider-cost`。评论原始响应属于敏感数据，标准化时作者
-标识会哈希，分析副本会继续做直接标识符脱敏。
+如需无浏览器的可选 TikHub API 路径，请在本机设置 `TIKHUB_API_KEY`，追加
+`--provider tikhub`，先预演，再用 `--confirm-provider-cost` 执行。不要把密钥粘贴到
+聊天、项目配置或 Git。
 
-不要把密钥粘贴到聊天、项目配置或 Git。完整边界、错误码与首次真实验收清单见
+MediaCrawler 的锁定提交、第三方许可和商业化边界见
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。完整运行边界、错误码与首次真实验收
+清单见
 [`docs/phase8-account-url-analysis.md`](docs/phase8-account-url-analysis.md)。
 
 ### 2. 导入离线导出数据
@@ -346,19 +354,21 @@ uv run python skills/video-account-distiller/scripts/install-skill.py \
 支持离线项目、CSV/JSON/JSONL、SRT/VTT/TXT 字幕、七个平台字段映射、Parquet、DuckDB、
 稳健指标、代表性采样、账号体检、单视频文本/本地多模态拆解、评论需求分析、Pattern/反例、账号蒸馏、
 对标迁移矩阵、脚本评分、不可变区间预测、发布登记、快照复盘、授权导出、飞书多维表格、
-Google Sheets、批量任务、快照计划、团队策略，以及通过文档化 TikHub API 进行的抖音
-公开主页解析与限额公开评论采样。
+Google Sheets、批量任务、快照计划、团队策略，以及通过锁定版本 MediaCrawler 本地研究
+Provider 或可选 TikHub API 进行的抖音公开主页解析与限额公开评论采样。
 
-尚未实现：平台网页直接抓取、浏览器登录自动化、评论回复树、视频下载、自动批准
+尚未实现：登录/验证码自动化、评论回复树、视频下载、自动批准
 Level 4 规则和 Web 控制台。视觉/OCR 只提供本地离线回放和可注入 Provider 合同，不内置
-网络模型客户端；平台数据仅允许用户导出、明确授权的官方 API 或用户批准的文档化固定主机
-Provider。Phase 5 仍只生成待审批的规则升级建议；详见
+网络模型客户端；平台数据仅允许用户导出、明确授权的官方 API，或用户批准的有界
+MediaCrawler/TikHub Provider。Phase 5 仍只生成待审批的规则升级建议；详见
 [`docs/delivery-overview.md`](docs/delivery-overview.md)。
 
 ## 安全限制
 
-- 只访问显式授权的官方表格 API 或用户确认的固定主机数据 Provider；不绕过登录、验证码、
-  风控、速率限制或服务条款。
+- 只访问显式授权的官方表格 API 或用户确认的有界数据 Provider。
+- MediaCrawler 只使用专用可见 Chrome 和用户手动登录；不自动处理凭证、验证码，不调用
+  代理池、隐身脚本，不绕过风控、速率限制或服务条款。
+- 保留 MediaCrawler 上游许可与第三方声明；商业使用前重新完成授权评估。
 - 不把不同平台的原始播放量直接比较。
 - 不将缺失值写成 0。
 - 不提交原始用户数据、密钥、项目状态或本地缓存。

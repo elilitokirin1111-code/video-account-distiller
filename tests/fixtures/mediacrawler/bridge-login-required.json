@@ -1,0 +1,6 @@
+{
+  "schema_version": "1.0",
+  "ok": false,
+  "error_code": "login_required",
+  "message": "Douyin login was not completed in the visible browser before the timeout."
+}

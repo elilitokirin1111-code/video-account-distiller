@@ -32,6 +32,7 @@ class ProjectDiagnostic(StrictModel):
 class CapabilityDiagnostic(StrictModel):
     core: bool
     local_media: bool
+    mediacrawler_douyin: bool
     tikhub_douyin: bool
     feishu_bitable: bool
     google_sheets: bool

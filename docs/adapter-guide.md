@@ -100,3 +100,22 @@ Identical completed pushes reuse a content-addressed Sync receipt to avoid dupli
 See `authorized-collaboration-adapters.md` for connector Schemas, commands, batch manifests,
 snapshot scheduling, team policy, and the complete compliance boundary. Authentication bypass,
 CAPTCHA handling, stealth automation, scraping, or platform-control evasion remains prohibited.
+
+## Phase 8 account collection adapters
+
+`AccountCollectionProvider` is the only live account-ingestion boundary. Every implementation must
+return the same strict account/video/metric/comment batch and raw-page companions; downstream
+services must never parse provider-specific payloads.
+
+`MediaCrawlerAccountProvider` is the default personal non-commercial research adapter. It runs the
+pinned `third_party/MediaCrawler` source in its own locked `uv` environment and communicates through
+a JSON sidecar file. The controlled bridge uses a visible dedicated Chrome profile and manual
+authentication. Do not replace it with MediaCrawler's proxy, stealth, automatic-login,
+slider/CAPTCHA, or risk-control-evasion workflows.
+
+`TikHubAccountProvider` is the optional fixed-host paid API adapter. It keeps credentials in the
+environment, uses injectable HTTP, and requires dry-run cost review plus explicit confirmation.
+
+Both adapters preserve complete raw responses before calling the normal `ImportService`. Add or
+change source aliases only in the collection mapping layer, keep unknown public fields as `null`,
+and cover every new payload shape with offline contract Fixtures.

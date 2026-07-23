@@ -1,132 +1,148 @@
 # Phase 8：抖音主页链接一键解析
 
-Phase 8 首版把“用户提供抖音主页链接”接入已有的不可变导入、Parquet、指标、报告和账号
-蒸馏链路。它使用文档化、需要密钥的 TikHub API Provider，不启动浏览器、不读取 Cookie、
-不自动登录，也不处理验证码或绕过平台风控。
+Phase 8 把“用户提供抖音主页链接”接入已有的不可变导入、Parquet、DuckDB、稳健指标、评论
+需求分析、账号体检和账号蒸馏链路。默认使用仓库锁定版本的 MediaCrawler 作为本地、个人
+非商业学习研究 Provider；TikHub 继续作为可选的付费 API Provider。
 
-## 当前能力
+## 一条命令会完成什么
 
-- 接受 `https://*.douyin.com/...` 主页或短链接，拒绝 HTTP、其他域名、内嵌凭证和自定义端口。
-- 解析 `sec_user_id`，读取公开账号资料，并按最新或热门顺序分页读取 1～100 条公开作品。
-- 映射公开播放、点赞、评论、分享和收藏数据；未知字段保持 `null`。
-- 将完整 Provider 响应保存在
-  `raw/account-collections/tikhub/<sha256>/provider-batch.json`。
-- 可选从公开评论数最高的 1～10 条已采集作品中，每条读取最多 20 条一级评论；默认关闭，
-  只有显式传入 `--comments-per-video` 才增加 Provider 调用。
-- 将账号、视频、指标和可选评论转换为标准 JSON，再进入原有字段映射、Pydantic 校验、
-  去重、Parquet、Robust 指标、评论需求分析、账号体检和蒸馏服务。
-- `--dry-run` 不需要密钥、不访问网络、不写项目，返回最多调用次数和预计写入范围。
-- 非预演调用必须显式传入 `--confirm-provider-cost`，避免误触付费接口。
+`distiller account analyze` 会依次执行：
 
-默认模式不读取评论正文，以保持更低费用和更小的个人数据范围；启用评论采样后，原始
-Provider 页面仍会保存在受控项目目录，标准评论只保留作者哈希，分析副本会继续执行直接
-标识符脱敏。系统不下载视频文件、不做登录态采集，也不声称获得完播率、观看时长、流量
-来源或粉丝画像等非公开后台指标。未启用评论时会保留 `comment_analysis_missing`；无论
-是否启用评论，缺少字幕或本地视频分析时仍可能出现
-`semantic_video_analysis_coverage_low`。
+1. 校验用户提供的 HTTPS 抖音主页 URL。
+2. 用选定 Provider 读取公开账号资料、1～100 条作品和有界一级评论。
+3. 完整保存 Provider 原始响应，计算 SHA-256，并生成标准账号、视频、指标和评论输入。
+4. 复用原有映射、Pydantic 校验、去重和不可变导入服务。
+5. 输出标准化 Parquet，并刷新只读 DuckDB 查询层。
+6. 计算互动率、稳健分数和 S/A/B/C/D 表现分层。
+7. 生成评论需求分析、账号健康报告、证据索引和账号蒸馏报告。
 
-## 准备密钥
+默认采集 10 条作品，并从评论数较高的最多 3 条已采集作品中各读取最多 10 条一级评论。
+可用 `--comments-per-video 0` 关闭评论，或在既有限额内调整数量。系统不下载作品视频，
+不读取私有后台指标，也不把当前粉丝数冒充作品发布时粉丝数。
 
-在 [TikHub](https://docs.tikhub.io/) 创建可用的 API 密钥，把密钥只放在运行环境，
-不要写入项目、配置文件、聊天内容或 Git：
+## 安装与运行准备
+
+新克隆仓库时同时拉取子模块：
+
+```bash
+git clone --recurse-submodules \
+  https://github.com/elilitokirin1111-code/video-account-distiller.git
+cd video-account-distiller
+uv sync
+```
+
+已有工作副本执行：
+
+```bash
+git submodule update --init --recursive
+uv sync
+uv run distiller doctor --json
+```
+
+本地 Provider 需要 `uv`、Node.js、Chrome 和子模块源码。首次真实运行时，`uv` 会根据
+MediaCrawler 锁文件准备隔离环境，随后打开一个可见 Chrome 窗口。登录或平台验证必须由
+用户手动完成；登录状态保存在
+`~/.video-account-distiller/browser-profiles/mediacrawler-douyin/`，不写入分析项目或 Git。
+
+MediaCrawler 的第三方许可、锁定提交和商业化边界见
+[`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)。
+
+## 默认本地工作流
+
+先预演；预演不启动浏览器、不访问网络、不写项目：
+
+```bash
+uv run distiller account analyze \
+  --project ./demo-project \
+  --url "https://www.douyin.com/user/<sec-user-id>" \
+  --count 10 \
+  --sort latest \
+  --dry-run \
+  --json
+```
+
+确认范围后直接执行，不需要付费确认参数：
+
+```bash
+uv run distiller account analyze \
+  --project ./demo-project \
+  --url "https://www.douyin.com/user/<sec-user-id>" \
+  --count 10 \
+  --sort latest \
+  --json
+```
+
+热门排序会在一个有界近期作品池中排序，而不是声称遍历账号全部历史。首次运行请保持
+Chrome 窗口可见并手动完成登录。命令成功后返回内部 `account_id`、原始证据路径、各实体
+导入质量、标准化结果、指标结果、评论分析、账号报告和蒸馏报告。
+
+## 可选 TikHub API 工作流
+
+如需不用浏览器的 API 路径，可在本机配置 `TIKHUB_API_KEY`，显式选择 TikHub：
 
 ```powershell
 $env:TIKHUB_API_KEY = "<在本机填写>"
 $env:TIKHUB_API_BASE_URL = "https://api.tikhub.dev"
 ```
 
-中国大陆环境默认使用 `https://api.tikhub.dev`；海外可使用
-`https://api.tikhub.io`。代码只允许这两个固定 Provider 主机。
-
-默认使用支持 TikHub 欢迎赠送额度的 Douyin Web 主页作品接口。该接口在官方文档中标注
-可能比 APP 接口不稳定；充值后如需优先稳定性，可在本机显式设置：
-
-```powershell
-$env:TIKHUB_DOUYIN_POSTS_MODE = "app-v3"
-```
-
-`web` 与 `app-v3` 都必须在 API 市场重新核对实时单价和赠送额度状态。当前代码不会在 Web
-接口失败后自动转向不支持赠送额度的 APP 接口，避免产生未计划的付费调用。
-
-## 运行
-
-先预演：
-
 ```bash
 uv run distiller account analyze \
   --project ./demo-project \
   --url "https://www.douyin.com/user/<sec-user-id>" \
+  --provider tikhub \
   --count 10 \
-  --sort latest \
   --dry-run \
   --json
-```
 
-确认预计调用次数和 Provider 计费后执行：
-
-```bash
 uv run distiller account analyze \
   --project ./demo-project \
   --url "https://www.douyin.com/user/<sec-user-id>" \
+  --provider tikhub \
   --count 10 \
-  --sort latest \
   --confirm-provider-cost \
   --json
 ```
 
-需要同时提取少量高互动作品的公开评论时，先用相同参数预演，再执行：
+TikHub 只允许配置的固定官方 Provider 主机。真实调用必须先预演并显式确认可能发生的
+费用；项目不会在失败后静默切换到另一付费端点。
 
-```bash
-uv run distiller account analyze \
-  --project ./demo-project \
-  --url "https://www.douyin.com/user/<sec-user-id>" \
-  --count 20 \
-  --comments-per-video 20 \
-  --comment-video-limit 3 \
-  --dry-run \
-  --json
-```
+## 安全与数据边界
 
-该示例最多增加 3 次评论接口调用。移除 `--dry-run` 并添加
-`--confirm-provider-cost` 后才会真实访问 Provider。成功 JSON 会返回内部 `account_id`、
-采集指纹、不可变原始响应路径、各实体导入质量报告、标准化与指标结果、可选评论分析、
-账号健康报告和蒸馏报告。
+- 只处理用户确认的公开抖音主页。
+- 不自动输入账号密码，不自动处理 CAPTCHA/滑块，不调用代理池、隐身脚本或风控绕过。
+- 平台要求验证时暂停等待用户手动处理；失败或超时返回稳定错误。
+- 请求数量、作品数量和评论数量均有上限，并保留采集范围警告。
+- 完整原始页面保存在 `raw/account-collections/<provider>/<sha256>/`；公开不等于可任意传播。
+- 标准评论只保留作者哈希，评论分析副本继续执行直接标识符脱敏。
+- 完播率、平均观看时长、流量来源、受众画像和投流真值等公开主页没有的数据保持未知。
 
-## 接口与错误
-
-Provider 使用以下文档化接口：
-
-- [从主页链接提取 sec_user_id](https://docs.tikhub.io/186826167e0)
-- [读取抖音用户资料](https://docs.tikhub.io/186826222e0)
-- [读取抖音用户主页作品（默认 Web）](https://docs.tikhub.io/186826143e0)
-- [读取抖音用户主页作品（可选 APP V3）](https://docs.tikhub.io/186826223e0)
-- [读取单个视频公开评论](https://docs.tikhub.io/186826152e0)
-
-新增稳定错误码：
+## 稳定错误码
 
 | 错误码 | 含义 |
 |---|---|
 | `E_PROFILE_URL_INVALID` | 不是允许的 HTTPS 抖音主页链接 |
-| `E_PROVIDER_COST_CONFIRMATION_REQUIRED` | 未显式确认 Provider 可能产生费用 |
-| `E_ADAPTER_AUTH` | 密钥缺失、无效、余额或权限问题 |
+| `E_MEDIACRAWLER_UNAVAILABLE` | 子模块、uv、Node、Chrome 或隔离运行环境未就绪 |
+| `E_BROWSER_LOGIN_REQUIRED` | 可见浏览器内未在时限内完成手动登录或验证 |
+| `E_COLLECTION_TIMEOUT` | 有界采集进程超时 |
+| `E_PROVIDER_COST_CONFIRMATION_REQUIRED` | TikHub 调用未显式确认可能产生费用 |
+| `E_ADAPTER_AUTH` | TikHub 密钥、余额或权限问题 |
 | `E_RATE_LIMIT` | 有界重试后仍被限流 |
 | `E_ADAPTER_RESPONSE` | Provider 响应不可解析或缺少必要数据 |
 
-账号、作品和指标属于主链路，失败时命令返回稳定错误；评论属于可选增强，如果评论端点权限、
-限流或响应异常，系统停止后续评论调用、保留已成功的账号数据，并在结果中加入
-`comment_collection_degraded:<错误码>`。
+账号、作品和指标属于主链路，失败时整次命令失败。评论属于增强链路；评论采集失败时保留
+已成功的账号、作品和指标，并添加 `comment_collection_degraded:<错误码>` 警告。
 
 ## 正式环境验收
 
-提交代码前的自动测试全部离线运行。首次真实环境验收应使用用户确认的公开测试账号：
+自动测试必须继续使用离线 Fixture。首次真实环境验收建议：
 
-1. 运行 `distiller doctor --json`，确认 `capabilities.tikhub_douyin` 为 `true`。
-2. 对 10 条作品和 1 条高评论作品的 10 条评论运行预演；当前上限为 4 次 Provider 调用。
-3. 显式确认费用后执行一次真实解析。
-4. 检查账号、视频、指标和可选评论接受数，查看 Provider 范围警告。
+1. 运行 `distiller doctor --json`，确认 `capabilities.mediacrawler_douyin` 为 `true`。
+2. 对 10 条作品和默认评论范围运行 `--dry-run`。
+3. 在用户确认的公开测试账号上执行一次默认命令，手动完成登录。
+4. 检查账号、作品、指标和评论接受数以及范围警告。
 5. 运行 `distiller validate --project <dir> --json`。
 6. 人工抽查至少 3 条作品的标题、发布时间与公开互动数。
-7. 确认日志、JSON、运行清单和 Git 中均没有密钥或授权头。
+7. 确认日志、JSON、运行清单和 Git 中没有凭证、Cookie 内容或授权头。
 
-真实验收通过后再升级正式发布版本；Provider 字段变化只在
-`collection/providers.py` 内适配，不修改标准分析模型。
+通过这组验收后再升级发布版本；Provider 响应变化只在采集适配层修复，不修改标准分析
+模型和下游证据合同。
