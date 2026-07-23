@@ -99,7 +99,7 @@ Final production acceptance on 2026-07-23 produced the following evidence:
   the normalized Parquet tables in about 4.4 seconds on the delivery workstation, with zero rejected
   rows and zero data-quality warnings. Timings are indicative, not a cross-machine performance SLA.
 
-The Phase 8 main-line increment was accepted offline with 126 tests and 89.04% statement coverage.
+The Phase 8 main-line increment was accepted offline with 126 tests and 88.93% statement coverage.
 Provider contracts cover URL allowlisting, pagination, public-field mapping, credential absence,
 HTTP authorization/rate-limit errors, cost confirmation, secret non-disclosure, immutable response
 validation, and the complete URL-to-distillation integration path. A real-token paid acceptance run
