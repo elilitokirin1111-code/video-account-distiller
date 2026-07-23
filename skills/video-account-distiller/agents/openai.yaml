@@ -1,4 +1,4 @@
 interface:
   display_name: "Video Account Distiller"
-  short_description: "授权同步飞书与Google表格并完成账号蒸馏、预测和复盘"
-  default_prompt: "Use $video-account-distiller to import an explicitly authorized hotel metrics table, validate the evidence, and plan the next snapshots."
+  short_description: "安装验收授权数据，完成视频账号蒸馏、预测、发布复盘与团队协作"
+  default_prompt: "Use $video-account-distiller to verify this production installation and run an evidence-based hotel video-account workflow."

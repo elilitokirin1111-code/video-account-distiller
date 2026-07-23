@@ -14,6 +14,38 @@ changes.
 
 - None.
 
+## 1.0.0 — 2026-07-23
+
+### Added
+
+- Stable installed-version output through `distiller --version`.
+- Read-only `distiller doctor --json` diagnostics for Python, dependencies, FFmpeg, optional
+  collaboration credentials, and project integrity/readiness.
+- Reusable installed-wheel production acceptance runner and Windows installed-wheel CI.
+- Tag-gated GitHub Release workflow with wheel, source distribution, and SHA-256 checksums.
+- Production installation, operation, release, and acceptance documentation.
+
+### Changed
+
+- Package and Skill version advanced to `1.0.0`; Phase 0–7 artifact schema versions remain
+  unchanged.
+- Machine JSON uses ASCII-safe escaping so redirected Windows output remains portable when paths or
+  values contain Chinese text.
+- Project validation supports a non-persisting read-only mode used by `doctor`.
+
+### Acceptance
+
+- Installed the built wheel into a clean Python 3.11 Windows environment.
+- Completed 18 operator commands across import, validation, normalization, metrics, sampling,
+  reporting, comment analysis, distillation, and local analysis of a real hotel MP4.
+- Accepted 30 videos, 30 metric snapshots, and 18 comments with zero final validation errors or
+  warnings. See `docs/production-acceptance-v1.0.0.md`.
+
+### Migration
+
+- Existing projects require no data migration and are not rewritten automatically.
+- Live Feishu/Google writes still require tenant-specific acceptance against a dedicated test table.
+
 ## 0.7.0 — 2026-07-22
 
 ### Added

@@ -370,3 +370,18 @@ requirements from later phases.
 - **Reason:** A provider-level grant must not be reusable accidentally for another table. The path
   addition also resolves the Phase 7 forward-test finding that callers otherwise had to discover
   the Batch artifact by scanning the project tree.
+
+## ID-050 — Release completed phases as package 1.0 without renumbering artifact schemas
+
+- **Decision:** Mark the installable package and Skill as `1.0.0`, while retaining the Phase 0–7
+  artifact schema versions from `0.1.0` through `0.7.0`.
+- **Reason:** The package is now operationally stable, but changing immutable artifact version
+  values without a schema change would create a false migration and break traceability.
+
+## ID-051 — Make production diagnostics read-only and Windows JSON pipe-safe
+
+- **Decision:** Add `distiller doctor`, call project validation with `persist=False`, and use
+  ASCII-safe JSON escaping for all `--json` stdout envelopes.
+- **Reason:** A diagnostic command must not create runs or update project state. Real Windows UAT
+  also showed that locale-dependent bytes could break UTF-8 automation when Chinese paths were
+  redirected through a pipe; JSON escapes preserve the decoded value without encoding ambiguity.

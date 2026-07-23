@@ -66,10 +66,11 @@ imports, identical records collapse. Conflicting duplicates choose the latest `i
 
 ## Migration policy
 
-Version `0.7.0` does not rewrite existing accounts, videos, metrics, comments, derived metrics,
+Package version `1.0.0` does not rewrite existing accounts, videos, metrics, comments, derived metrics,
 samples, reports, Patterns, or distillations. Existing project config/state files remain valid
 because scoring/media/collaboration policy and timestamps have defaults. Phase 7 adds collaboration
-artifacts and state timestamps; prior core and Phase 2–6 schemas remain unchanged.
+artifacts and state timestamps; all Phase 0–7 artifact schema versions remain unchanged from the
+`0.7.0` package. Package stability and artifact contract versions are intentionally independent.
 
 ## Phase 2 analysis artifacts
 

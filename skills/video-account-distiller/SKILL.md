@@ -1,6 +1,6 @@
 ---
 name: video-account-distiller
-description: "Initialize, import, validate, normalize, analyze, distill, compare, score, predict, register, and retrospect on video-account exports, explicitly authorized Feishu Bitable or Google Sheets data, local MP4/MOV/MKV media, scripts, transcripts, comments, and metrics with robust evidence, batch jobs, snapshot planning, and team policy. Use for 拆解或蒸馏视频账号、授权导出导入、飞书多维表格或 Google Sheets 同步、批量任务、定时快照计划、团队配置、分析本地视频、镜头切分、OCR、评论需求、内容模式、对标迁移、脚本评分、发布预测或复盘，using user-provided or explicitly authorized data from Douyin, Xiaohongshu, WeChat Channels, Bilibili, TikTok, YouTube, or Instagram Reels."
+description: "Initialize, import, validate, normalize, analyze, distill, compare, score, predict, register, and retrospect on video-account exports, explicitly authorized Feishu Bitable or Google Sheets data, local MP4/MOV/MKV media, scripts, transcripts, comments, and metrics with robust evidence, batch jobs, snapshot planning, team policy, and production-release diagnostics. Use for 拆解或蒸馏视频账号、授权导出导入、正式版安装验收、运行环境诊断、飞书多维表格或 Google Sheets 同步、批量任务、定时快照计划、团队配置、分析本地视频、镜头切分、OCR、评论需求、内容模式、对标迁移、脚本评分、发布预测或复盘，using user-provided or explicitly authorized data from Douyin, Xiaohongshu, WeChat Channels, Bilibili, TikTok, YouTube, or Instagram Reels."
 ---
 
 # Video Account Distiller
@@ -38,6 +38,8 @@ perform Phase 0/1/2/3/4/5/6 tasks offline and Phase 7 table sync only with expli
 - Read `references/collaboration-adapters.md` before importing an authorized manifest, contacting
   Feishu Bitable or Google Sheets, exporting normalized rows, running a batch, planning snapshots,
   or editing team policy.
+- Read `references/production-operation.md` before validating an installed release, running
+  `doctor`, accepting a real work environment, or diagnosing deployment readiness.
 - Read `references/privacy.md` for comments, identifiers, credentials, raw exports, or any request
   that could involve online collection.
 - Read the matching `references/platform-*.md` only when mapping that platform's export.
@@ -60,6 +62,17 @@ perform Phase 0/1/2/3/4/5/6 tasks offline and Phase 7 table sync only with expli
 
 Run commands from the repository root with `uv run distiller`; a directly installed `distiller`
 console script is equivalent.
+
+### Verify a production installation
+
+```bash
+distiller --version
+distiller doctor --json
+distiller doctor --project <dir> --json
+```
+
+Treat `doctor` as read-only. Report core readiness separately from optional local-media,
+Feishu-Bitable, and Google-Sheets capabilities. Never print credential values.
 
 ### Initialize
 
@@ -318,7 +331,8 @@ uninstall this Skill.
 
 ## Current boundary
 
-Phase 7 supports authorized export manifests and official Feishu Bitable/Google Sheets table APIs,
+Package `1.0.0` stabilizes the completed Phase 0–7 workflow. Phase 7 supports authorized export
+manifests and official Feishu Bitable/Google Sheets table APIs,
 not platform-page scraping or login automation. It exposes batches and snapshot plans but installs
 no background scheduler. Phase 6 still ships no network vision client. The system does not
 auto-approve Level 4 rules: repeated controlled evidence and explicit human approval remain

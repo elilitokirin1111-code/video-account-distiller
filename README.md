@@ -4,7 +4,7 @@
 查询、分层采样、体检和文本级拆解抖音、小红书、视频号、Bilibili、TikTok、YouTube 与
 Instagram Reels 的账号导出数据、字幕和评论，并沉淀可复用的 Pattern 与对标实验。
 
-当前版本 `0.7.0` 完成规划中的 Phase 0～Phase 7：在数据内核、账号体检、单视频盲分析、
+正式版本 `1.0.0` 完成规划中的 Phase 0～Phase 7：在数据内核、账号体检、单视频盲分析、
 账号蒸馏、发布复盘与本地多模态分析之上，增加带授权证明的导出导入、飞书多维表格与
 Google Sheets 官方 API、批量任务、快照计划接口和团队配置。它不会自动登录、抓取网页、
 绕过平台控制或在本地模式上传媒体。
@@ -54,6 +54,8 @@ git clone https://github.com/elilitokirin1111-code/video-account-distiller.git
 cd video-account-distiller
 uv sync
 uv run distiller --help
+uv run distiller --version
+uv run distiller doctor --json
 ```
 
 如果在 Windows 的中文路径中使用 Python 3.11，且 editable 安装未能加载，可使用：
@@ -61,6 +63,10 @@ uv run distiller --help
 ```powershell
 uv sync --no-editable
 ```
+
+正式工作环境优先从 [GitHub Releases](https://github.com/elilitokirin1111-code/video-account-distiller/releases)
+下载 wheel 和 `SHA256SUMS.txt`，校验后安装。完整步骤、环境自检和首次上线清单见
+[`docs/production-release.md`](docs/production-release.md)。
 
 ## Quick Start
 
@@ -336,6 +342,8 @@ uv run python tools/generate_large_fixture.py --output ./tmp/large-fixture --row
 
 ## 文档索引
 
+- [正式版安装与运行](docs/production-release.md)
+- [1.0.0 生产验收记录](docs/production-acceptance-v1.0.0.md)
 - [交付介绍](docs/delivery-overview.md)
 - [架构](docs/architecture.md)
 - [数据合同](docs/data-contracts.md)

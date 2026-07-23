@@ -1,8 +1,8 @@
-# Phase 0/1/2/3/4/5/6/7 delivery overview
+# 1.0 production delivery overview
 
 ## What this delivery provides
 
-Version `0.7.0` establishes a production-oriented, offline-first data and reporting kernel plus a standard
+Version `1.0.0` establishes a stable, offline-first data and reporting kernel plus a standard
 Agent Skill for video-account research. It imports user exports, preserves originals, maps and
 validates fields, deduplicates records, writes Parquet, exposes DuckDB views, calculates
 account-local robust metrics, reports project status through a stable Typer CLI, selects
@@ -72,16 +72,21 @@ The repository includes unit, contract, integration, and golden tests; seven off
 a 100,000-row generator; Ruff, mypy, pytest, and Skill validation commands; and a GitHub Actions
 workflow for Python 3.11 and 3.14.
 
-Final local acceptance on 2026-07-22 produced the following evidence:
+Final production acceptance on 2026-07-23 produced the following evidence:
 
-- Ruff passed with no findings; mypy passed across 106 source and test files.
-- All 101 offline tests passed with 88.91% statement coverage.
+- Ruff passed with no findings; mypy passed across 110 source and test files.
+- All 107 offline tests passed with 89.04% statement coverage.
 - The official Skill quick validator accepted the Skill; wrapper smoke tests cover data, sampling,
   report, transcript, blind-analysis, local media, comment, distillation, comparison, score,
   prediction, publication, Retro, authorized sync, Batch, Snapshot, Team, and status routes.
 - An independent offline Skill forward test completed authorized-export import, Team initialization,
   Batch snapshot planning, validation, and status with network proxies blocked; its feedback added
   the explicit normalize step and direct Batch `artifact_path` output.
+- The built `1.0.0` wheel was installed into a clean Python 3.11 environment on Windows, then ran
+  18 operator subprocess commands from a Chinese path using 30 videos, 30 metric snapshots, 18
+  comments, and a user-supplied hotel MP4. Final validation reported zero errors and warnings.
+- `distiller doctor --json` is read-only, and Windows machine JSON is ASCII-safe through pipes while
+  preserving decoded Chinese text.
 - A deterministic 100,000-video fixture imported all 100,000 rows in about 4.4 seconds and rebuilt
   the normalized Parquet tables in about 4.4 seconds on the delivery workstation, with zero rejected
   rows and zero data-quality warnings. Timings are indicative, not a cross-machine performance SLA.

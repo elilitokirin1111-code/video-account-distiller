@@ -157,6 +157,11 @@ Expected failures use stable `E_*` codes. CLI JSON goes to stdout; human error t
 Atomic writes prevent partially replaced state and Parquet files. Validation can detect altered or
 missing raw inputs by recalculating SHA-256.
 
+`distiller doctor` composes package/dependency discovery with `validate_project(persist=False)`.
+It reads the same contracts as normal validation but creates no run directory and does not update
+project state. Its capability flags report optional FFmpeg and collaboration readiness without
+revealing credential values.
+
 ## Current boundaries
 
 Phase 7 accesses only explicitly authorized user exports or the documented Feishu Bitable and Google

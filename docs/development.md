@@ -184,3 +184,22 @@ fallback is:
 ```bash
 python /path/to/skill-creator/scripts/quick_validate.py skills/video-account-distiller
 ```
+
+## Stable release acceptance
+
+Before tagging a stable version:
+
+```bash
+uv run ruff format --check .
+uv run ruff check .
+uv run mypy src tests
+uv run pytest
+uv build
+```
+
+Install the wheel into a new Python 3.11 environment and run `tools/release_acceptance.py`; do not
+reuse the repository editable environment as release evidence. On Windows, include a Chinese path
+and an authorized local hotel MP4 when available. Run the Skill quick validator, confirm the source
+tree is clean, then push the release commit and signed or annotated `v<version>` tag. The tag
+workflow repeats all gates, smoke-tests the installed wheel, writes SHA-256 checksums, and creates
+the GitHub Release.
