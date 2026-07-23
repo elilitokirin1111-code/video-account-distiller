@@ -118,17 +118,22 @@ def default_mediacrawler_home() -> Path:
     return (_repository_root() / "third_party" / "MediaCrawler").resolve()
 
 
-def default_browser_profile() -> Path:
+def default_browser_profile(browser_channel: str = "chrome") -> Path:
     """Keep the dedicated login profile outside projects and the Git worktree."""
 
     configured = os.environ.get("MEDIACRAWLER_BROWSER_PROFILE")
     if configured:
         return Path(configured).expanduser().resolve()
+    profile_name = (
+        "mediacrawler-douyin-edge"
+        if browser_channel == "msedge"
+        else "mediacrawler-douyin"
+    )
     return (
         Path.home()
         / ".video-account-distiller"
         / "browser-profiles"
-        / "mediacrawler-douyin"
+        / profile_name
     ).resolve()
 
 
@@ -191,7 +196,7 @@ def _bridge_error(payload: dict[str, Any], returncode: int) -> DistillerError:
             details={
                 "next": (
                     "Run the command again and complete Douyin login manually in the visible "
-                    "Chrome window."
+                    "browser window."
                 )
             },
         )
@@ -227,13 +232,33 @@ class MediaCrawlerAccountProvider:
         bridge_script: Path | None = None,
     ) -> None:
         self.home = (home or default_mediacrawler_home()).expanduser().resolve()
+        self.browser_channel = os.environ.get(
+            "MEDIACRAWLER_BROWSER_CHANNEL",
+            browser_channel,
+        ).strip()
+        if self.browser_channel not in {"chrome", "msedge"}:
+            raise DistillerError(
+                ErrorCode.SCHEMA_INVALID,
+                "MediaCrawler browser channel must be chrome or msedge",
+                details={"allowed": ["chrome", "msedge"]},
+            )
         self.browser_profile = (
-            browser_profile or default_browser_profile()
+            browser_profile or default_browser_profile(self.browser_channel)
         ).expanduser().resolve()
-        self.browser_channel = browser_channel
         self.uv_executable = uv_executable or shutil.which(
             os.environ.get("MEDIACRAWLER_UV", "uv")
         )
+        configured_login_timeout = os.environ.get(
+            "MEDIACRAWLER_LOGIN_TIMEOUT_SECONDS"
+        )
+        if configured_login_timeout:
+            try:
+                login_timeout_seconds = int(configured_login_timeout)
+            except ValueError as exc:
+                raise DistillerError(
+                    ErrorCode.SCHEMA_INVALID,
+                    "MEDIACRAWLER_LOGIN_TIMEOUT_SECONDS must be an integer",
+                ) from exc
         self.login_timeout_seconds = login_timeout_seconds
         self.request_interval_seconds = request_interval_seconds
         self.process_timeout_seconds = process_timeout_seconds

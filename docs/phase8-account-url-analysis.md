@@ -44,6 +44,12 @@ MediaCrawler 锁文件准备隔离环境，随后打开一个可见 Chrome 窗�
 用户手动完成；登录状态保存在
 `~/.video-account-distiller/browser-profiles/mediacrawler-douyin/`，不写入分析项目或 Git。
 
+Windows 上也可使用本机 Edge。运行前设置
+`MEDIACRAWLER_BROWSER_CHANNEL=msedge`，Edge 登录状态会独立保存在
+`~/.video-account-distiller/browser-profiles/mediacrawler-douyin-edge/`。
+如首次登录需要更多时间，可将 `MEDIACRAWLER_LOGIN_TIMEOUT_SECONDS` 设置为
+`30`～`900` 之间的整数；登录页跳转在等待窗口内按临时状态处理。
+
 MediaCrawler 的第三方许可、锁定提交和商业化边界见
 [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)。
 
@@ -144,5 +150,6 @@ TikHub 只允许配置的固定官方 Provider 主机。真实调用必须先预
 6. 人工抽查至少 3 条作品的标题、发布时间与公开互动数。
 7. 确认日志、JSON、运行清单和 Git 中没有凭证、Cookie 内容或授权头。
 
-通过这组验收后再升级发布版本；Provider 响应变化只在采集适配层修复，不修改标准分析
-模型和下游证据合同。
+首次真实环境验收已于 2026-07-23 通过，见
+[`phase8-live-acceptance-2026-07-23.md`](phase8-live-acceptance-2026-07-23.md)。
+Provider 响应变化只在采集适配层修复，不修改标准分析模型和下游证据合同。

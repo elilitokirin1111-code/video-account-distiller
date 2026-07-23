@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
+import importlib
 import json
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -84,13 +87,61 @@ class FakeDouyinClient:
         }
 
 
+class NavigatingLoginClient:
+    cookie_urls = ["https://www.douyin.com"]
+
+    def __init__(self) -> None:
+        self.checks = 0
+        self.updated = False
+
+    async def pong(self, *, browser_context: object) -> bool:
+        del browser_context
+        self.checks += 1
+        if self.checks == 1:
+            raise RuntimeError("Execution context was destroyed because of navigation")
+        return True
+
+    async def update_cookies(
+        self,
+        *,
+        browser_context: object,
+        urls: list[str],
+    ) -> None:
+        del browser_context
+        assert urls == self.cookie_urls
+        self.updated = True
+
+
+def test_manual_login_wait_tolerates_page_navigation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def no_sleep(_: float) -> None:
+        return None
+
+    monotonic_values = iter((0.0, 0.1, 0.2))
+    monkeypatch.setattr(asyncio, "sleep", no_sleep)
+    monkeypatch.setattr(time, "monotonic", lambda: next(monotonic_values))
+    client = NavigatingLoginClient()
+
+    _run_immediate(
+        bridge._wait_for_manual_login(
+            client,
+            object(),
+            timeout_seconds=30,
+        )
+    )
+
+    assert client.checks == 2
+    assert client.updated is True
+
+
 def test_bridge_collectors_bound_pages_details_and_top_level_comments(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def no_sleep(_: float) -> None:
         return None
 
-    monkeypatch.setattr(bridge.asyncio, "sleep", no_sleep)
+    monkeypatch.setattr(asyncio, "sleep", no_sleep)
     client = FakeDouyinClient()
     raw_pages: list[dict[str, Any]] = []
     warnings: list[str] = []
@@ -159,7 +210,7 @@ def test_bridge_loader_forces_proxy_and_ssl_bypass_flags_off(
         "playwright.async_api": playwright_module,
     }
     monkeypatch.setattr(
-        bridge.importlib,
+        importlib,
         "import_module",
         lambda name: modules[name],
     )
@@ -180,7 +231,7 @@ def test_bridge_main_writes_stable_error_envelope(
         raise bridge.BridgeFailure("login_required", "manual login timed out")
 
     monkeypatch.setattr(bridge, "_run", fail)
-    monkeypatch.setattr(bridge.asyncio, "run", _run_immediate)
+    monkeypatch.setattr(asyncio, "run", _run_immediate)
     output = tmp_path / "bridge-error.json"
 
     exit_code = bridge.main(

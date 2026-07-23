@@ -2,8 +2,8 @@
 
 This file runs inside MediaCrawler's pinned uv environment. It deliberately does
 not invoke MediaCrawler's login, proxy, stealth, or CAPTCHA automation. A visible
-Chrome profile is opened and authentication, when needed, remains a manual user
-action.
+dedicated browser profile is opened and authentication, when needed, remains a
+manual user action.
 """
 
 from __future__ import annotations
@@ -129,7 +129,14 @@ async def _wait_for_manual_login(
     deadline = time.monotonic() + timeout_seconds
     announced = False
     while time.monotonic() < deadline:
-        if await client.pong(browser_context=browser_context):
+        try:
+            authenticated = await client.pong(browser_context=browser_context)
+        except Exception:
+            # Login and challenge pages may navigate between the local-storage
+            # check and Playwright evaluation. Treat that as transient while
+            # the manual-authentication window remains open.
+            authenticated = False
+        if authenticated:
             await client.update_cookies(
                 browser_context=browser_context,
                 urls=client.cookie_urls,
@@ -137,7 +144,7 @@ async def _wait_for_manual_login(
             return
         if not announced:
             print(
-                "MediaCrawler: 请在打开的 Chrome 窗口中手动登录抖音；"
+                "MediaCrawler: 请在打开的浏览器窗口中手动登录抖音；"
                 "如出现验证，请由用户手动完成。",
                 file=sys.stderr,
                 flush=True,

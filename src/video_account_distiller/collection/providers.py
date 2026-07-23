@@ -337,6 +337,22 @@ def _map_post(
         duration_ms = _nonnegative_int(video_object.get("duration"))
     statistics = _nested(post, "statistics")
     music = _nested(post, "music")
+    views = _nonnegative_int(statistics.get("play_count"))
+    likes = _nonnegative_int(statistics.get("digg_count"))
+    comments = _nonnegative_int(statistics.get("comment_count"))
+    shares = _nonnegative_int(statistics.get("share_count"))
+    saves = _nonnegative_int(
+        _first_present(statistics, ("collect_count", "favorite_count"))
+    )
+    favorites = _nonnegative_int(statistics.get("collect_count"))
+    if views == 0 and any(
+        value is not None and value > 0
+        for value in (likes, comments, shares, saves, favorites)
+    ):
+        # Douyin's public Web payload can expose a zero play_count while
+        # simultaneously exposing substantial interactions. That combination
+        # means the view count is unavailable, not that the video had no views.
+        views = None
     share_url = _text(post.get("share_url"))
     if share_url is None:
         share_url = f"https://www.douyin.com/video/{video_id}"
@@ -362,12 +378,12 @@ def _map_post(
     metric = CollectedMetricSnapshot(
         video_id=video_id,
         snapshot_at=fetched_at,
-        views=_nonnegative_int(statistics.get("play_count")),
-        likes=_nonnegative_int(statistics.get("digg_count")),
-        comments=_nonnegative_int(statistics.get("comment_count")),
-        shares=_nonnegative_int(statistics.get("share_count")),
-        saves=_nonnegative_int(_first_present(statistics, ("collect_count", "favorite_count"))),
-        favorites=_nonnegative_int(statistics.get("collect_count")),
+        views=views,
+        likes=likes,
+        comments=comments,
+        shares=shares,
+        saves=saves,
+        favorites=favorites,
         metric_source=metric_source,
     )
     return video, metric

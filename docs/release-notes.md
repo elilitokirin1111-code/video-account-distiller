@@ -21,6 +21,8 @@ changes.
   personal non-commercial learning/research workflow.
 - Visible dedicated Chrome profile with manual authentication, stable runtime/login/timeout errors,
   offline bridge Fixtures, and a third-party licensing notice.
+- Dedicated Microsoft Edge support, browser-specific login profiles, a bounded configurable login
+  timeout, and navigation-safe manual authentication.
 - Immutable Provider batches and canonical companions under `raw/account-collections/`, routed
   through the existing import, Parquet, robust-metric, report, and account-distillation services.
 - Phase 8 project validation, status counters, `doctor` capability, offline Fixtures, CLI/provider
@@ -35,11 +37,15 @@ changes.
   videos; `--comments-per-video 0` disables it.
 - Only the controlled MediaCrawler bridge is approved: visible Chrome and manual authentication,
   with no proxy, stealth, automatic-login, CAPTCHA, or risk-control-evasion features.
+- Contradictory public `play_count = 0` values with positive interactions are normalized as missing,
+  and all-tied performance scores use neutral band `B` instead of labeling every work `S`.
 - TikHub Douyin homepage posts now default to the welcome-credit-compatible Web endpoint. Operators
   with paid credit can opt into the more stable APP V3 endpoint with
   `TIKHUB_DOUYIN_POSTS_MODE=app-v3`; there is no automatic paid fallback.
-- Package and Skill remain `1.0.0` until a real-token paid acceptance run succeeds; existing core
-  and Phase 2～7 artifact schemas are unchanged.
+- The first real MediaCrawler Edge acceptance passed on 2026-07-23 with 10 videos, 10 metric
+  snapshots, and 30 comments accepted, zero row rejections, and zero project validation findings.
+  Package and Skill remain `1.0.0` until an explicit release/tag decision; existing core and
+  Phase 2～7 artifact schemas are unchanged.
 
 ## 1.0.0 — 2026-07-23
 

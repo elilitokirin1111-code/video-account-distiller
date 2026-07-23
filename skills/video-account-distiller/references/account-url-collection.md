@@ -35,6 +35,12 @@ The first run may prepare the pinned sidecar environment and open Chrome. Keep t
 the user must complete login or verification. The dedicated profile is outside the analysis
 project and repository.
 
+When the user requests local Microsoft Edge, set
+`MEDIACRAWLER_BROWSER_CHANNEL=msedge`; it uses a separate dedicated Edge profile and preserves the
+same manual-authentication boundary.
+For a slower first login, set `MEDIACRAWLER_LOGIN_TIMEOUT_SECONDS` to an integer from 30 through
+900. Page navigation during manual authentication is transient until that bounded timeout expires.
+
 The CLI defaults to 10 comments per video from at most three high-comment collected videos.
 Use `--comments-per-video 0` when the user wants a smaller personal-data scope. Counts are bounded:
 1–100 videos, 0–20 comments per sampled video, and 1–10 sampled videos.

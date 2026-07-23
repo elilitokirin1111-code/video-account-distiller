@@ -482,3 +482,25 @@ requirements from later phases.
   not a disconnected collector or manual export bridge. Reusing `AccountCollectionService` keeps
   all existing evidence, privacy, and validation contracts intact while removing a mandatory
   third-party API charge from the default personal-research path.
+
+## ID-061 — Keep manual authentication navigation-safe and browser-specific
+
+- **Decision:** Treat page-navigation errors during the bounded login wait as transient, support
+  `chrome` and `msedge` through separate dedicated profiles, and allow an environment-only
+  30～900-second login timeout. Continue to reject every other browser channel and never automate
+  credentials, CAPTCHA, verification, proxy, stealth, or risk-control behavior.
+- **Reason:** The first Windows acceptance attempt showed that a normal user-initiated login
+  navigation could destroy Playwright's evaluation context, while the default three-minute window
+  could close before a slower manual login completed. These changes make the allowed manual path
+  reliable without broadening the security boundary.
+
+## ID-062 — Treat contradictory zero public views as unavailable
+
+- **Decision:** When a public post reports `play_count = 0` together with any positive interaction,
+  normalize views to `null`, retain every interaction count, and emit the existing missing-view
+  collection warning. If every otherwise-known performance score is tied, assign neutral band
+  `B` rather than incorrectly labeling every row `S`.
+- **Reason:** The first live MediaCrawler payload exposed positive likes, comments, shares, and
+  saves while withholding play counts as zero. Treating that sentinel as a measured zero removed
+  all rate denominators and caused a percentile tie to appear as universal top performance.
+  Missing and neutral output is more honest than a fabricated ranking.

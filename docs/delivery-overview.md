@@ -100,12 +100,14 @@ Final production acceptance on 2026-07-23 produced the following evidence:
   the normalized Parquet tables in about 4.4 seconds on the delivery workstation, with zero rejected
   rows and zero data-quality warnings. Timings are indicative, not a cross-machine performance SLA.
 
-The current Phase 8 main-line increment is accepted offline with 138 tests and 88.17% statement
-coverage. Provider contracts cover URL allowlisting, MediaCrawler sidecar pagination and manual
+The current Phase 8 main-line increment is accepted with 141 tests and 88.35% statement coverage.
+Provider contracts cover URL allowlisting, MediaCrawler sidecar pagination and manual
 login errors, public-field mapping, pinned-runtime absence, TikHub credentials and HTTP
 authorization/rate-limit errors, paid-call confirmation, secret non-disclosure, immutable response
-validation, and the complete URL-to-distillation integration path. A live MediaCrawler acceptance
-run remains required before a new stable version is tagged.
+validation, and the complete URL-to-distillation integration path. The first live MediaCrawler Edge
+acceptance passed on 2026-07-23 with 10 videos, 10 metric snapshots, and 30 comments accepted,
+zero row rejections, and zero final project validation findings. The live payload's unavailable
+public view counts remain explicit instead of being converted into fabricated performance ranks.
 
 ## Not delivered yet
 
@@ -113,9 +115,10 @@ The repository does not include credential/CAPTCHA automation, proxy or stealth 
 reply trees, video downloading, a cloud visual-model client, an installed background scheduler, or
 a Web console. Phase 7 online behavior is limited to explicitly authorized Feishu Bitable and
 Google Sheets official APIs. Phase 8's default MediaCrawler adapter is limited to personal
-non-commercial learning/research and still requires live environment acceptance; TikHub is an
-optional paid route. Level 4 approval remains intentionally human-governed and requires repeated
-controlled evidence; Phase 5 produces only pending proposals.
+non-commercial learning/research; TikHub is an optional paid route. Public view counts may be
+unavailable, and semantic video/transcript analysis still requires local media or transcripts.
+Level 4 approval remains intentionally human-governed and requires repeated controlled evidence;
+Phase 5 produces only pending proposals.
 
 ## Handoff
 

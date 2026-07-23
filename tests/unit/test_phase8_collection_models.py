@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 from pydantic import ValidationError
 
 from video_account_distiller.collection import build_collection_request
+from video_account_distiller.collection.providers import _map_post
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.models import AccountCollectionRequest
 
@@ -69,3 +72,25 @@ def test_collection_request_bounds_optional_comment_sampling() -> None:
             profile_url="https://www.douyin.com/user/demo",
             comment_video_limit=11,
         )
+
+
+def test_public_zero_views_with_positive_interactions_are_treated_as_missing() -> None:
+    mapped = _map_post(
+        {
+            "aweme_id": "video-with-hidden-views",
+            "statistics": {
+                "play_count": 0,
+                "digg_count": 100,
+                "comment_count": 5,
+                "share_count": 2,
+                "collect_count": 3,
+            },
+        },
+        platform_account_id="account",
+        fetched_at=datetime(2026, 7, 23, tzinfo=UTC),
+        metric_source="fixture",
+    )
+
+    assert mapped is not None
+    assert mapped[1].views is None
+    assert mapped[1].likes == 100
