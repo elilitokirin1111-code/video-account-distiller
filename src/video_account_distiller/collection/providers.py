@@ -35,8 +35,11 @@ from video_account_distiller.utils.hashing import hash_text
 TIKHUB_BASE_URLS = {"https://api.tikhub.dev", "https://api.tikhub.io"}
 RESOLVE_PATH = "/api/v1/douyin/web/get_sec_user_id"
 PROFILE_PATH = "/api/v1/douyin/app/v3/handler_user_profile"
-POSTS_PATH = "/api/v1/douyin/app/v3/fetch_user_post_videos"
 COMMENTS_PATH = "/api/v1/douyin/web/fetch_video_comments"
+POSTS_PATHS = {
+    "web": "/api/v1/douyin/web/fetch_user_post_videos",
+    "app-v3": "/api/v1/douyin/app/v3/fetch_user_post_videos",
+}
 
 
 class AccountCollectionProvider(Protocol):
@@ -321,6 +324,7 @@ def _map_post(
     *,
     platform_account_id: str,
     fetched_at: datetime,
+    metric_source: str,
 ) -> tuple[CollectedVideo, CollectedMetricSnapshot] | None:
     video_id = _text(post.get("aweme_id") or post.get("item_id") or post.get("id"))
     if video_id is None:
@@ -364,7 +368,7 @@ def _map_post(
         shares=_nonnegative_int(statistics.get("share_count")),
         saves=_nonnegative_int(_first_present(statistics, ("collect_count", "favorite_count"))),
         favorites=_nonnegative_int(statistics.get("collect_count")),
-        metric_source="tikhub:douyin-app-v3",
+        metric_source=metric_source,
     )
     return video, metric
 
@@ -412,6 +416,7 @@ class TikHubAccountProvider:
         *,
         executor: HttpExecutor | None = None,
         base_url: str | None = None,
+        posts_api_mode: str | None = None,
         retry: RetryPolicy | None = None,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
@@ -423,8 +428,19 @@ class TikHubAccountProvider:
                 "TikHub base URL must use an approved API host",
                 details={"allowed": sorted(TIKHUB_BASE_URLS)},
             )
+        selected_posts_api_mode = (
+            posts_api_mode or os.environ.get("TIKHUB_DOUYIN_POSTS_MODE") or "web"
+        )
+        if selected_posts_api_mode not in POSTS_PATHS:
+            raise DistillerError(
+                ErrorCode.SCHEMA_INVALID,
+                "TikHub Douyin posts API mode must be web or app-v3",
+                details={"allowed": sorted(POSTS_PATHS)},
+            )
         self.executor = executor or UrllibHttpExecutor()
         self.base_url = selected
+        self.posts_api_mode = selected_posts_api_mode
+        self.posts_path = POSTS_PATHS[selected_posts_api_mode]
         self.retry = retry or RetryPolicy()
         self.sleep = sleep
 
@@ -480,16 +496,22 @@ class TikHubAccountProvider:
         metrics: list[CollectedMetricSnapshot] = []
         seen: set[str] = set()
         cursor = 0
-        sort_type = 0 if request.sort == CollectionSort.LATEST else 1
+        sort_parameter = "filter_type" if self.posts_api_mode == "web" else "sort_type"
+        if request.sort == CollectionSort.LATEST:
+            sort_value = 0
+        elif self.posts_api_mode == "web":
+            sort_value = 3
+        else:
+            sort_value = 1
         while len(videos) < request.count:
             page_size = min(20, request.count - len(videos))
             post_page = self._get(
-                POSTS_PATH,
+                self.posts_path,
                 {
                     "sec_user_id": platform_account_id,
                     "max_cursor": cursor,
                     "count": page_size,
-                    "sort_type": sort_type,
+                    sort_parameter: sort_value,
                 },
                 fetched_at=fetched_at,
             )
@@ -501,6 +523,7 @@ class TikHubAccountProvider:
                     item,
                     platform_account_id=platform_account_id,
                     fetched_at=fetched_at,
+                    metric_source=f"tikhub:douyin-{self.posts_api_mode}",
                 )
                 if mapped is None or mapped[0].platform_video_id in seen:
                     continue

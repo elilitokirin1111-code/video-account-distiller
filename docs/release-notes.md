@@ -28,6 +28,9 @@ changes.
   browser state, cookies, login automation, CAPTCHA handling, or direct platform-page scraping.
 - Comment sampling remains disabled by default; `--comments-per-video` and
   `--comment-video-limit` add explicit bounded calls that are included in dry-run billing output.
+- TikHub Douyin homepage posts now default to the welcome-credit-compatible Web endpoint. Operators
+  with paid credit can opt into the more stable APP V3 endpoint with
+  `TIKHUB_DOUYIN_POSTS_MODE=app-v3`; there is no automatic paid fallback.
 - Package and Skill remain `1.0.0` until a real-token paid acceptance run succeeds; existing core
   and Phase 2～7 artifact schemas are unchanged.
 

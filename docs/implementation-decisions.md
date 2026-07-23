@@ -436,3 +436,14 @@ requirements from later phases.
   analysis, but multiplies Provider calls and expands the personal-data footprint. A one-page,
   high-signal, explicitly enabled sample creates predictable cost and privacy limits while reusing
   the tested Phase 4 pipeline.
+
+## ID-057 — Default live acceptance to the free-credit-compatible Web posts endpoint
+
+- **Decision:** Use TikHub's Douyin Web homepage-post endpoint by default because the API
+  marketplace currently marks it as eligible for welcome credit. Keep the documented APP V3
+  endpoint available through `TIKHUB_DOUYIN_POSTS_MODE=app-v3`, but never fall back to it
+  automatically.
+- **Reason:** The approved first live test has only welcome credit, while TikHub currently marks
+  the APP V3 homepage-post endpoint as paid-credit-only. The Web endpoint has the same bounded
+  pagination contract but is documented as potentially less stable. An explicit opt-in preserves
+  the more stable paid path without risking an unexpected charge or changing normalized schemas.

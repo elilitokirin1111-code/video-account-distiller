@@ -101,6 +101,10 @@ uv run distiller account analyze --project ./demo-project \
   --count 10 --sort latest --confirm-provider-cost --json
 ```
 
+主页作品默认使用支持欢迎赠送额度的 Web 接口；充值后可设置
+`TIKHUB_DOUYIN_POSTS_MODE=app-v3` 选择官方提示更稳定、但当前不支持赠送额度的 APP V3
+接口。项目不会自动切换到付费接口。
+
 默认不采集评论。需要增强用户需求与异议分析时，可先追加
 `--comments-per-video 20 --comment-video-limit 3 --dry-run` 查看新增调用次数，确认后再将
 `--dry-run` 替换为 `--confirm-provider-cost`。评论原始响应属于敏感数据，标准化时作者

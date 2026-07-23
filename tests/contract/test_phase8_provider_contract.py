@@ -46,6 +46,7 @@ def test_tikhub_provider_maps_and_paginates_documented_responses(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("TIKHUB_API_KEY", "test-token-never-serialize")
+    monkeypatch.delenv("TIKHUB_DOUYIN_POSTS_MODE", raising=False)
     phase8 = fixtures_dir / "phase8"
     executor = FakeHttpExecutor(
         [
@@ -76,6 +77,9 @@ def test_tikhub_provider_maps_and_paginates_documented_responses(
     assert result.videos[0].duration_seconds == 18.2
     assert result.videos[0].hashtags == ["酒店", "旅行"]
     assert result.metrics[0].views == 260000
+    assert result.metrics[0].metric_source == "tikhub:douyin-web"
+    assert "/api/v1/douyin/web/fetch_user_post_videos" in str(executor.requests[2]["url"])
+    assert "filter_type=0" in str(executor.requests[2]["url"])
     assert "max_cursor=10" in str(executor.requests[3]["url"])
     assert len(result.comments) == 2
     assert result.comments[0].video_id == "7300000000000000001"
@@ -96,6 +100,46 @@ def test_tikhub_provider_maps_and_paginates_documented_responses(
         [comment.model_dump(mode="json") for comment in result.comments],
         ensure_ascii=False,
     )
+
+
+def test_tikhub_provider_can_opt_into_paid_app_posts_endpoint(
+    fixtures_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TIKHUB_API_KEY", "test-token")
+    monkeypatch.setenv("TIKHUB_DOUYIN_POSTS_MODE", "app-v3")
+    phase8 = fixtures_dir / "phase8"
+    executor = FakeHttpExecutor(
+        [
+            _response(phase8 / "resolve.json"),
+            _response(phase8 / "profile.json"),
+            _response(phase8 / "posts-page-1.json"),
+        ]
+    )
+    request = AccountCollectionRequest(
+        profile_url="https://www.douyin.com/user/MS4wLjABAAAAhotel-demo",
+        count=1,
+        sort=CollectionSort.POPULAR,
+    )
+
+    result = TikHubAccountProvider(
+        executor=executor,
+        sleep=lambda _: None,
+    ).collect(request)
+
+    assert result.metrics[0].metric_source == "tikhub:douyin-app-v3"
+    assert "/api/v1/douyin/app/v3/fetch_user_post_videos" in str(executor.requests[2]["url"])
+    assert "sort_type=1" in str(executor.requests[2]["url"])
+
+
+def test_tikhub_provider_rejects_unknown_posts_api_mode() -> None:
+    with pytest.raises(DistillerError) as captured:
+        TikHubAccountProvider(
+            executor=FakeHttpExecutor([]),
+            posts_api_mode="unknown",
+        )
+
+    assert captured.value.code == ErrorCode.SCHEMA_INVALID
 
 
 def test_tikhub_provider_maps_http_auth_and_rate_limit_errors(

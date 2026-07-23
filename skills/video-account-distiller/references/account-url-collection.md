@@ -15,6 +15,10 @@ Use this workflow only for a user-approved public Douyin homepage.
 The fixed allowed API bases are `https://api.tikhub.dev` for mainland China and
 `https://api.tikhub.io` elsewhere. Do not add an arbitrary base URL.
 
+The default `web` homepage-post mode is intended for welcome-credit acceptance. TikHub documents
+that this Web endpoint may be less stable than APP V3. After paid credit is available, the operator
+may explicitly set `TIKHUB_DOUYIN_POSTS_MODE=app-v3`; never silently switch modes after a failure.
+
 ## Run
 
 ```bash

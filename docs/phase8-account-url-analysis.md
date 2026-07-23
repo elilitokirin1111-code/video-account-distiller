@@ -27,7 +27,7 @@ Provider 页面仍会保存在受控项目目录，标准评论只保留作者�
 
 ## 准备密钥
 
-在 [TikHub](https://docs.tikhub.io/) 创建并充值可用的 API 密钥，把密钥只放在运行环境，
+在 [TikHub](https://docs.tikhub.io/) 创建可用的 API 密钥，把密钥只放在运行环境，
 不要写入项目、配置文件、聊天内容或 Git：
 
 ```powershell
@@ -37,6 +37,16 @@ $env:TIKHUB_API_BASE_URL = "https://api.tikhub.dev"
 
 中国大陆环境默认使用 `https://api.tikhub.dev`；海外可使用
 `https://api.tikhub.io`。代码只允许这两个固定 Provider 主机。
+
+默认使用支持 TikHub 欢迎赠送额度的 Douyin Web 主页作品接口。该接口在官方文档中标注
+可能比 APP 接口不稳定；充值后如需优先稳定性，可在本机显式设置：
+
+```powershell
+$env:TIKHUB_DOUYIN_POSTS_MODE = "app-v3"
+```
+
+`web` 与 `app-v3` 都必须在 API 市场重新核对实时单价和赠送额度状态。当前代码不会在 Web
+接口失败后自动转向不支持赠送额度的 APP 接口，避免产生未计划的付费调用。
 
 ## 运行
 
@@ -88,7 +98,8 @@ Provider 使用以下文档化接口：
 
 - [从主页链接提取 sec_user_id](https://docs.tikhub.io/186826167e0)
 - [读取抖音用户资料](https://docs.tikhub.io/186826222e0)
-- [读取抖音用户主页作品](https://docs.tikhub.io/186826223e0)
+- [读取抖音用户主页作品（默认 Web）](https://docs.tikhub.io/186826143e0)
+- [读取抖音用户主页作品（可选 APP V3）](https://docs.tikhub.io/186826223e0)
 - [读取单个视频公开评论](https://docs.tikhub.io/186826152e0)
 
 新增稳定错误码：
@@ -110,7 +121,7 @@ Provider 使用以下文档化接口：
 提交代码前的自动测试全部离线运行。首次真实环境验收应使用用户确认的公开测试账号：
 
 1. 运行 `distiller doctor --json`，确认 `capabilities.tikhub_douyin` 为 `true`。
-2. 对 10 条作品运行预演，记录作品与可选评论的预计调用次数。
+2. 对 10 条作品和 1 条高评论作品的 10 条评论运行预演；当前上限为 4 次 Provider 调用。
 3. 显式确认费用后执行一次真实解析。
 4. 检查账号、视频、指标和可选评论接受数，查看 Provider 范围警告。
 5. 运行 `distiller validate --project <dir> --json`。
