@@ -27,3 +27,24 @@ jobs:
       - run: uv run mypy src tests
       - run: uv run pytest
       - run: uv build
+
+  windows-installed-wheel:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-suffix: windows-wheel-py311
+      - run: uv build
+      - name: Install wheel and run production acceptance
+        shell: pwsh
+        run: |
+          uv venv .release-venv --python 3.11
+          $python = Join-Path $PWD ".release-venv\Scripts\python.exe"
+          $wheel = (Get-ChildItem "dist\video_account_distiller-*.whl").FullName
+          uv pip install --python $python $wheel
+          & $python -m video_account_distiller --version
+          & $python tools\release_acceptance.py `
+            --fixtures tests\fixtures `
+            --report acceptance-windows.json
