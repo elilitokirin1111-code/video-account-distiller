@@ -27,7 +27,10 @@
 22. Run `uv run distiller validate` to verify the complete closed-loop evidence chain.
 23. Run `uv run distiller analyze media` for local scene/keyframe/audio and optional OCR evidence.
 24. Run `uv run distiller validate` to verify raw media, frames, timeline, and evidence hashes.
-25. Query with DuckDB only after normalization.
+25. For an approved retained account batch, preview and run `distiller account enrich-media` to
+    add local media, transcript, single-video semantics, and a rebuilt account distillation.
+26. Run `uv run distiller validate` to verify the account media-enrichment bridge.
+27. Query with DuckDB only after normalization.
 
 ## Idempotence
 
@@ -69,6 +72,8 @@ stable `shot_*`/`key_*` evidence. Repeating identical media/config/provider inpu
 - `predictions/` and `publications/`: immutable prediction and publication linkage.
 - `reports/retros/` and `knowledge-base/reviews/`: prediction errors and pending proposals.
 - `analyses/media/<video-id>/<analysis-id>/`: media analysis, timeline, frames, evidence, warnings.
+- `analyses/accounts/<account>/media-enrichments/<ame_*>/`: retained batch, media, transcript,
+  text-analysis, and rebuilt-distillation links.
 
 ## Failure handling
 

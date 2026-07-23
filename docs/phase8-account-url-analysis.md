@@ -4,6 +4,11 @@ Phase 8 把“用户提供抖音主页链接”接入已有的不可变导入、
 需求分析、账号体检和账号蒸馏链路。默认使用仓库锁定版本的 MediaCrawler 作为本地、个人
 非商业学习研究 Provider；TikHub 继续作为可选的付费 API Provider。
 
+主页元数据采集默认不下载视频。需要分析作品内容时，显式使用
+`--media-limit <1-10>`，或在已有账号上运行 `distiller account enrich-media`。该路径只从
+当前账号最新留存的 MediaCrawler 详情证据中解析公开视频源，在本机完成 Whisper 中文
+转写、关键帧/镜头/音频分析、单视频语义分析和账号重蒸馏；不会再次打开浏览器。
+
 ## 一条命令会完成什么
 
 `distiller account analyze` 会依次执行：
@@ -17,7 +22,7 @@ Phase 8 把“用户提供抖音主页链接”接入已有的不可变导入、
 7. 生成评论需求分析、账号健康报告、证据索引和账号蒸馏报告。
 
 默认采集 10 条作品，并从评论数较高的最多 3 条已采集作品中各读取最多 10 条一级评论。
-可用 `--comments-per-video 0` 关闭评论，或在既有限额内调整数量。系统不下载作品视频，
+可用 `--comments-per-video 0` 关闭评论，或在既有限额内调整数量。默认不下载作品视频，
 不读取私有后台指标，也不把当前粉丝数冒充作品发布时粉丝数。
 
 ## 安装与运行准备
@@ -52,6 +57,20 @@ Windows 上也可使用本机 Edge。运行前设置
 
 MediaCrawler 的第三方许可、锁定提交和商业化边界见
 [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)。
+
+## 可选本地视频增强
+
+对已经采集过的账号，先预演再执行：
+
+```bash
+uv run distiller account enrich-media --project <dir> --account <acc_id> \
+  --limit 3 --whisper-model base --dry-run --json
+uv run distiller account enrich-media --project <dir> --account <acc_id> \
+  --limit 3 --whisper-model base --json
+```
+
+也可以在主页命令上追加 `--media-limit 3 --whisper-model base`。详细依赖、证据路径、稳定
+错误码和隐私边界见 [`account-media-enrichment.md`](account-media-enrichment.md)。
 
 ## 默认本地工作流
 

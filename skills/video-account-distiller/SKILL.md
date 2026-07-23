@@ -1,6 +1,6 @@
 ---
 name: video-account-distiller
-description: "Initialize, collect, import, validate, normalize, analyze, distill, compare, score, predict, register, and retrospect on video accounts from user-approved Douyin homepage URLs, offline exports, explicitly authorized Feishu Bitable or Google Sheets data, local media, scripts, transcripts, comments, and metrics. Use for 抖音主页链接一键解析、MediaCrawler 本地非商业研究采集、TikHub 可选 API 采集、账号拆解或蒸馏、正式环境验收、批量任务、本地视频分析、评论需求、内容模式、对标迁移、脚本评分、发布预测或复盘，with immutable raw evidence, robust metrics, stable errors, manual-browser authentication boundaries, and explicit paid-Provider controls."
+description: "Initialize, collect, locally download and transcribe retained public videos, import, validate, normalize, analyze, distill, compare, score, predict, register, and retrospect on video accounts from user-approved Douyin homepage URLs, offline exports, explicitly authorized Feishu Bitable or Google Sheets data, local media, scripts, transcripts, comments, and metrics. Use for 抖音主页链接一键解析、MediaCrawler 本地非商业研究采集、账号公开视频自动下载与中文转写、TikHub 可选 API 采集、账号拆解或蒸馏、正式环境验收、批量任务、本地视频分析、评论需求、内容模式、对标迁移、脚本评分、发布预测或复盘，with immutable raw evidence, robust metrics, stable errors, manual-browser authentication boundaries, local-only media processing, and explicit paid-Provider controls."
 ---
 
 # Video Account Distiller
@@ -25,6 +25,8 @@ homepage collection only through the bounded MediaCrawler or TikHub adapters.
   Hook/structure/emotion/CTA/content-pillar labels, or interpreting blind analysis.
 - Read `references/media-analysis.md` before analyzing MP4/MOV/MKV media, scene cuts, keyframes,
   audio features, OCR, visual labels, decoder degradation, or a shot timeline.
+- Read `references/account-media-enrichment.md` before downloading retained public account videos,
+  invoking local Whisper, interpreting `ame_*` artifacts, or re-distilling after video analysis.
 - Read `references/model-providers.md` before supplying structured model output, choosing strict or
   degraded behavior, or handling a model Schema failure.
 - Read `references/comment-analysis.md` before labeling comments, interpreting audience demand,
@@ -118,6 +120,35 @@ public-field warnings, optional redacted comment-analysis path, report path, dis
 the next `validate` command. Treat raw Provider comment pages as sensitive retained evidence and
 never claim that homepage data includes private completion, watch-time, traffic-source, or audience
 fields.
+
+When the user explicitly approves local processing of actual public videos, add a bounded
+`--media-limit <1-10> --whisper-model base` or run the separate retained-media route below. Keep
+the default at `0`; do not silently expand a metadata-only request into video download.
+
+### Enrich retained account videos
+
+Read `references/account-media-enrichment.md`. Preview the existing retained batch first:
+
+```bash
+uv run distiller account enrich-media --project <dir> --account <account-id> \
+  --limit 3 --whisper-model base --dry-run --json
+```
+
+The preview must show only candidate counts/hosts, never signed URLs. Confirm FFmpeg and local
+Whisper readiness, then run:
+
+```bash
+uv run distiller account enrich-media --project <dir> --account <account-id> \
+  --limit 3 --whisper-model base --json
+uv run distiller validate --project <dir> --json
+```
+
+Return completed/degraded/failed video counts, media hashes and analysis paths, transcript hashes
+and segment counts, single-video analysis paths, the `ame_*` artifact, and the rebuilt `dst_*`
+report. Treat local keyword semantics as degraded evidence with confidence at most `0.45`.
+Measured framing, shot rhythm, and signal-level audio activity are observations; keyframes alone
+do not establish visual identity. Never print signed media URLs, supply browser cookies, use
+Computer Use for this route, or upload media/transcripts without separate explicit authorization.
 
 ### Import data
 
@@ -372,7 +403,10 @@ MediaCrawler source for declared personal non-commercial research; preserve its 
 and reassess authorization before commercial use. Only the controlled bridge is approved: visible
 Chrome, dedicated profile, manual authentication, bounded posts/comments, and no proxy, stealth,
 automatic login, CAPTCHA, or risk-control-evasion features. TikHub remains an optional paid API
-provider. Replies and media downloads remain unsupported. Phase 6 still ships no network vision
+provider. Media download is supported only as an explicit bounded step from retained MediaCrawler
+detail evidence, with HTTPS Douyin/CDN allowlisting, local Whisper, and content-addressed storage.
+The pinned MIT `claude-video` source is an attributed workflow reference; the account path does not
+execute upstream `/watch`. Replies remain unsupported. Phase 6 still ships no network vision
 client. The system does not auto-approve Level 4 rules; repeated controlled evidence and explicit
 human approval remain required. Do not fabricate visual/audio evidence, causality, authorization,
 or platform access.

@@ -28,6 +28,9 @@ a user-approved Douyin homepage URL. Its default personal non-commercial researc
 pinned MediaCrawler source and controlled visible-Chrome sidecar; TikHub remains an optional paid
 API. Both preserve complete responses and send canonical account/video/metric/comment rows through
 the same import, Parquet, robust-metric, comment-analysis, report, and distillation kernel.
+The same main line now adds opt-in retained-video enrichment: an allowlisted public media download,
+local Whisper Chinese transcript, existing scene/keyframe/audio analysis, blind single-video
+semantics, and account re-distillation with strict hash and evidence links.
 
 ## Key user outcomes
 
@@ -74,6 +77,8 @@ the same import, Parquet, robust-metric, comment-analysis, report, and distillat
 - Preview the bounded calls for one Douyin homepage and turn its public profile, 1～100 posts, and
   bounded top-level comments into a traceable distillation. Require cost confirmation only for the
   optional paid TikHub route.
+- Preview and process a bounded retained-video sample without manual per-video import, signed-URL
+  disclosure, browser cookies, or cloud media upload.
 
 ## Verification evidence
 
@@ -112,8 +117,9 @@ public view counts remain explicit instead of being converted into fabricated pe
 ## Not delivered yet
 
 The repository does not include credential/CAPTCHA automation, proxy or stealth evasion, comment
-reply trees, video downloading, a cloud visual-model client, an installed background scheduler, or
-a Web console. Phase 7 online behavior is limited to explicitly authorized Feishu Bitable and
+reply trees, arbitrary video downloading, a cloud visual-model client, an installed background
+scheduler, or a Web console. Opt-in video download is limited to retained approved MediaCrawler
+evidence and allowlisted Douyin/CDN hosts. Phase 7 online behavior is limited to explicitly authorized Feishu Bitable and
 Google Sheets official APIs. Phase 8's default MediaCrawler adapter is limited to personal
 non-commercial learning/research; TikHub is an optional paid route. Public view counts may be
 unavailable, and semantic video/transcript analysis still requires local media or transcripts.
@@ -126,6 +132,7 @@ Read `README.md` for Quick Start, `docs/data-contracts.md` for machine contracts
 `docs/comment-and-account-distillation.md` for Phase 4 interpretation,
 `docs/scoring-prediction-retro.md` for the Phase 5 learning loop,
 `docs/local-media-analysis.md` for Phase 6 media evidence,
+`docs/account-media-enrichment.md` for the retained public-video workflow,
 `docs/authorized-collaboration-adapters.md` for Phase 7 authorization and synchronization,
 `docs/phase8-account-url-analysis.md` for Phase 8 homepage collection and live acceptance,
 `docs/adapter-guide.md` for field mappings, `docs/privacy-and-compliance.md` for boundaries, and

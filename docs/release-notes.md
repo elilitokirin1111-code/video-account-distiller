@@ -27,6 +27,14 @@ changes.
   through the existing import, Parquet, robust-metric, report, and account-distillation services.
 - Phase 8 project validation, status counters, `doctor` capability, offline Fixtures, CLI/provider
   contracts, integration tests, Skill route, live-acceptance guide, and architecture/data docs.
+- Pinned MIT `bradautomates/claude-video` workflow reference and project-native
+  `AccountMediaEnrichmentService`.
+- `distiller account enrich-media` plus opt-in `account analyze --media-limit`, with retained
+  Douyin-source allowlisting, immutable media, local Whisper Chinese transcription, scene/keyframe/
+  audio analysis, single-video semantics, and account re-distillation.
+- Strict `AccountMediaEnrichment`, `VideoMediaEnrichment`, and `TranscriptionSummary` contracts;
+  stable media-download/transcription errors; project validation/status/doctor coverage; and
+  network-disabled unit, contract, and integration tests.
 
 ### Changed
 
@@ -46,6 +54,23 @@ changes.
   snapshots, and 30 comments accepted, zero row rejections, and zero project validation findings.
   Package and Skill remain `1.0.0` until an explicit release/tag decision; existing core and
   Phase 2～7 artifact schemas are unchanged.
+- The conservative no-model video fallback now classifies only explicit Chinese hotel keywords at
+  confidence no greater than `0.45`. Account positioning also reports measured orientation, median
+  shot duration, audio activity, and any schema-backed visual annotations, while preserving
+  unknown visual semantics and causal limits.
+- Long clips with too few detected cuts now receive bounded uniform keyframe coverage, and repeated
+  analyses/distillations select the newest timestamped media artifact rather than relying on an ID
+  sort. Media-chain status and degraded local semantic status are reported independently.
+
+### Acceptance
+
+- A separately approved local run enriched two retained public videos (106.4 seconds and
+  318.8 seconds) with local Whisper, yielding 53 and 208 transcript segments.
+- The refreshed media kernel produced 12 keyframes for the long single-shot clip and 151 detected
+  shots with 16 bounded keyframes for the longer edited clip.
+- The account report reached 2/10 evidence-linked semantic coverage, added two measured
+  media-production records, and passed final project validation with zero errors and zero warnings.
+  See `docs/phase8-media-enrichment-acceptance-2026-07-23.md`.
 
 ## 1.0.0 — 2026-07-23
 

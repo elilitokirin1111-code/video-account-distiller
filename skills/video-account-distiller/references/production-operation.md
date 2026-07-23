@@ -13,6 +13,8 @@ distiller doctor --json
 Require the expected package version, `python_supported: true`, `capabilities.core: true`, and
 `ok: true`. Local media is optional unless the requested workflow needs it. Feishu and Google
 capabilities remain false until their token environment variables are present.
+For retained account video analysis, additionally require `local_media`, `video_transcription`,
+`account_media_enrichment`, and `mediacrawler_douyin`.
 
 ## Project acceptance
 

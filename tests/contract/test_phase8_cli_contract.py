@@ -82,6 +82,36 @@ def test_account_analyze_dry_run_includes_bounded_comment_calls(
     assert payload["billing"]["chargeable_calls_max"] == 0
 
 
+def test_account_analyze_dry_run_can_plan_bounded_media_enrichment(
+    project: ProjectLayout,
+) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "account",
+            "analyze",
+            "--project",
+            str(project.root),
+            "--url",
+            "https://www.douyin.com/user/demo",
+            "--count",
+            "10",
+            "--media-limit",
+            "3",
+            "--whisper-model",
+            "base",
+            "--dry-run",
+            "--json",
+        ],
+    )
+
+    payload = json.loads(result.stdout)
+    assert result.exit_code == 0
+    assert payload["media_enrichment_plan"]["max_public_media_downloads"] == 3
+    assert payload["media_enrichment_plan"]["max_local_transcriptions"] == 3
+    assert payload["media_enrichment_plan"]["network_vision_uploads"] == 0
+
+
 def test_account_analyze_requires_cost_confirmation_before_provider_call(
     project: ProjectLayout,
 ) -> None:

@@ -119,3 +119,18 @@ environment, uses injectable HTTP, and requires dry-run cost review plus explici
 Both adapters preserve complete raw responses before calling the normal `ImportService`. Add or
 change source aliases only in the collection mapping layer, keep unknown public fields as `null`,
 and cover every new payload shape with offline contract Fixtures.
+
+## Retained account media adapter
+
+`AccountMediaEnrichmentService` is an opt-in bridge from a completed MediaCrawler batch into the
+existing Phase 3 and Phase 6 services. It is not a new crawler and accepts no arbitrary URL:
+candidate bytes must come from the retained `aweme/detail` page for a normalized video belonging
+to the selected account. `HttpMediaDownloader` validates HTTPS request and redirect hosts against
+the Douyin/CDN allowlist, enforces a byte limit, and returns only host/size/path metadata.
+
+`LocalTranscriber` and `MediaDownloader` are injectable protocols. Automated tests use fixture
+implementations and remain socket-disabled. The production `WhisperCliTranscriber` invokes a local
+executable without a shell and converts only its JSON segments. Alternative implementations must
+keep signed URLs out of artifacts/logs, preserve transcript/media hashes, keep cloud upload
+disabled by default, and retain stable `E_MEDIA_DOWNLOAD_FAILED`,
+`E_TRANSCRIPTION_UNAVAILABLE`, and `E_TRANSCRIPTION_FAILED` behavior.

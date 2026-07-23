@@ -60,9 +60,7 @@ def test_mediacrawler_provider_maps_complete_bridge_payload(
 ) -> None:
     monkeypatch.setenv("MEDIACRAWLER_BROWSER_CHANNEL", "msedge")
     home, bridge = _runtime(tmp_path)
-    executor = FixtureProcessExecutor(
-        fixtures_dir / "mediacrawler" / "bridge-success.json"
-    )
+    executor = FixtureProcessExecutor(fixtures_dir / "mediacrawler" / "bridge-success.json")
     provider = MediaCrawlerAccountProvider(
         home=home,
         bridge_script=bridge,
@@ -70,10 +68,7 @@ def test_mediacrawler_provider_maps_complete_bridge_payload(
         executor=executor,
     )
     request = AccountCollectionRequest(
-        profile_url=(
-            "https://www.douyin.com/user/"
-            "MS4wLjABAAAAmediacrawler-hotel"
-        ),
+        profile_url=("https://www.douyin.com/user/MS4wLjABAAAAmediacrawler-hotel"),
         count=2,
         sort=CollectionSort.LATEST,
         provider=CollectionProviderKind.MEDIACRAWLER,

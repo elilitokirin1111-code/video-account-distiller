@@ -204,6 +204,7 @@ class AccountPositioning(StrictModel):
     observed_content_focus: list[str]
     audience_need_clusters: list[str]
     persona_signals: list[str]
+    visual_and_audio_identity: list[str] = Field(default_factory=list)
     confidence: Literal["low", "medium", "high"]
     evidence_ids: list[str]
     unknowns: list[str] = Field(default_factory=list)

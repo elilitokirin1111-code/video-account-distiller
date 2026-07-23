@@ -202,6 +202,22 @@ posts and inspect logs/Git for credentials, Cookie content, or browser-profile f
 separately with `--provider tikhub` only when cost has been approved. Do not tag a new stable version
 until live Provider payload, count, validation, scope, licensing, and secret checks pass.
 
+For a separately approved local-video acceptance, preview and then enrich one retained video before
+expanding the sample:
+
+```bash
+uv run distiller account enrich-media --project ./demo-project \
+  --account <acc_id> --limit 1 --whisper-model base --dry-run --json
+uv run distiller account enrich-media --project ./demo-project \
+  --account <acc_id> --limit 1 --whisper-model base --strict --json
+uv run distiller validate --project ./demo-project --json
+```
+
+Confirm that stdout/run manifests contain no signed media URL, raw video is named by SHA-256,
+transcript segments resolve to their immutable raw JSON, keyframes hash correctly, the new
+single-video analysis changes semantic coverage, and the resulting account distillation reports
+measured production signals without inventing visual semantics.
+
 ## Skill validation
 
 Run `skills-ref validate skills/video-account-distiller` when available. The repository-compatible

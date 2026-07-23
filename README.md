@@ -11,6 +11,8 @@ Google Sheets 官方 API、批量任务、快照计划接口和团队配置。�
 当前主线同时提供 Phase 8 预发布能力：输入用户确认的抖音主页链接，默认通过仓库锁定的
 MediaCrawler 本地研究 Provider 读取公开账号资料、近期作品和有界一级评论，再复用已有的
 原始哈希、数据校验、Parquet、DuckDB、Robust 指标、评论分析、账号体检和蒸馏链路。
+可选的本地视频增强会从已留存、用户批准的 MediaCrawler 作品详情中解析公开视频源，
+在本机完成下载、Whisper 中文转写、场景/关键帧/音频分析和单视频语义分析，再重新蒸馏账号。
 首次运行会打开专用的可见 Chrome，登录和平台验证由用户手动完成；项目不调用代理池、
 隐身脚本、自动登录、验证码处理或风控绕过。TikHub 保留为可选付费 API Provider。
 
@@ -52,6 +54,8 @@ MediaCrawler 本地研究 Provider 读取公开账号资料、近期作品和有
 - 从公开评论数最高的少量作品有界采集一级评论，并自动进入脱敏评论需求分析。
 - 本地 MediaCrawler 默认链路不产生 Provider API 费用；可选 TikHub 调用先预演并显式确认费用。
 - 将完整 Provider 响应作为内容寻址的不可变原始证据。
+- 从留存 Provider 证据中自动选择未分析视频，在不上传媒体的前提下完成本地中文转写、
+  关键帧、镜头节奏、音频活跃度、单视频语义和账号重蒸馏。
 
 ## 安装
 
@@ -69,7 +73,8 @@ uv run distiller doctor --json
 ```
 
 已有工作副本先运行 `git submodule update --init --recursive`。默认主页采集还需要本机
-Node.js 与 Chrome；`doctor` 会分别报告这些可选能力。
+Node.js 与 Chrome；本地视频增强还需要 FFmpeg/FFprobe 和 OpenAI Whisper CLI。
+`doctor` 会分别报告采集、本地媒体、转写和账号视频增强能力。
 
 如果在 Windows 的中文路径中使用 Python 3.11，且 editable 安装未能加载，可使用：
 
@@ -108,6 +113,28 @@ uv run distiller account analyze --project ./demo-project \
   --count 10 --sort latest --json
 ```
 
+要在同一条命令中继续分析 3 条公开视频，显式增加 `--media-limit`。视频、帧和字幕留在
+本机；`base` 可换成已安装的其他本地 Whisper 模型：
+
+```bash
+uv run distiller account analyze --project ./demo-project \
+  --url "https://www.douyin.com/user/<sec-user-id>" \
+  --count 10 --sort latest --media-limit 3 --whisper-model base --json
+```
+
+对已经采集过的账号，不需要重新打开浏览器：
+
+```bash
+uv run distiller account enrich-media --project ./demo-project \
+  --account <acc_id> --limit 3 --whisper-model base --dry-run --json
+
+uv run distiller account enrich-media --project ./demo-project \
+  --account <acc_id> --limit 3 --whisper-model base --json
+```
+
+预演只读取留存批次并报告候选域名、本地转写可用性和预计写入范围；正式执行仅允许留存
+批次中的 HTTPS 抖音/CDN 地址。默认优先选择尚未做单视频分析的作品，因此可分批扩充覆盖。
+
 首次运行会准备 MediaCrawler 的锁定环境并打开可见 Chrome。请在窗口内手动登录或完成
 平台验证；专用登录状态保存在用户目录，不写入项目。默认从最多 3 条高评论作品各采集
 10 条一级评论；可用 `--comments-per-video 0` 关闭。
@@ -120,6 +147,8 @@ MediaCrawler 的锁定提交、第三方许可和商业化边界见
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。完整运行边界、错误码与首次真实验收
 清单见
 [`docs/phase8-account-url-analysis.md`](docs/phase8-account-url-analysis.md)。
+本地视频增强的证据链、依赖、降级行为和隐私边界见
+[`docs/account-media-enrichment.md`](docs/account-media-enrichment.md)。
 
 ### 2. 导入离线导出数据
 

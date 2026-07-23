@@ -70,6 +70,11 @@ Popular sort is only within a bounded recent pool. Comments are biased samples, 
 audience. Raw pages may contain public identifiers; canonical comments retain only author hashes
 and analysis uses direct-identifier redaction.
 
+Homepage collection defaults to metadata-only. When the user separately approves actual public
+video processing, pass `--media-limit <1-10>` or use the existing account ID with
+`distiller account enrich-media`. Read `account-media-enrichment.md`; keep signed URLs inside the
+raw batch and all media/transcription local.
+
 ## Failure handling
 
 - `E_PROFILE_URL_INVALID`: request a valid public HTTPS Douyin homepage.

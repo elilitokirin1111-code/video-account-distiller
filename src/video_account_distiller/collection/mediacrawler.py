@@ -125,16 +125,9 @@ def default_browser_profile(browser_channel: str = "chrome") -> Path:
     if configured:
         return Path(configured).expanduser().resolve()
     profile_name = (
-        "mediacrawler-douyin-edge"
-        if browser_channel == "msedge"
-        else "mediacrawler-douyin"
+        "mediacrawler-douyin-edge" if browser_channel == "msedge" else "mediacrawler-douyin"
     )
-    return (
-        Path.home()
-        / ".video-account-distiller"
-        / "browser-profiles"
-        / profile_name
-    ).resolve()
+    return (Path.home() / ".video-account-distiller" / "browser-profiles" / profile_name).resolve()
 
 
 def chrome_executable() -> str | None:
@@ -148,9 +141,7 @@ def chrome_executable() -> str | None:
     for variable in ("LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)"):
         root = os.environ.get(variable)
         if root:
-            candidates.append(
-                Path(root) / "Google" / "Chrome" / "Application" / "chrome.exe"
-            )
+            candidates.append(Path(root) / "Google" / "Chrome" / "Application" / "chrome.exe")
     for candidate in candidates:
         if candidate.is_file():
             return str(candidate.resolve())
@@ -243,14 +234,12 @@ class MediaCrawlerAccountProvider:
                 details={"allowed": ["chrome", "msedge"]},
             )
         self.browser_profile = (
-            browser_profile or default_browser_profile(self.browser_channel)
-        ).expanduser().resolve()
-        self.uv_executable = uv_executable or shutil.which(
-            os.environ.get("MEDIACRAWLER_UV", "uv")
+            (browser_profile or default_browser_profile(self.browser_channel))
+            .expanduser()
+            .resolve()
         )
-        configured_login_timeout = os.environ.get(
-            "MEDIACRAWLER_LOGIN_TIMEOUT_SECONDS"
-        )
+        self.uv_executable = uv_executable or shutil.which(os.environ.get("MEDIACRAWLER_UV", "uv"))
+        configured_login_timeout = os.environ.get("MEDIACRAWLER_LOGIN_TIMEOUT_SECONDS")
         if configured_login_timeout:
             try:
                 login_timeout_seconds = int(configured_login_timeout)
@@ -411,10 +400,7 @@ class MediaCrawlerAccountProvider:
                     video_id=video_id,
                     platform_account_id=bridge.platform_account_id,
                 )
-                if (
-                    mapped_comment is None
-                    or mapped_comment.platform_comment_id in seen_comments
-                ):
+                if mapped_comment is None or mapped_comment.platform_comment_id in seen_comments:
                     continue
                 seen_comments.add(mapped_comment.platform_comment_id)
                 comments.append(mapped_comment)

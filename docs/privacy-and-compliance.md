@@ -89,6 +89,19 @@ The optional TikHub route reads `TIKHUB_API_KEY` only from the process environme
 `api.tikhub.dev`/`api.tikhub.io`. Dry-run makes no request. Real TikHub calls require explicit cost
 confirmation, and outputs never contain the token or authorization header.
 
+Opt-in account media enrichment reads signed public-video candidates only from the immutable
+MediaCrawler batch for the approved account. It permits HTTPS Douyin/CDN hosts only, validates the
+redirect host, enforces a file-size limit, and never returns or logs the signed URL. Downloaded
+bytes are copied into content-addressed `raw/media/` before the service-owned temporary directory
+is removed. No Cookie or browser session is supplied to the downloader.
+
+Whisper transcription runs through a local executable and generated subtitles pass through the
+same immutable import/normalization path as user-provided subtitles. Media, extracted audio,
+frames, and transcripts are not uploaded. They may still expose guests, staff, room numbers,
+screens, voices, or booking information; restrict project access and review/redact them before
+sharing. The pinned `claude-video` source retains its MIT license and is used as an attributed
+workflow reference, not as a network service.
+
 ## Platform compliance
 
 The controlled MediaCrawler path reads public pages only for a user-approved URL and bounded sample.

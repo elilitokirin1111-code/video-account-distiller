@@ -341,13 +341,10 @@ def _map_post(
     likes = _nonnegative_int(statistics.get("digg_count"))
     comments = _nonnegative_int(statistics.get("comment_count"))
     shares = _nonnegative_int(statistics.get("share_count"))
-    saves = _nonnegative_int(
-        _first_present(statistics, ("collect_count", "favorite_count"))
-    )
+    saves = _nonnegative_int(_first_present(statistics, ("collect_count", "favorite_count")))
     favorites = _nonnegative_int(statistics.get("collect_count"))
     if views == 0 and any(
-        value is not None and value > 0
-        for value in (likes, comments, shares, saves, favorites)
+        value is not None and value > 0 for value in (likes, comments, shares, saves, favorites)
     ):
         # Douyin's public Web payload can expose a zero play_count while
         # simultaneously exposing substantial interactions. That combination

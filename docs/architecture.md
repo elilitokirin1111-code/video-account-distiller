@@ -16,6 +16,13 @@ AccountCollectionService → bounded Provider adapter
         ▼
 immutable raw Provider batch + canonical accounts/videos/metrics/comments JSON
         │
+        ├── explicit --media-limit / account enrich-media
+        │       └── AccountMediaEnrichmentService
+        │             ├── allowlisted retained play URL → immutable raw media
+        │             ├── LocalMediaAnalysisService → shots/keyframes/audio
+        │             ├── local Whisper CLI → TranscriptImportService
+        │             ├── VideoAnalysisService
+        │             └── AccountDistillationService
         └──────────────────────────────────────────────┐
                                                        ▼
 CSV / JSON / JSONL
@@ -115,8 +122,9 @@ proxy, stealth, automatic-login, CAPTCHA, or platform-control-evasion feature.
   benchmark transfer review.
 - `closed_loop/`: Rule/Rubric materialization, explainable script scoring, immutable prediction,
   publication registration, snapshot selection, prediction error, and pending-only Retro changes.
-- `media/`: local FFmpeg/FFprobe adapter, scene/keyframe/audio pipeline, and mockable visual/OCR
-  provider boundary.
+- `media/`: local FFmpeg/FFprobe adapter, scene/keyframe/audio pipeline, mockable visual/OCR
+  provider boundary, retained-source downloader, local Whisper adapter, and account media
+  enrichment orchestration.
 - `adapters/collaboration.py`: fixed-host official API clients, injectable HTTP, authorization,
   bounded retry, provider parsing, and table row contracts.
 - `collaboration/`: authorized export/import orchestration, normalized exports, idempotent Sync
@@ -126,6 +134,8 @@ proxy, stealth, automatic-login, CAPTCHA, or platform-control-evasion feature.
   response storage, and orchestration into the existing import/analysis kernel.
 - `third_party/MediaCrawler`: Git submodule pinned to an audited commit and governed by its own
   non-commercial learning license; it is not relicensed by the root project.
+- `third_party/claude-video`: MIT Git submodule pinned to the audited workflow reference. The
+  production account path uses a project-native adapter rather than executing upstream `watch.py`.
 - `reports/`: null-safe account statistics, high/middle/low comparisons, evidence collection, and
   Jinja2 Markdown rendering.
 - `storage/`: project state, run manifests, atomic Parquet writes, and DuckDB views.
@@ -179,6 +189,14 @@ directly. The MediaCrawler browser profile lives outside the project and reposit
 session contents are never copied into artifacts. `TIKHUB_API_KEY` remains an environment variable
 and is never persisted or returned.
 
+Opt-in account media enrichment derives source candidates only from that retained batch. Signed
+URLs remain inside raw Provider evidence and are never copied into the enrichment artifact. The
+adapter accepts only HTTPS Douyin/CDN hosts, stores downloaded bytes through the existing
+content-addressed media pipeline, invokes local Whisper without shell execution or cloud upload,
+and routes generated transcript segments through normal import and normalization contracts.
+`ame_*` artifacts link source batch hash, media IDs, transcript hashes, text-analysis IDs, and the
+resulting `dst_*` account distillation.
+
 Normalized Parquet is reproducible from staging. Project state is stored in
 `.distiller-state.json`; later rule and task workflows may introduce SQLite without changing the
 Phase 1 table contracts.
@@ -191,8 +209,9 @@ missing raw inputs by recalculating SHA-256.
 
 `distiller doctor` composes package/dependency discovery with `validate_project(persist=False)`.
 It reads the same contracts as normal validation but creates no run directory and does not update
-project state. Its capability flags report optional FFmpeg, MediaCrawler-Douyin, TikHub-Douyin,
-and collaboration readiness without revealing credential values or browser-session data.
+project state. Its capability flags report optional FFmpeg, local Whisper, account media
+enrichment, MediaCrawler-Douyin, TikHub-Douyin, and collaboration readiness without revealing
+credential values or browser-session data.
 
 ## Current boundaries
 
@@ -202,5 +221,6 @@ restricted to the declared personal non-commercial research scope and its contro
 TikHub remains an optional paid API route with explicit cost confirmation. The project does not
 automate credentials, CAPTCHA/slider handling, proxy rotation, stealth, risk-control evasion, or a
 background collector. Phase 6 media remains local, and no bundled network vision provider uploads
-media. The system still does not infer visual causality, audience representativeness, or
+media. Opt-in retained-source downloads and transcription stay local and bounded. The system still
+does not infer visual causality, audience representativeness, or
 automatically validated Level 4 rules.

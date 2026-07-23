@@ -504,3 +504,54 @@ requirements from later phases.
   saves while withholding play counts as zero. Treating that sentinel as a measured zero removed
   all rate denominators and caused a percentile tie to appear as universal top performance.
   Missing and neutral output is more honest than a fabricated ranking.
+
+## ID-063 — Pin claude-video as an MIT workflow reference
+
+- **Decision:** Add `bradautomates/claude-video` as a Git submodule pinned to
+  `83da59fa78c3eee9e20f515fe75c438bb5166efd` (`0.2.0`) and preserve its MIT license and
+  attribution in `THIRD_PARTY_NOTICES.md`.
+- **Reason:** The upstream project provides a compact, auditable reference for URL/local-video
+  acquisition, scene-aware frames, captions, and Whisper fallback. Pinning it makes the borrowed
+  workflow boundary reproducible without making an unversioned GitHub dependency part of the
+  analysis kernel.
+
+## ID-064 — Adapt the workflow instead of executing upstream watch.py
+
+- **Decision:** Do not execute upstream `/watch` in the account pipeline. Implement a project-native
+  `AccountMediaEnrichmentService` that reuses the existing FFmpeg media service, transcript
+  importer, normalizer, single-video analyzer, and account distiller.
+- **Reason:** Upstream output is Markdown-oriented, defaults captions to English, falls back only
+  to cloud Whisper APIs, and has an open source/output-directory deletion risk. The native adapter
+  preserves strict Pydantic JSON, raw hashes, stable errors, Windows UTF-8 behavior, offline tests,
+  and the project's evidence chain.
+
+## ID-065 — Resolve video bytes only from retained approved Provider evidence
+
+- **Decision:** Media enrichment may read candidates only from an immutable MediaCrawler
+  `aweme/detail` page for the selected normalized video. Accept only HTTPS `douyin.com` or
+  `douyinvod.com` hosts, validate the final redirect host, limit each file to 512 MiB, never emit
+  signed URLs, and remove only service-owned temporary files after the media is hash-preserved.
+- **Reason:** This removes manual per-video import while keeping the account, sample, provenance,
+  and network boundary explicit. It also prevents the feature from becoming an arbitrary URL
+  fetcher or a second authentication/cookie workflow.
+
+## ID-066 — Keep transcription local and mockable
+
+- **Decision:** Use a local OpenAI Whisper CLI through an argument-array subprocess with no shell,
+  default model `base`, explicit executable override, one-hour timeout, strict JSON conversion,
+  and stable unavailable/failed error codes. Tests inject a local fixture transcriber and disable
+  all sockets.
+- **Reason:** Current public Douyin details do not provide speech captions. Local transcription
+  closes the semantic-analysis gap without uploading guest, room, screen, or booking content to a
+  third-party model service.
+
+## ID-067 — Surface measured production style and bounded local hotel semantics
+
+- **Decision:** Let the degraded text fallback classify only explicit Chinese hotel-operation,
+  service, housekeeping, career, and accommodation keywords, cap confidence at `0.45`, and retain
+  a human/model-review warning. Account positioning may summarize measured orientation, median
+  shot duration, silence ratio, and schema-backed visual annotations from `media_features`.
+- **Reason:** Always returning `primary_pillar=unknown` made a real 10-video report structurally
+  correct but operationally empty. Explicit evidence-linked local labels and measured production
+  signals improve the report without fabricating objects, people, OCR, music meaning, causality,
+  or performance patterns.

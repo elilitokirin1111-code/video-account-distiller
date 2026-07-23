@@ -8,7 +8,8 @@ uv run distiller analyze media --project <dir> --video <video-id> \
 ```
 
 The local pipeline hashes and preserves the media, reads FFprobe metadata, detects FFmpeg scene
-boundaries, extracts evenly distributed middle-of-shot keyframes, decodes a bounded mono PCM stream,
+boundaries, extracts bounded middle-of-shot keyframes, adds uniform coverage when long clips have
+too few detected cuts, decodes a bounded mono PCM stream,
 and writes timestamped evidence. It never opens a browser or uploads the file.
 
 Outputs live under `analyses/media/<video>/<mda_*>/` and include `media-analysis.json`,
@@ -43,3 +44,8 @@ Do not confuse analysis warnings with validator warnings. An expected limitation
 Provider not supplied” belongs in the analysis warning file. Project validation can still report
 zero warnings when the limitation is explicit and every Schema, path, hash, and evidence link is
 valid.
+
+For an approved account already collected with MediaCrawler, use `account enrich-media` rather
+than manually locating each file. That route downloads only allowlisted candidates from retained
+Provider evidence and then calls this same media service before local transcription and account
+re-distillation. Read `account-media-enrichment.md`.

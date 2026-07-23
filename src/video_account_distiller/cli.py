@@ -38,7 +38,11 @@ from video_account_distiller.doctor import doctor_report
 from video_account_distiller.errors import EXIT_CODES, DistillerError, ErrorCode
 from video_account_distiller.features import VideoAnalysisService
 from video_account_distiller.ingestion import ImportService
-from video_account_distiller.media import LocalMediaAnalysisService
+from video_account_distiller.media import (
+    AccountMediaEnrichmentService,
+    LocalMediaAnalysisService,
+    WhisperCliTranscriber,
+)
 from video_account_distiller.metrics import MetricsService
 from video_account_distiller.models import CollectionProviderKind, CollectionSort, Platform
 from video_account_distiller.normalization import NormalizationService
@@ -218,6 +222,31 @@ def account_analyze_command(
         "--confirm-provider-cost",
         help="Required only for providers that may charge for API calls, such as TikHub.",
     ),
+    media_limit: int = typer.Option(
+        0,
+        "--media-limit",
+        min=0,
+        max=10,
+        help=(
+            "Also download, transcribe, and analyze this many retained public videos. "
+            "0 keeps collection metadata-only."
+        ),
+    ),
+    whisper_model: str = typer.Option(
+        "base",
+        "--whisper-model",
+        help="Local OpenAI Whisper model used only when --media-limit is greater than 0.",
+    ),
+    whisper_command: Path | None = typer.Option(
+        None,
+        "--whisper-command",
+        help="Optional path to a local Whisper executable.",
+    ),
+    strict_media_enrichment: bool = typer.Option(
+        False,
+        "--strict-media-enrichment",
+        help="Stop the account workflow if a selected media download or transcription fails.",
+    ),
     json_output: bool = typer.Option(False, "--json"),
     dry_run: bool = typer.Option(
         False,
@@ -238,11 +267,41 @@ def account_analyze_command(
         )
         layout = ProjectLayout.open(project)
         collection_provider = build_account_provider(provider)
-        return AccountCollectionService(layout, collection_provider).analyze_url(
+        result = AccountCollectionService(layout, collection_provider).analyze_url(
             request=request,
             confirm_provider_cost=confirm_provider_cost,
             dry_run=dry_run,
         )
+        if media_limit <= 0:
+            return result
+        if provider != CollectionProviderKind.MEDIACRAWLER:
+            raise DistillerError(
+                ErrorCode.SCHEMA_INVALID,
+                "--media-limit currently requires --provider mediacrawler",
+            )
+        if dry_run:
+            result["media_enrichment_plan"] = {
+                "enabled": True,
+                "max_public_media_downloads": media_limit,
+                "max_local_transcriptions": media_limit,
+                "whisper_model": whisper_model,
+                "network_vision_uploads": 0,
+                "source": "retained MediaCrawler detail evidence",
+            }
+            return result
+        account_id = str(result["account"]["account_id"])
+        result["media_enrichment"] = AccountMediaEnrichmentService(
+            layout,
+            transcriber=WhisperCliTranscriber(
+                command=whisper_command,
+                model=whisper_model,
+            ),
+        ).enrich(
+            account_id=account_id,
+            limit=media_limit,
+            strict=strict_media_enrichment,
+        )
+        return result
 
     result = _execute(operation, json_output=json_output)
     if dry_run:
@@ -254,6 +313,82 @@ def account_analyze_command(
             f"Analyzed {account['display_name'] or account['account_id']}: "
             f"{collection['videos']} videos, {collection['comments']} comments; "
             f"{result['distillation']['outputs'][0]}"
+        )
+    _emit(result, json_output=json_output, human=human)
+
+
+@account_app.command("enrich-media")
+def account_enrich_media_command(
+    project: Path = typer.Option(..., "--project", help="Initialized analysis project."),
+    account: str = typer.Option(..., "--account", help="Internal account ID."),
+    limit: int = typer.Option(
+        3,
+        "--limit",
+        min=1,
+        max=10,
+        help="Maximum retained public videos to enrich in this run.",
+    ),
+    whisper_model: str = typer.Option("base", "--whisper-model"),
+    whisper_command: Path | None = typer.Option(
+        None,
+        "--whisper-command",
+        help="Optional path to a local OpenAI Whisper executable.",
+    ),
+    scene_threshold: float | None = typer.Option(
+        None,
+        "--scene-threshold",
+        min=0.001,
+        max=0.999,
+    ),
+    max_keyframes: int | None = typer.Option(
+        None,
+        "--max-keyframes",
+        min=1,
+        max=100,
+    ),
+    strict: bool = typer.Option(
+        False,
+        "--strict",
+        help="Stop on the first media, transcription, or text-analysis failure.",
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Resolve retained evidence and local readiness without network or writes.",
+    ),
+) -> None:
+    """Enrich retained account videos with local frames, audio, transcript, and semantics."""
+
+    result = _execute(
+        lambda: AccountMediaEnrichmentService(
+            ProjectLayout.open(project),
+            transcriber=WhisperCliTranscriber(
+                command=whisper_command,
+                model=whisper_model,
+            ),
+        ).enrich(
+            account_id=account,
+            limit=limit,
+            strict=strict,
+            scene_threshold=scene_threshold,
+            max_keyframes=max_keyframes,
+            dry_run=dry_run,
+        ),
+        json_output=json_output,
+    )
+    if dry_run:
+        human = (
+            f"Resolved {len(result['selected'])} retained public videos for {account}; "
+            f"transcriber available={result['transcriber']['available']}"
+        )
+    else:
+        enrichment = result["enrichment"]
+        human = (
+            f"Enriched {enrichment['selected_count']} videos for {account}: "
+            f"{enrichment['completed_count']} complete, "
+            f"{enrichment['degraded_count']} degraded, "
+            f"{enrichment['failed_count']} failed; {result['outputs'][0]}"
         )
     _emit(result, json_output=json_output, human=human)
 

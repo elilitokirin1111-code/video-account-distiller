@@ -88,9 +88,7 @@ class AccountCollectionService:
                 else 0
             )
             detail_calls = (
-                collection_count
-                if request.provider == CollectionProviderKind.MEDIACRAWLER
-                else 0
+                collection_count if request.provider == CollectionProviderKind.MEDIACRAWLER else 0
             )
             would_write = [
                 "raw/account-collections/",
@@ -147,10 +145,7 @@ class AccountCollectionService:
                 ),
                 "would_write": would_write,
             }
-        if (
-            request.provider == CollectionProviderKind.TIKHUB
-            and not confirm_provider_cost
-        ):
+        if request.provider == CollectionProviderKind.TIKHUB and not confirm_provider_cost:
             raise DistillerError(
                 ErrorCode.PROVIDER_COST_CONFIRMATION_REQUIRED,
                 "Paid provider calls require explicit cost confirmation",

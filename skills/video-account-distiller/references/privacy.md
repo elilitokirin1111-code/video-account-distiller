@@ -16,6 +16,11 @@
   the user explicitly authorizes it and project policy allows cloud-model upload.
 - Local media, extracted frames, audio measurements, OCR, and reports may expose guests, room
   numbers, screens, or booking data. Keep them local by default.
+- Retained account media enrichment accepts only explicit bounded runs, never logs signed play
+  URLs, never supplies browser Cookies, and uses local Whisper. Keep downloaded media, frames,
+  voices, and transcripts out of Git and cloud services by default.
+- Preserve the pinned `claude-video` MIT license and attribution. Treat it as a workflow reference;
+  the controlled account path must not execute upstream `/watch`.
 - Phase 4 redacts direct identifiers only in comment analysis copies; preserve raw comments and
   never expose author hashes. Treat comment clusters as biased opportunity signals.
 - Treat hashes as pseudonymous identifiers, not proof of anonymization.

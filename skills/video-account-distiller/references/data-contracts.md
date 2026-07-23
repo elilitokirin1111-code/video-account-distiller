@@ -38,6 +38,13 @@ non-overlapping, and exactly match duration. Keyframes carry a local path and SH
 an existing shot/keyframe and timestamp evidence. Unknown decoder, audio, OCR, and visual values stay
 `null` or absent; they are never inferred as zero/false.
 
+Retained account media enrichment uses `ame_*` and strict `AccountMediaEnrichment`,
+`VideoMediaEnrichment`, and `TranscriptionSummary` models under the Phase 6 schema. The artifact
+links one retained Provider batch hash to media/transcript/text-analysis IDs and a rebuilt
+distillation. `VideoMediaEnrichment.status` covers the media/transcription chain and
+`text_analysis_status` separately marks a bounded heuristic result as degraded. Signed source URLs
+are forbidden in this contract.
+
 Phase 7 authorization grants bind one connector, resource, operation, and expiry. Connector files
 contain environment-variable names, never credential values. Sync receipts record requested,
 completed, and failed row counts; a partial remote write remains `partial`. Pulled provider pages are

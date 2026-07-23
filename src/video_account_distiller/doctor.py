@@ -52,6 +52,15 @@ def _chrome() -> RuntimeExecutable:
     return RuntimeExecutable(name="chrome", available=path is not None, path=path)
 
 
+def _whisper() -> RuntimeExecutable:
+    configured = os.environ.get("DISTILLER_WHISPER_COMMAND")
+    path = shutil.which(configured or "whisper")
+    if path is None and configured:
+        candidate = Path(configured).expanduser()
+        path = str(candidate.resolve()) if candidate.is_file() else None
+    return RuntimeExecutable(name="whisper", available=path is not None, path=path)
+
+
 def _project_diagnostic(path: Path) -> ProjectDiagnostic:
     root = path.expanduser().resolve()
     exists = root.is_dir()
@@ -88,6 +97,7 @@ def doctor_report(project: Path | None = None) -> DoctorReport:
         _executable("ffprobe"),
         _executable("node"),
         _executable("uv"),
+        _whisper(),
         _chrome(),
     ]
     executable_state = {item.name: item.available for item in executables}
@@ -112,6 +122,13 @@ def doctor_report(project: Path | None = None) -> DoctorReport:
         capabilities=CapabilityDiagnostic(
             core=core_ready,
             local_media=executable_state["ffmpeg"] and executable_state["ffprobe"],
+            video_transcription=executable_state["whisper"],
+            account_media_enrichment=(
+                executable_state["ffmpeg"]
+                and executable_state["ffprobe"]
+                and executable_state["whisper"]
+                and mediacrawler_runtime_available()
+            ),
             mediacrawler_douyin=(
                 mediacrawler_runtime_available()
                 and executable_state["node"]

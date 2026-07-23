@@ -144,8 +144,7 @@ async def _wait_for_manual_login(
             return
         if not announced:
             print(
-                "MediaCrawler: 请在打开的浏览器窗口中手动登录抖音；"
-                "如出现验证，请由用户手动完成。",
+                "MediaCrawler: 请在打开的浏览器窗口中手动登录抖音；如出现验证，请由用户手动完成。",
                 file=sys.stderr,
                 flush=True,
             )
@@ -264,8 +263,7 @@ async def _collect_comments(
                 raw_pages.append(
                     {
                         "endpoint": (
-                            "/aweme/v1/web/comment/list/"
-                            f"?aweme_id={item_id}&cursor={cursor}"
+                            f"/aweme/v1/web/comment/list/?aweme_id={item_id}&cursor={cursor}"
                         ),
                         "payload": response,
                     }
@@ -325,9 +323,7 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
                     "https://www.douyin.com",
                     "https://www.toutiao.com",
                 ]
-                cookie_str, cookie_dict = await runtime[
-                    "utils"
-                ].convert_browser_context_cookies(
+                cookie_str, cookie_dict = await runtime["utils"].convert_browser_context_cookies(
                     browser_context,
                     urls=cookie_urls,
                 )
@@ -359,8 +355,7 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
                 raw_pages.append(
                     {
                         "endpoint": (
-                            "/aweme/v1/web/user/profile/other/"
-                            f"?sec_user_id={sec_user_id}"
+                            f"/aweme/v1/web/user/profile/other/?sec_user_id={sec_user_id}"
                         ),
                         "payload": profile,
                     }

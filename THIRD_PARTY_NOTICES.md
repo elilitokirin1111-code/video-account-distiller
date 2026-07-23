@@ -26,3 +26,24 @@ source. The `--provider tikhub` adapter remains an independent API-based alterna
 the upstream proxy, stealth, automatic login, slider/CAPTCHA, or risk-control-evasion workflows.
 Authentication, when required, is completed manually by the user in a visible dedicated Chrome
 profile.
+
+## claude-video
+
+- Project: `bradautomates/claude-video`
+- Source: <https://github.com/bradautomates/claude-video>
+- Bundled location: `third_party/claude-video`
+- Pinned commit: `83da59fa78c3eee9e20f515fe75c438bb5166efd`
+- Upstream version: `0.2.0`
+- License: MIT
+- Upstream license: `third_party/claude-video/LICENSE`
+
+Copyright (c) 2026 Bradley Bonanno.
+
+The upstream project is retained as an auditable design and attribution boundary for video
+download, caption, scene-aware frame, and transcription workflows. `video-account-distiller`
+does not execute the upstream `/watch` command in its production account workflow. The internal
+adapter keeps the useful pipeline shape while adding Chinese-local transcription, strict
+Pydantic artifacts, immutable source hashes, bounded Douyin CDN allowlisting, and project-native
+evidence links. This avoids the upstream English-only caption default, cloud-only Whisper
+fallback, Markdown-only output, and source/output-directory deletion risk while preserving the
+MIT notice.

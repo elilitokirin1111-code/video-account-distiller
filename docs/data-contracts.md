@@ -13,7 +13,7 @@ are Pydantic models in `src/video_account_distiller/models/core.py` and reject u
 Phase 2 contracts are in `src/video_account_distiller/models/analysis.py` and use the same strict
 unknown-field policy. Phase 3 contracts are in `models/text_analysis.py`; Phase 4 contracts are in
 `models/distillation.py`; Phase 5 contracts are in `models/closed_loop.py`; Phase 6 contracts are in
-`models/media.py`.
+`models/media.py`; account media-enrichment contracts are in `models/media_enrichment.py`.
 Phase 7 authorization, connector, Sync, Batch, Snapshot, and Team contracts are in
 `models/collaboration.py`.
 Phase 8 collection request, canonical Provider row, raw-page, and batch contracts are in
@@ -174,6 +174,22 @@ produce Rule/Rubric change proposals.
 Shots require ordered non-negative intervals and exact durations. Keyframes cite one shot, timestamp,
 local path, and SHA-256. OCR cites an existing shot/keyframe and interval. Missing decoder/audio/
 visual information remains `null`, `skipped`, or absent; it is never represented as observed zero.
+
+Account-level media enrichment adds strict artifacts without adding a new normalized table:
+
+| Path | Contract | Identity |
+|---|---|---|
+| `analyses/accounts/<account>/media-enrichments/<ame_*>/enrichment.json` | `AccountMediaEnrichment` | source batch + downstream analysis IDs |
+| `analyses/accounts/<account>/media-enrichments/<ame_*>/warnings.json` | warning list | enrichment ID |
+
+`AccountMediaEnrichment` links a retained Provider batch SHA-256 to 1–10
+`VideoMediaEnrichment` results. Each result may cite a media hash/analysis, local transcription
+summary and raw hash, and single-video analysis. Signed source URLs are deliberately excluded from
+the contract. `TranscriptionSummary.status` distinguishes `complete`, `reused`, `skipped`, and
+`failed`; unknown model, language, hashes, or paths remain `null`.
+`VideoMediaEnrichment.status` describes the acquisition/media/transcription chain, while
+`text_analysis_status` independently records `complete` or bounded-local-heuristic `degraded`
+semantic analysis.
 
 ## Phase 7 authorization and collaboration artifacts
 

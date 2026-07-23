@@ -50,7 +50,7 @@ from video_account_distiller.utils.ids import stable_id
 from video_account_distiller.utils.io import atomic_write_json, atomic_write_text, read_json
 from video_account_distiller.utils.lookup import resolve_video
 
-MEDIA_ANALYSIS_VERSION = "1.0.0"
+MEDIA_ANALYSIS_VERSION = "1.1.1"
 
 
 def _resolve_media_path(
@@ -82,6 +82,61 @@ def _selected_shot_indexes(count: int, maximum: int) -> list[int]:
     if maximum == 1:
         return [0]
     return sorted({round(index * (count - 1) / (maximum - 1)) for index in range(maximum)})
+
+
+def _keyframe_points(
+    shots: Sequence[ShotSegment],
+    *,
+    duration_ms: int,
+    maximum: int,
+) -> list[tuple[int, int]]:
+    """Keep scene midpoints and add uniform coverage when long clips have few cuts."""
+
+    if not shots or maximum < 1:
+        return []
+    selected_indexes = _selected_shot_indexes(len(shots), maximum)
+    points = {
+        (index, shots[index].start_ms + shots[index].duration_ms // 2) for index in selected_indexes
+    }
+    if duration_ms >= 10_000:
+        target = (
+            6
+            if duration_ms <= 30_000
+            else 8
+            if duration_ms <= 60_000
+            else 12
+            if duration_ms <= 180_000
+            else 16
+        )
+        target = min(maximum, target)
+        if len(points) < target:
+            uniform_candidates: list[tuple[int, int]] = []
+            for position in range(target):
+                timestamp_ms = min(
+                    max(0, duration_ms - 1),
+                    round((position + 0.5) * duration_ms / target),
+                )
+                shot_index = next(
+                    (
+                        index
+                        for index, shot in enumerate(shots)
+                        if shot.start_ms <= timestamp_ms < shot.end_ms
+                    ),
+                    len(shots) - 1,
+                )
+                if any(abs(existing - timestamp_ms) < 250 for _, existing in points):
+                    continue
+                uniform_candidates.append((shot_index, timestamp_ms))
+            remaining = target - len(points)
+            for candidate_index in _selected_shot_indexes(
+                len(uniform_candidates),
+                min(remaining, len(uniform_candidates)),
+            ):
+                points.add(uniform_candidates[candidate_index])
+    ordered = sorted(points, key=lambda item: (item[1], item[0]))
+    if len(ordered) > maximum:
+        ordered = [ordered[index] for index in _selected_shot_indexes(len(ordered), maximum)]
+    return ordered
 
 
 def _jpeg_dimensions(path: Path) -> tuple[int, int] | None:
@@ -523,10 +578,12 @@ class LocalMediaAnalysisService:
                             duration_ms=end_ms - start_ms,
                         )
                     )
-                selected_indexes = _selected_shot_indexes(len(shots), keyframe_limit)
-                for index in selected_indexes:
+                for index, timestamp_ms in _keyframe_points(
+                    shots,
+                    duration_ms=duration_ms,
+                    maximum=keyframe_limit,
+                ):
                     shot = shots[index]
-                    timestamp_ms = shot.start_ms + shot.duration_ms // 2
                     keyframe_id = stable_id("key_", media_hash, shot.shot_id, str(timestamp_ms))
                     temp_path = temp_dir / f"{keyframe_id}.jpg"
                     try:
@@ -546,7 +603,9 @@ class LocalMediaAnalysisService:
                     temp_frames[keyframe_id] = temp_path
                     frame_dimensions[keyframe_id] = _jpeg_dimensions(temp_path)
                     keyframe_specs.append((keyframe_id, shot.shot_id, timestamp_ms, frame_hash))
-                    shots[index] = shot.model_copy(update={"keyframe_ids": [keyframe_id]})
+                    shots[index] = shot.model_copy(
+                        update={"keyframe_ids": [*shot.keyframe_ids, keyframe_id]}
+                    )
                 if metadata.audio_codec is None:
                     audio = AudioFeatures(
                         status="skipped",

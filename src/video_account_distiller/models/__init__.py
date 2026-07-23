@@ -119,6 +119,11 @@ from video_account_distiller.models.media import (
     VisionInputShot,
     VisionTaskTrace,
 )
+from video_account_distiller.models.media_enrichment import (
+    AccountMediaEnrichment,
+    TranscriptionSummary,
+    VideoMediaEnrichment,
+)
 from video_account_distiller.models.system import (
     CapabilityDiagnostic,
     DoctorReport,
@@ -150,6 +155,7 @@ from video_account_distiller.models.text_analysis import (
 __all__ = [
     "AccountCollectionBatch",
     "AccountCollectionRequest",
+    "AccountMediaEnrichment",
     "CapabilityDiagnostic",
     "DoctorReport",
     "ProjectDiagnostic",
@@ -267,8 +273,10 @@ __all__ = [
     "TeamRole",
     "TranscriptInputSegment",
     "TranscriptSegment",
+    "TranscriptionSummary",
     "TransferMatrixItem",
     "Video",
+    "VideoMediaEnrichment",
     "VideoAnalysisEvidenceIndex",
     "VideoFactExtraction",
     "VideoPerformanceContext",
