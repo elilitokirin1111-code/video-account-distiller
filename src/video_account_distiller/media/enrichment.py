@@ -27,6 +27,7 @@ from video_account_distiller.media.pipeline import (
     MEDIA_ANALYSIS_VERSION,
     LocalMediaAnalysisService,
 )
+from video_account_distiller.media.providers import VisionModelProvider
 from video_account_distiller.models import (
     AccountCollectionBatch,
     AccountMediaEnrichment,
@@ -568,11 +569,13 @@ class AccountMediaEnrichmentService:
         downloader: MediaDownloader | None = None,
         transcriber: LocalTranscriber | None = None,
         media_backend: MediaBackend | None = None,
+        vision_provider: VisionModelProvider | None = None,
     ) -> None:
         self.project = project
         self.downloader = downloader or HttpMediaDownloader()
         self.transcriber = transcriber or WhisperCliTranscriber()
         self.media_backend = media_backend
+        self.vision_provider = vision_provider
 
     def enrich(
         self,
@@ -580,6 +583,7 @@ class AccountMediaEnrichmentService:
         account_id: str,
         limit: int = 3,
         strict: bool = False,
+        strict_vision: bool = False,
         scene_threshold: float | None = None,
         max_keyframes: int | None = None,
         dry_run: bool = False,
@@ -628,6 +632,12 @@ class AccountMediaEnrichmentService:
                     "model": self.transcriber.model_name,
                     "available": self.transcriber.available,
                 },
+                "vision": {
+                    "provider": (
+                        self.vision_provider.provider_name if self.vision_provider else "none"
+                    ),
+                    "model": self.vision_provider.model_name if self.vision_provider else None,
+                },
                 "would_write": [
                     "raw/media/<sha256>.mp4",
                     "raw/imports/transcripts/<sha256>.json",
@@ -667,7 +677,17 @@ class AccountMediaEnrichmentService:
                         existing = existing_media.get(source.video_id)
                         if existing is not None:
                             stored_analysis, media_path, stored_analysis_path = existing
-                            if stored_analysis.analysis_version == MEDIA_ANALYSIS_VERSION:
+                            vision_is_current = self.vision_provider is None or (
+                                stored_analysis.vision_trace.status == "success"
+                                and stored_analysis.vision_trace.provider
+                                == self.vision_provider.provider_name
+                                and stored_analysis.vision_trace.model
+                                == self.vision_provider.model_name
+                            )
+                            if (
+                                stored_analysis.analysis_version == MEDIA_ANALYSIS_VERSION
+                                and vision_is_current
+                            ):
                                 media_result = {
                                     "ok": True,
                                     "already_generated": True,
@@ -683,6 +703,8 @@ class AccountMediaEnrichmentService:
                                     video_id=source.video_id,
                                     file=media_path,
                                     strict_media=strict,
+                                    provider=self.vision_provider,
+                                    strict_vision=strict_vision,
                                     scene_threshold=scene_threshold,
                                     max_keyframes=max_keyframes,
                                 )
@@ -708,6 +730,8 @@ class AccountMediaEnrichmentService:
                                 video_id=source.video_id,
                                 file=media_path,
                                 strict_media=strict,
+                                provider=self.vision_provider,
+                                strict_vision=strict_vision,
                                 scene_threshold=scene_threshold,
                                 max_keyframes=max_keyframes,
                             )

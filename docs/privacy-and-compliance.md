@@ -64,9 +64,10 @@ manifests.
 only; adding any cloud provider requires explicit user authorization, policy checks, a documented
 retention boundary, redacted logging, and independent contract tests.
 
-The shipped Phase 6 visual Provider also reads only local structured JSON. FFmpeg/FFprobe are local
-processes and do not upload media. Treat extracted keyframes and OCR as sensitive raw-derived
-evidence; review and redact them before sharing outside the project.
+The shipped Phase 6 visual Providers either read local structured JSON or call same-computer
+loopback Ollama on port 11434. Remote hosts, credentials, alternate ports, and URL paths are
+rejected. FFmpeg/FFprobe are local processes and do not upload media. Treat extracted keyframes and
+OCR as sensitive raw-derived evidence; review and redact them before sharing outside the project.
 
 Phase 5 scoring, prediction, publication, and Retro are deterministic and local. Prediction files
 record versions and hashes, not credentials. Publication URLs and notes may still be sensitive;

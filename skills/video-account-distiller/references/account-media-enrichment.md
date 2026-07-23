@@ -24,7 +24,8 @@ Do not request, display, retain separately, or log signed candidate URLs.
 
 ```bash
 uv run distiller account enrich-media --project <dir> --account <acc_id> \
-  --limit 3 --whisper-model base --json
+  --limit 3 --whisper-model base --vision-provider ollama \
+  --vision-model qwen3-vl:8b --json
 uv run distiller validate --project <dir> --json
 ```
 
@@ -43,9 +44,10 @@ The adapter:
 4. calls the existing local media pipeline, which copies media to `raw/media/<sha256>.mp4` and
    adds bounded uniform keyframes when a long clip has too few detected cuts;
 5. invokes local OpenAI Whisper without a shell or cloud API;
-6. imports transcript JSON through normal raw/staging/Parquet contracts;
-7. runs blind single-video analysis and account re-distillation;
-8. writes `analyses/accounts/<account>/media-enrichments/<ame_*>/`.
+6. optionally sends bounded keyframes only to loopback Ollama for strict local visual/OCR labels;
+7. imports transcript JSON through normal raw/staging/Parquet contracts;
+8. runs blind single-video analysis, account re-distillation, and benchmark-profile rebuild;
+9. writes `analyses/accounts/<account>/media-enrichments/<ame_*>/`.
 
 Set `DISTILLER_WHISPER_COMMAND` or pass `--whisper-command` when the executable is not on `PATH`.
 Never use credentials, Cookie contents, browser automation, CAPTCHA handling, proxy/stealth

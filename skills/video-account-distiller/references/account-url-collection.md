@@ -59,7 +59,9 @@ uv run distiller account analyze --project <dir> --url <url> \
 
 The command returns public account/profile rows, videos, visible interaction snapshots, bounded
 top-level comments, immutable Provider evidence, normalized Parquet, robust metrics, account-health
-artifacts, comment-demand analysis, and account distillation.
+artifacts, comment-demand analysis, account distillation, and a reusable `abp_*` benchmark profile.
+Later runs retain earlier raw batches and profiles, so new accounts or newer snapshots can be
+compared without re-entering old data.
 
 Public homepage data usually lacks completion rate, average watch time, follower count at
 publication, full comment coverage/reply trees, traffic source, audience composition, and

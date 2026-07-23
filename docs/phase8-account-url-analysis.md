@@ -7,7 +7,8 @@ Phase 8 把“用户提供抖音主页链接”接入已有的不可变导入、
 主页元数据采集默认不下载视频。需要分析作品内容时，显式使用
 `--media-limit <1-10>`，或在已有账号上运行 `distiller account enrich-media`。该路径只从
 当前账号最新留存的 MediaCrawler 详情证据中解析公开视频源，在本机完成 Whisper 中文
-转写、关键帧/镜头/音频分析、单视频语义分析和账号重蒸馏；不会再次打开浏览器。
+转写、关键帧/镜头/音频分析，可选回环 Ollama/Qwen3-VL 视觉与 OCR、单视频语义分析、
+账号重蒸馏和可比较画像保存；不会再次打开浏览器。
 
 ## 一条命令会完成什么
 
@@ -20,6 +21,7 @@ Phase 8 把“用户提供抖音主页链接”接入已有的不可变导入、
 5. 输出标准化 Parquet，并刷新只读 DuckDB 查询层。
 6. 计算互动率、稳健分数和 S/A/B/C/D 表现分层。
 7. 生成评论需求分析、账号健康报告、证据索引和账号蒸馏报告。
+8. 保存点赞、评论、分享、收藏、评论语义、内容和视听特征的 `abp_*` 账号画像。
 
 默认采集 10 条作品，并从评论数较高的最多 3 条已采集作品中各读取最多 10 条一级评论。
 可用 `--comments-per-video 0` 关闭评论，或在既有限额内调整数量。默认不下载作品视频，
@@ -66,10 +68,12 @@ MediaCrawler 的第三方许可、锁定提交和商业化边界见
 uv run distiller account enrich-media --project <dir> --account <acc_id> \
   --limit 3 --whisper-model base --dry-run --json
 uv run distiller account enrich-media --project <dir> --account <acc_id> \
-  --limit 3 --whisper-model base --json
+  --limit 3 --whisper-model base --vision-provider ollama \
+  --vision-model qwen3-vl:8b --json
 ```
 
-也可以在主页命令上追加 `--media-limit 3 --whisper-model base`。详细依赖、证据路径、稳定
+也可以在主页命令上追加 `--media-limit 3 --whisper-model base --vision-provider ollama
+--vision-model qwen3-vl:8b`。详细依赖、证据路径、稳定
 错误码和隐私边界见 [`account-media-enrichment.md`](account-media-enrichment.md)。
 
 ## 默认本地工作流
@@ -99,7 +103,7 @@ uv run distiller account analyze \
 
 热门排序会在一个有界近期作品池中排序，而不是声称遍历账号全部历史。首次运行请保持
 Chrome 窗口可见并手动完成登录。命令成功后返回内部 `account_id`、原始证据路径、各实体
-导入质量、标准化结果、指标结果、评论分析、账号报告和蒸馏报告。
+导入质量、标准化结果、指标结果、评论分析、账号报告、蒸馏报告和可复用账号画像。
 
 ## 可选 TikHub API 工作流
 
@@ -140,6 +144,7 @@ TikHub 只允许配置的固定官方 Provider 主机。真实调用必须先预
 - 完整原始页面保存在 `raw/account-collections/<provider>/<sha256>/`；公开不等于可任意传播。
 - 标准评论只保留作者哈希，评论分析副本继续执行直接标识符脱敏。
 - 完播率、平均观看时长、流量来源、受众画像和投流真值等公开主页没有的数据保持未知。
+- 公开播放量不可用时保持未知，不写成 0，也不参与跨账号互动排序。
 
 ## 稳定错误码
 

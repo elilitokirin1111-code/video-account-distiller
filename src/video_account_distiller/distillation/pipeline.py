@@ -10,10 +10,15 @@ from typing import Any, Literal, cast
 
 from jinja2 import Environment, StrictUndefined
 
+from video_account_distiller.benchmarking import (
+    AccountBenchmarkProfileService,
+    rank_account_profiles,
+)
 from video_account_distiller.config import load_config
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.metrics.calculations import median
 from video_account_distiller.models import (
+    AccountBenchmarkProfile,
     AccountDistillation,
     AccountPositioning,
     ArtifactEvidenceIndex,
@@ -41,7 +46,7 @@ from video_account_distiller.utils.ids import stable_id
 from video_account_distiller.utils.io import atomic_write_json, atomic_write_text, read_json
 
 DISTILLATION_VERSION = "1.1.0"
-COMPARISON_VERSION = "1.0.0"
+COMPARISON_VERSION = "1.1.0"
 Classification = Literal[
     "fact", "semantic_annotation", "statistical_association", "hypothesis", "warning"
 ]
@@ -121,6 +126,32 @@ def _production_signals(features: Sequence[MediaFeatureRecord]) -> list[str]:
     visual_count = sum(item.visual_annotation_count for item in features)
     if visual_count:
         signals.append(f"已有 {visual_count} 个带证据的视觉镜头标注")
+    visual_labels = Counter(value for item in features for value in item.visual_labels)
+    if visual_labels:
+        signals.append(
+            "高频画面元素：" + "、".join(value for value, _ in visual_labels.most_common(5))
+        )
+    colors = Counter(value for item in features for value in item.dominant_colors)
+    if colors:
+        signals.append("常见画面主色：" + "、".join(value for value, _ in colors.most_common(4)))
+    style_tags = Counter(value for item in features for value in item.visual_style_tags)
+    if style_tags:
+        signals.append(
+            "构图与光线特征：" + "、".join(value for value, _ in style_tags.most_common(5))
+        )
+    text_styles = Counter(value for item in features for value in item.text_overlay_style_tags)
+    if text_styles:
+        signals.append(
+            "字幕与艺术字特征：" + "、".join(value for value, _ in text_styles.most_common(5))
+        )
+    motion_tags = Counter(value for item in features for value in item.motion_graphic_tags)
+    if motion_tags:
+        signals.append(
+            "动效与贴纸特征：" + "、".join(value for value, _ in motion_tags.most_common(5))
+        )
+    branding = Counter(value for item in features for value in item.branding_tags)
+    if branding:
+        signals.append("品牌露出特征：" + "、".join(value for value, _ in branding.most_common(5)))
     return signals
 
 
@@ -867,7 +898,7 @@ class BenchmarkComparisonService:
         benchmark_account_ids: list[str],
         dry_run: bool = False,
     ) -> dict[str, Any]:
-        """Compare distilled patterns without cross-platform raw metric comparison."""
+        """Compare distilled patterns plus same-platform public interaction profiles."""
 
         benchmark_ids = sorted(
             {item for item in benchmark_account_ids if item != target_account_id}
@@ -878,11 +909,26 @@ class BenchmarkComparisonService:
             )
         target = _latest_distillation(self.project, target_account_id)
         benchmarks = [_latest_distillation(self.project, item) for item in benchmark_ids]
+        profile_service = AccountBenchmarkProfileService(self.project)
+        profiles = [
+            AccountBenchmarkProfile.model_validate(
+                profile_service.build(account_id=account_id, dry_run=dry_run)["profile"]
+            )
+            for account_id in [target_account_id, *benchmark_ids]
+        ]
+        ranking_profiles = [
+            profile for profile in profiles if profile.platform == profiles[0].platform
+        ]
+        excluded_ranking_accounts = sorted(
+            profile.account_id for profile in profiles if profile not in ranking_profiles
+        )
+        rankings = rank_account_profiles(ranking_profiles)
         target_platform = str(target.data_scope.get("platform") or "unknown")
         target_features = {cluster.feature_value for cluster in target.content_clusters}
         seed = {
             "target": target.distillation_id,
             "benchmarks": [item.distillation_id for item in benchmarks],
+            "profiles": [item.profile_id for item in profiles],
             "version": COMPARISON_VERSION,
         }
         comparison_id = stable_id("cmp_", sha256_json(seed))
@@ -906,6 +952,7 @@ class BenchmarkComparisonService:
             {
                 sha256_json(target.model_dump(mode="json")),
                 *(sha256_json(item.model_dump(mode="json")) for item in benchmarks),
+                *(item for profile in profiles for item in profile.input_hashes),
             }
         )
         manifest = (
@@ -931,6 +978,11 @@ class BenchmarkComparisonService:
         }
         matrix: list[TransferMatrixItem] = []
         warnings: list[str] = []
+        if excluded_ranking_accounts:
+            warnings.append(
+                "cross_platform_accounts_excluded_from_interaction_ranking:"
+                + ",".join(excluded_ranking_accounts)
+            )
         for benchmark in benchmarks:
             source_platform = str(benchmark.data_scope.get("platform") or "unknown")
             same_platform = source_platform == target_platform
@@ -1022,6 +1074,14 @@ class BenchmarkComparisonService:
             benchmark_account_ids=benchmark_ids,
             generated_at=generated_at,
             run_id=run_id,
+            profiles=profiles,
+            rankings=rankings,
+            ranking_basis=[
+                "单条视频点赞、评论、分享、收藏中位数的同平台百分位",
+                "粉丝数可用时加入每千粉单条视频互动中位数",
+                "播放量因平台可见性限制不参与排序",
+                "评论情绪、意图、痛点、追问和购买意向只作内容解释，不作为流量分数",
+            ],
             transfer_matrix=matrix,
             recommended_experiments=experiments,
             evidence_index_path=relative[2],

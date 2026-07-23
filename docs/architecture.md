@@ -120,11 +120,13 @@ proxy, stealth, automatic-login, CAPTCHA, or platform-control-evasion feature.
 - `comments/`: redacted comment copies, intent labeling, deterministic fallback, and need clusters.
 - `distillation/`: content clusters, Pattern evidence/counterexamples, account knowledge, and
   benchmark transfer review.
+- `benchmarking/`: immutable account interaction/comment/content/visual profiles and
+  same-platform percentile ranking with per-account data coverage.
 - `closed_loop/`: Rule/Rubric materialization, explainable script scoring, immutable prediction,
   publication registration, snapshot selection, prediction error, and pending-only Retro changes.
-- `media/`: local FFmpeg/FFprobe adapter, scene/keyframe/audio pipeline, mockable visual/OCR
-  provider boundary, retained-source downloader, local Whisper adapter, and account media
-  enrichment orchestration.
+- `media/`: local FFmpeg/FFprobe adapter, scene/keyframe/audio pipeline, loopback-only
+  Ollama/Qwen visual/OCR Provider, retained-source downloader, local Whisper adapter, and account
+  media enrichment orchestration.
 - `adapters/collaboration.py`: fixed-host official API clients, injectable HTTP, authorization,
   bounded retry, provider parsing, and table row contracts.
 - `collaboration/`: authorized export/import orchestration, normalized exports, idempotent Sync
@@ -162,6 +164,12 @@ benchmark comparisons use `cmp_*`. Every referenced `evi_*` resolves to normaliz
 hashes. Promoted and Robust-outlier videos remain visible as confounders but do not count as Pattern
 support or counterexamples.
 
+Reusable account snapshots use stable `abp_*` IDs under
+`analyses/accounts/<account>/benchmark-profiles/`. Their identity includes normalized latest
+public metrics, the exact `dst_*` distillation and `cma_*` comment analysis. New inputs create a new
+profile; old profiles remain available. `cmp_*` embeds the profiles used and a target-platform-only
+ranking. Views are excluded because public homepage visibility is not reliable.
+
 Phase 5 scripts are copied under `raw/candidates/` by SHA-256 and described by stable `cand_*`
 records. Scores use `score_*`; Rubrics and Rules use `rub_*` and `rule_*` with explicit versions.
 Predictions use `pred_*` derived from a canonical input hash and are never overwritten.
@@ -175,6 +183,9 @@ Phase 6 copies media to `raw/media/<sha256>.<ext>`, creates content-addressed `m
 stable `shot_*` and `key_*` timestamp evidence, and aggregate `mdf_*` rows in
 `media_features.parquet`. Structured visual output is preserved under `raw/vision-outputs/`.
 Keyframe hashes and timeline copies are validated against the main media artifact.
+The bundled live visual path accepts only loopback Ollama on port 11434, requests a strict JSON
+Schema, and maps every result back to a sampled keyframe. It does not upload frames to a cloud
+endpoint.
 
 Phase 7 preserves official API pages under `raw/collaboration/<connector>/<sha256>.json`; pulled
 rows still pass through `MappingResolver`, strict Pydantic models, staging, and normalization. Sync
@@ -209,7 +220,7 @@ missing raw inputs by recalculating SHA-256.
 
 `distiller doctor` composes package/dependency discovery with `validate_project(persist=False)`.
 It reads the same contracts as normal validation but creates no run directory and does not update
-project state. Its capability flags report optional FFmpeg, local Whisper, account media
+project state. Its capability flags report optional FFmpeg, local Whisper, local vision, account media
 enrichment, MediaCrawler-Douyin, TikHub-Douyin, and collaboration readiness without revealing
 credential values or browser-session data.
 
@@ -220,7 +231,8 @@ Sheets APIs. Phase 8 accepts a user-provided Douyin homepage. The default MediaC
 restricted to the declared personal non-commercial research scope and its controlled bridge;
 TikHub remains an optional paid API route with explicit cost confirmation. The project does not
 automate credentials, CAPTCHA/slider handling, proxy rotation, stealth, risk-control evasion, or a
-background collector. Phase 6 media remains local, and no bundled network vision provider uploads
-media. Opt-in retained-source downloads and transcription stay local and bounded. The system still
+background collector. Phase 6 media remains local; the bundled Ollama Provider is loopback-only,
+and no cloud vision Provider uploads media. Opt-in retained-source downloads and transcription stay
+local and bounded. The system still
 does not infer visual causality, audience representativeness, or
 automatically validated Level 4 rules.

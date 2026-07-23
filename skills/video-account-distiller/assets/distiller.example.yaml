@@ -19,6 +19,10 @@ privacy:
 models:
   text_provider: null
   vision_provider: null
+  vision_model: qwen3-vl:8b
+  ollama_base_url: http://127.0.0.1:11434
+  vision_batch_size: 4
+  vision_timeout_seconds: 180
   require_schema_validation: true
   max_schema_attempts: 2
   allow_degraded_analysis: true

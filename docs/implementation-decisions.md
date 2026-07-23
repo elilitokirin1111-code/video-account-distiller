@@ -555,3 +555,48 @@ requirements from later phases.
   correct but operationally empty. Explicit evidence-linked local labels and measured production
   signals improve the report without fabricating objects, people, OCR, music meaning, causality,
   or performance patterns.
+
+## ID-068 — Keep the bundled live visual Provider loopback-only
+
+- **Decision:** Add Ollama/Qwen3-VL as the only bundled live visual path. Accept only
+  `http://127.0.0.1:11434` or `localhost` on port 11434 and reject TLS, remote hosts, credentials,
+  alternate ports, paths, queries, and fragments before reading image bytes.
+- **Reason:** The project needs real visual/OCR analysis without sending guest, room, screen, or
+  booking imagery to a cloud service. A hard loopback boundary is testable and preserves the
+  existing local-first privacy model.
+
+## ID-069 — Install Ollama program and model storage on D
+
+- **Decision:** On the accepted Windows workstation, install Ollama under `D:\AI\Ollama\App`, set
+  the user `OLLAMA_MODELS` value to `D:\AI\Ollama\Models`, and pull `qwen3-vl:8b` there. Keep this
+  path operator-configurable in documentation rather than hard-coding it into project data.
+- **Reason:** The user explicitly requested D-drive installation and the workstation has ample D
+  capacity. Environment-based model storage avoids filling the system drive while keeping normal
+  Ollama behavior.
+
+## ID-070 — Persist reusable public-interaction and comment-content profiles
+
+- **Decision:** Build content-addressed `abp_*` profiles from the latest normalized per-video
+  metrics, exact comment-analysis artifact, exact account distillation, and any visual identity.
+  Retain every profile and automatically rebuild after homepage analysis or media enrichment.
+- **Reason:** Later account comparisons must not require the user to re-enter older data. Immutable
+  raw batches plus versioned derived profiles preserve history and make the exact comparison input
+  auditable.
+
+## ID-071 — Rank only visible same-platform interaction dimensions
+
+- **Decision:** Rank target-platform accounts using percentiles for median likes, comments, shares,
+  saves/favorites, and interactions per 1,000 followers when available. Average only each account's
+  available dimensions, report coverage, exclude cross-platform accounts, and never use homepage
+  views.
+- **Reason:** Douyin public pages may withhold views and follower denominators. Treating them as
+  zero or comparing them across platforms would create false precision. Comment semantics explain
+  audience needs but do not inflate the interaction score.
+
+## ID-072 — Validate Qwen structured output from either Ollama message field
+
+- **Decision:** Prefer non-empty `message.content`; when it is empty, accept `message.thinking` and
+  validate it against the same strict JSON Schema. Do not regex-repair or invent missing evidence.
+- **Reason:** Real `qwen3-vl:8b` acceptance returned the requested structured JSON in the local
+  thinking field even with thinking disabled. Supporting the actual Ollama response shape closes
+  compatibility without weakening Schema or evidence checks.

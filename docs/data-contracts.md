@@ -114,12 +114,20 @@ for known semantic labels. The blind bundle and blind artifact exclude all perfo
 | `analyses/comments/<account>/<cma_*>/evidence-index.json` | `ArtifactEvidenceIndex` | comment and cluster evidence |
 | `reports/accounts/<account>/<dst_*>/distillation.json` | `AccountDistillation` | account inputs + config + upstream analyses |
 | `knowledge-base/patterns/<pat_*>.json` | `Pattern` | feature + support + counterexamples + version |
-| `reports/comparisons/<cmp_*>/comparison.json` | `BenchmarkComparison` | target + benchmark distillation hashes |
+| `analyses/accounts/<account>/benchmark-profiles/<abp_*>/profile.json` | `AccountBenchmarkProfile` | latest normalized metrics + exact comment/distillation artifacts |
+| `reports/comparisons/<cmp_*>/comparison.json` | `BenchmarkComparison` | target + benchmark distillations + exact `abp_*` profiles |
 
 `CommentSignalAnnotation` rejects empty intent labels and out-of-range probabilities/confidence.
 `CommentAnalysis` counts must match its signals and unique videos. `ContentCluster.video_count` must
 match unique video IDs. `Pattern` requires at least one support video, exact support/counterexample
 counts, disjoint sets, evidence IDs, scope, confidence, maturity, and version.
+
+`AccountBenchmarkProfile` preserves account and latest metric snapshot time, sampled/analyzed
+coverage, likes/comments/shares/saves totals and per-video medians, interaction mix, optional
+interactions per 1,000 followers, comment-like coverage/total/median, semantic comment aggregates,
+content pillars, visual identity, input hashes, and explicit warnings. Unknown views and followers
+remain `null`. `AccountRankingEntry` contains target-platform rank, available-dimension percentile
+scores, raw indicators, composite score, data coverage, and limitations.
 
 `ArtifactEvidenceIndex` resolves Phase 4 conclusions to normalized comment/account/video/metric
 records, source IDs, source runs, and raw hashes. `distiller validate` verifies companion files,

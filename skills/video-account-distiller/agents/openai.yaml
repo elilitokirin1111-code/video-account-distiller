@@ -1,4 +1,4 @@
 interface:
   display_name: "Video Account Distiller"
-  short_description: "从抖音主页链接到可追溯的账号蒸馏、内容分析、预测与复盘"
-  default_prompt: "Use $video-account-distiller to analyze an authorized Douyin account homepage into an evidence-based account distillation."
+  short_description: "从主页链接完成本地视觉分析、互动评论蒸馏与跨账号对比"
+  default_prompt: "Use $video-account-distiller to analyze an authorized account homepage with local vision, public interactions, comments, and reusable cross-account benchmarks."

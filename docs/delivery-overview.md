@@ -30,7 +30,9 @@ API. Both preserve complete responses and send canonical account/video/metric/co
 the same import, Parquet, robust-metric, comment-analysis, report, and distillation kernel.
 The same main line now adds opt-in retained-video enrichment: an allowlisted public media download,
 local Whisper Chinese transcript, existing scene/keyframe/audio analysis, blind single-video
-semantics, and account re-distillation with strict hash and evidence links.
+semantics, loopback-only Ollama/Qwen3-VL visual/OCR analysis, account re-distillation, reusable
+interaction/comment/content/visual account profiles, and same-platform comparison rankings with
+strict hash and evidence links.
 
 ## Key user outcomes
 
@@ -55,6 +57,8 @@ semantics, and account re-distillation with strict hash and evidence links.
   every Pattern.
 - Produce actionable account experiments without claiming causality or a validated rule.
 - Keep benchmark and platform baselines separate while reviewing what can be tested or adapted.
+- Persist content-addressed likes/comments/shares/saves plus comment-semantic account profiles for
+  later comparisons, and rank only same-platform accounts with visible data coverage.
 - Score new scripts with visible dimensions, missing items, risks, and bounded low-maturity Rule
   influence.
 - Save P25/P50/P75 predictions with assumptions, confidence, input hashes, and Rule/Rubric versions.
@@ -63,8 +67,8 @@ semantics, and account re-distillation with strict hash and evidence links.
 - Produce pending Rule/Rubric proposals and next experiments without silently changing policy.
 - Preserve local media by SHA-256 and extract reproducible metadata, shots, keyframes, and bounded
   audio signal features.
-- Keep visual/OCR unknown by default or attach only provider output that cites exact shot/keyframe
-  timestamps.
+- Keep visual/OCR unknown by default or use loopback Ollama/Provider output that cites exact
+  shot/keyframe timestamps.
 - Degrade visibly when FFmpeg is unavailable, with an optional stable strict failure mode.
 - Require explicit read/write grants and environment-only credentials for collaboration adapters.
 - Preserve official provider pages before mapping and route pulled rows through the same strict

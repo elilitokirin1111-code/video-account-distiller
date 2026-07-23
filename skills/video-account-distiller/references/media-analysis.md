@@ -31,6 +31,13 @@ Without a visual provider, OCR and visual labels remain unknown. To replay a loc
 annotation must cite an existing shot; every OCR observation must cite an existing keyframe and a
 millisecond interval inside its shot.
 
+For local Ollama, pass `--vision-provider ollama --vision-model qwen3-vl:8b`. The endpoint is
+hard-limited to loopback port 11434. Bounded keyframe batches are converted to strict structured
+results covering labels, dominant colors, composition, camera, lighting, text-overlay styles,
+motion-graphic traces, branding, and OCR. Qwen may place structured JSON in Ollama's `thinking`
+field even when normal content is empty; validate either field against the same strict Schema.
+Never treat still-frame evidence as proof of motion or upload frames to a remote endpoint.
+
 Use `--strict-media` to stop with `E_MEDIA_DECODE` when FFmpeg/FFprobe is unavailable or metadata
 cannot be decoded. The default degrades visibly. Use `--strict-vision` to stop on invalid visual
 Schema; otherwise deterministic media results are retained with warnings.

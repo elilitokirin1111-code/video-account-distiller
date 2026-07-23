@@ -107,11 +107,15 @@ counterexample sets are disjoint; and maturity never exceeds Level 1.
 After distilling every account:
 
 ```bash
+uv run distiller account benchmark-profile --project ./demo-project \
+  --account <acc_id> --json
 uv run distiller compare --project ./demo-project --target <acc_id> \
   --benchmarks <benchmark_id_1>,<benchmark_id_2> --json
 ```
 
-Verify cross-platform items keep separate baselines and never compare raw views.
+Verify profiles preserve interaction/comment summaries and input hashes; ranking uses only
+target-platform accounts, reports per-account data coverage, and never uses raw or unavailable
+views. Rebuilding identical inputs must reuse the same `abp_*`.
 
 ## Phase 5 smoke test
 

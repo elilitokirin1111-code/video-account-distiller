@@ -35,6 +35,16 @@ changes.
 - Strict `AccountMediaEnrichment`, `VideoMediaEnrichment`, and `TranscriptionSummary` contracts;
   stable media-download/transcription errors; project validation/status/doctor coverage; and
   network-disabled unit, contract, and integration tests.
+- Loopback-only `OllamaVisionProvider` with `qwen3-vl:8b`, strict JSON Schema, bounded keyframe
+  batches, frame-to-shot evidence mapping, OCR, scene/color/composition/camera/lighting,
+  artistic-text, motion-graphic, and branding fields.
+- Content-addressed `abp_*` account benchmark profiles that retain likes/comments/shares/saves,
+  comment-like and semantic aggregates, content pillars, visual identity, snapshot times, hashes,
+  and unavailable-field warnings for future comparisons.
+- Same-platform account ranking based on per-video public-interaction medians and optional
+  per-1,000-follower interactions, with per-account coverage and explicit view exclusion.
+- `distiller account benchmark-profile`, automatic profile generation after homepage analysis and
+  retained-media enrichment, profile validation, status counts, report tables, and offline tests.
 
 ### Changed
 
@@ -61,6 +71,11 @@ changes.
 - Long clips with too few detected cuts now receive bounded uniform keyframe coverage, and repeated
   analyses/distillations select the newest timestamped media artifact rather than relying on an ID
   sort. Media-chain status and degraded local semantic status are reported independently.
+- Qwen3-VL structured output is accepted from Ollama's local `message.content` or
+  `message.thinking`, then validated identically; empty or malformed output still fails with the
+  stable model Schema error.
+- Cross-platform accounts remain available for conservative Pattern transfer but are excluded from
+  public-interaction ranking. Missing views remain unknown and never enter the composite score.
 
 ### Acceptance
 
@@ -71,6 +86,9 @@ changes.
 - The account report reached 2/10 evidence-linked semantic coverage, added two measured
   media-production records, and passed final project validation with zero errors and zero warnings.
   See `docs/phase8-media-enrichment-acceptance-2026-07-23.md`.
+- Ollama and `qwen3-vl:8b` were installed on the D drive for local visual acceptance; exact
+  versions, model digest, real-project result, and validation outcome are recorded in the current
+  `docs/local-vision-and-benchmark-acceptance-2026-07-23.md` note.
 
 ## 1.0.0 — 2026-07-23
 

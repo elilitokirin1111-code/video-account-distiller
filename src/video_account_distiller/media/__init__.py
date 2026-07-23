@@ -19,9 +19,11 @@ from video_account_distiller.media.enrichment import (
 )
 from video_account_distiller.media.pipeline import LocalMediaAnalysisService
 from video_account_distiller.media.providers import (
+    OllamaVisionProvider,
     StructuredVisionFileProvider,
     VisionModelProvider,
     VisionSchemaFailure,
+    ollama_model_available,
 )
 
 __all__ = [
@@ -35,6 +37,7 @@ __all__ = [
     "LocalMediaAnalysisService",
     "LocalTranscriber",
     "MediaDownloader",
+    "OllamaVisionProvider",
     "SceneDetectionResult",
     "StructuredVisionFileProvider",
     "TranscribedMedia",
@@ -42,4 +45,5 @@ __all__ = [
     "VisionSchemaFailure",
     "WhisperCliTranscriber",
     "HttpMediaDownloader",
+    "ollama_model_available",
 ]

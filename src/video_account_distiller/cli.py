@@ -11,6 +11,7 @@ from typing import Any, TypeVar
 import typer
 
 from video_account_distiller.adapters import build_collaboration_adapter
+from video_account_distiller.benchmarking import AccountBenchmarkProfileService
 from video_account_distiller.closed_loop import (
     PredictionService,
     PublicationService,
@@ -41,6 +42,8 @@ from video_account_distiller.ingestion import ImportService
 from video_account_distiller.media import (
     AccountMediaEnrichmentService,
     LocalMediaAnalysisService,
+    OllamaVisionProvider,
+    VisionModelProvider,
     WhisperCliTranscriber,
 )
 from video_account_distiller.metrics import MetricsService
@@ -86,6 +89,29 @@ app.add_typer(team_app, name="team")
 app.add_typer(account_app, name="account")
 
 T = TypeVar("T")
+
+
+def _vision_provider(
+    *,
+    provider: str | None,
+    model: str,
+    base_url: str,
+    batch_size: int,
+    timeout_seconds: int,
+) -> VisionModelProvider | None:
+    if provider is None or provider.strip().lower() in {"", "none"}:
+        return None
+    if provider.strip().lower() != "ollama":
+        raise DistillerError(
+            ErrorCode.SCHEMA_INVALID,
+            "Only the local ollama vision provider is currently supported",
+        )
+    return OllamaVisionProvider(
+        model=model,
+        base_url=base_url,
+        batch_size=batch_size,
+        timeout_seconds=timeout_seconds,
+    )
 
 
 def _version_callback(value: bool) -> None:
@@ -242,6 +268,29 @@ def account_analyze_command(
         "--whisper-command",
         help="Optional path to a local Whisper executable.",
     ),
+    vision_provider: str | None = typer.Option(
+        None,
+        "--vision-provider",
+        help="Optional local visual provider; currently supports ollama.",
+    ),
+    vision_model: str = typer.Option("qwen3-vl:8b", "--vision-model"),
+    ollama_base_url: str = typer.Option(
+        "http://127.0.0.1:11434",
+        "--ollama-base-url",
+        help="Loopback Ollama endpoint.",
+    ),
+    vision_batch_size: int = typer.Option(4, "--vision-batch-size", min=1, max=8),
+    vision_timeout_seconds: int = typer.Option(
+        180,
+        "--vision-timeout-seconds",
+        min=1,
+        max=1800,
+    ),
+    strict_vision: bool = typer.Option(
+        False,
+        "--strict-vision",
+        help="Stop when local visual output remains invalid.",
+    ),
     strict_media_enrichment: bool = typer.Option(
         False,
         "--strict-media-enrichment",
@@ -272,34 +321,53 @@ def account_analyze_command(
             confirm_provider_cost=confirm_provider_cost,
             dry_run=dry_run,
         )
-        if media_limit <= 0:
-            return result
-        if provider != CollectionProviderKind.MEDIACRAWLER:
-            raise DistillerError(
-                ErrorCode.SCHEMA_INVALID,
-                "--media-limit currently requires --provider mediacrawler",
-            )
         if dry_run:
+            if media_limit <= 0:
+                return result
+            if provider != CollectionProviderKind.MEDIACRAWLER:
+                raise DistillerError(
+                    ErrorCode.SCHEMA_INVALID,
+                    "--media-limit currently requires --provider mediacrawler",
+                )
             result["media_enrichment_plan"] = {
                 "enabled": True,
                 "max_public_media_downloads": media_limit,
                 "max_local_transcriptions": media_limit,
                 "whisper_model": whisper_model,
+                "vision_provider": vision_provider or "none",
+                "vision_model": vision_model if vision_provider else None,
                 "network_vision_uploads": 0,
                 "source": "retained MediaCrawler detail evidence",
             }
             return result
         account_id = str(result["account"]["account_id"])
-        result["media_enrichment"] = AccountMediaEnrichmentService(
-            layout,
-            transcriber=WhisperCliTranscriber(
-                command=whisper_command,
-                model=whisper_model,
-            ),
-        ).enrich(
-            account_id=account_id,
-            limit=media_limit,
-            strict=strict_media_enrichment,
+        if media_limit > 0:
+            if provider != CollectionProviderKind.MEDIACRAWLER:
+                raise DistillerError(
+                    ErrorCode.SCHEMA_INVALID,
+                    "--media-limit currently requires --provider mediacrawler",
+                )
+            result["media_enrichment"] = AccountMediaEnrichmentService(
+                layout,
+                transcriber=WhisperCliTranscriber(
+                    command=whisper_command,
+                    model=whisper_model,
+                ),
+                vision_provider=_vision_provider(
+                    provider=vision_provider,
+                    model=vision_model,
+                    base_url=ollama_base_url,
+                    batch_size=vision_batch_size,
+                    timeout_seconds=vision_timeout_seconds,
+                ),
+            ).enrich(
+                account_id=account_id,
+                limit=media_limit,
+                strict=strict_media_enrichment,
+                strict_vision=strict_vision,
+            )
+        result["benchmark_profile"] = AccountBenchmarkProfileService(layout).build(
+            account_id=account_id
         )
         return result
 
@@ -334,6 +402,23 @@ def account_enrich_media_command(
         "--whisper-command",
         help="Optional path to a local OpenAI Whisper executable.",
     ),
+    vision_provider: str | None = typer.Option(
+        None,
+        "--vision-provider",
+        help="Optional local visual provider; currently supports ollama.",
+    ),
+    vision_model: str = typer.Option("qwen3-vl:8b", "--vision-model"),
+    ollama_base_url: str = typer.Option(
+        "http://127.0.0.1:11434",
+        "--ollama-base-url",
+    ),
+    vision_batch_size: int = typer.Option(4, "--vision-batch-size", min=1, max=8),
+    vision_timeout_seconds: int = typer.Option(
+        180,
+        "--vision-timeout-seconds",
+        min=1,
+        max=1800,
+    ),
     scene_threshold: float | None = typer.Option(
         None,
         "--scene-threshold",
@@ -351,6 +436,11 @@ def account_enrich_media_command(
         "--strict",
         help="Stop on the first media, transcription, or text-analysis failure.",
     ),
+    strict_vision: bool = typer.Option(
+        False,
+        "--strict-vision",
+        help="Stop when local visual output remains invalid.",
+    ),
     json_output: bool = typer.Option(False, "--json"),
     dry_run: bool = typer.Option(
         False,
@@ -360,21 +450,38 @@ def account_enrich_media_command(
 ) -> None:
     """Enrich retained account videos with local frames, audio, transcript, and semantics."""
 
-    result = _execute(
-        lambda: AccountMediaEnrichmentService(
-            ProjectLayout.open(project),
+    def operation() -> dict[str, Any]:
+        layout = ProjectLayout.open(project)
+        result = AccountMediaEnrichmentService(
+            layout,
             transcriber=WhisperCliTranscriber(
                 command=whisper_command,
                 model=whisper_model,
+            ),
+            vision_provider=_vision_provider(
+                provider=vision_provider,
+                model=vision_model,
+                base_url=ollama_base_url,
+                batch_size=vision_batch_size,
+                timeout_seconds=vision_timeout_seconds,
             ),
         ).enrich(
             account_id=account,
             limit=limit,
             strict=strict,
+            strict_vision=strict_vision,
             scene_threshold=scene_threshold,
             max_keyframes=max_keyframes,
             dry_run=dry_run,
-        ),
+        )
+        if not dry_run:
+            result["benchmark_profile"] = AccountBenchmarkProfileService(layout).build(
+                account_id=account
+            )
+        return result
+
+    result = _execute(
+        operation,
         json_output=json_output,
     )
     if dry_run:
@@ -391,6 +498,35 @@ def account_enrich_media_command(
             f"{enrichment['failed_count']} failed; {result['outputs'][0]}"
         )
     _emit(result, json_output=json_output, human=human)
+
+
+@account_app.command("benchmark-profile")
+def account_benchmark_profile_command(
+    project: Path = typer.Option(..., "--project"),
+    account: str = typer.Option(..., "--account"),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Persist reusable interaction, comment, content, and visual account features."""
+
+    result = _execute(
+        lambda: AccountBenchmarkProfileService(ProjectLayout.open(project)).build(
+            account_id=account,
+            dry_run=dry_run,
+        ),
+        json_output=json_output,
+    )
+    profile = result["profile"]
+    _emit(
+        result,
+        json_output=json_output,
+        human=(
+            f"Built benchmark profile for {account}: "
+            f"{profile['sampled_video_count']} videos, "
+            f"{profile['comment_content']['comment_count']} comments; "
+            f"{result['outputs'][0]}"
+        ),
+    )
 
 
 def _import_command(
@@ -769,6 +905,23 @@ def analyze_media_command(
         "--vision-output",
         help="Offline JSON containing schema-targeted visual/OCR annotations.",
     ),
+    vision_provider: str | None = typer.Option(
+        None,
+        "--vision-provider",
+        help="Optional local visual provider; currently supports ollama.",
+    ),
+    vision_model: str = typer.Option("qwen3-vl:8b", "--vision-model"),
+    ollama_base_url: str = typer.Option(
+        "http://127.0.0.1:11434",
+        "--ollama-base-url",
+    ),
+    vision_batch_size: int = typer.Option(4, "--vision-batch-size", min=1, max=8),
+    vision_timeout_seconds: int = typer.Option(
+        180,
+        "--vision-timeout-seconds",
+        min=1,
+        max=1800,
+    ),
     strict_media: bool = typer.Option(
         False, "--strict-media", help="Return E_MEDIA_DECODE instead of a degraded artifact."
     ),
@@ -787,6 +940,13 @@ def analyze_media_command(
             video_id=video,
             file=file,
             vision_output=vision_output,
+            provider=_vision_provider(
+                provider=vision_provider,
+                model=vision_model,
+                base_url=ollama_base_url,
+                batch_size=vision_batch_size,
+                timeout_seconds=vision_timeout_seconds,
+            ),
             strict_media=strict_media,
             strict_vision=strict_vision,
             scene_threshold=scene_threshold,

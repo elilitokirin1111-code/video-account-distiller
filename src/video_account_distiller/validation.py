@@ -10,6 +10,7 @@ import yaml
 from pydantic import BaseModel, ValidationError
 
 from video_account_distiller.models import (
+    AccountBenchmarkProfile,
     AccountCollectionBatch,
     AccountDistillation,
     AccountMediaEnrichment,
@@ -335,6 +336,39 @@ def _validate_phase4_artifact(
     )
     if empty_sources:
         errors.append(f"referenced evidence has no normalized sources: {empty_sources}")
+    return [f"{project.relative(path)}: {message}" for message in errors]
+
+
+def _validate_benchmark_profile(path: Path, project: ProjectLayout) -> list[str]:
+    """Validate a reusable cross-account profile and its retained sources."""
+
+    errors: list[str] = []
+    try:
+        profile = AccountBenchmarkProfile.model_validate(read_json(path))
+        warnings_path = path.parent / "warnings.json"
+        if not warnings_path.is_file() or read_json(warnings_path) != profile.warnings:
+            errors.append("warnings.json does not match the profile")
+        if profile.profile_id != path.parent.name:
+            errors.append("profile path does not match profile_id")
+        if profile.account_id != path.parents[2].name:
+            errors.append("profile path does not match account_id")
+        if not profile.input_hashes:
+            errors.append("profile input_hashes must not be empty")
+        source_found = False
+        for source_path in (project.root / "reports" / "accounts" / profile.account_id).glob(
+            "*/distillation.json"
+        ):
+            source_payload = read_json(source_path)
+            if (
+                isinstance(source_payload, dict)
+                and source_payload.get("distillation_id") == profile.source_distillation_id
+            ):
+                source_found = True
+                break
+        if not source_found:
+            errors.append("source distillation is missing")
+    except (OSError, ValueError, ValidationError) as exc:
+        return [f"{project.relative(path)}: {exc}"]
     return [f"{project.relative(path)}: {message}" for message in errors]
 
 
@@ -733,6 +767,27 @@ def validate_project(project: ProjectLayout, *, persist: bool = True) -> Quality
                 )
             )
 
+    benchmark_profile_paths = sorted(
+        (project.root / "analyses" / "accounts").glob("*/benchmark-profiles/*/profile.json")
+    )
+    for path in benchmark_profile_paths:
+        for message in _validate_benchmark_profile(path, project):
+            issues.append(
+                DataQualityIssue(
+                    issue_id=stable_id(
+                        "dqi_",
+                        manifest.run_id,
+                        project.relative(path),
+                        message,
+                    ),
+                    run_id=manifest.run_id,
+                    severity="error",
+                    code="benchmark_profile_artifact_invalid",
+                    entity="benchmark_profiles",
+                    message=message,
+                )
+            )
+
     phase5_checks: list[tuple[Path, str]] = [
         *[
             (path, "score")
@@ -928,6 +983,7 @@ def validate_project(project: ProjectLayout, *, persist: bool = True) -> Quality
             "phase6_artifacts": len(media_analysis_paths),
             "media_enrichments": len(media_enrichment_paths),
             "phase4_artifacts": len(phase4_paths),
+            "benchmark_profiles": len(benchmark_profile_paths),
             "phase5_artifacts": len(phase5_checks),
             "rules": len(rule_paths),
             "rubrics": len(rubric_paths),

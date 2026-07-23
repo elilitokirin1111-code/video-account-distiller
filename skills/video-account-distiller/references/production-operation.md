@@ -14,7 +14,14 @@ Require the expected package version, `python_supported: true`, `capabilities.co
 `ok: true`. Local media is optional unless the requested workflow needs it. Feishu and Google
 capabilities remain false until their token environment variables are present.
 For retained account video analysis, additionally require `local_media`, `video_transcription`,
-`account_media_enrichment`, and `mediacrawler_douyin`.
+`local_vision`, `account_media_enrichment`, and `mediacrawler_douyin`.
+
+On Windows, Ollama supports a custom application directory. For a D-drive installation, verify the
+official installer signature, set the user environment variable
+`OLLAMA_MODELS=D:\AI\Ollama\Models`, install with
+`OllamaSetup.exe /DIR="D:\AI\Ollama\App"`, then pull `qwen3-vl:8b` with the D-drive executable.
+Confirm `/api/tags` reports the model and that the model blobs are under D, not the default
+user-profile model directory. Do not expose Ollama on a non-loopback address for this workflow.
 
 ## Project acceptance
 

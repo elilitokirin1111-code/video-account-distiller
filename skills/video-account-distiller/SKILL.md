@@ -1,6 +1,6 @@
 ---
 name: video-account-distiller
-description: "Initialize, collect, locally download and transcribe retained public videos, import, validate, normalize, analyze, distill, compare, score, predict, register, and retrospect on video accounts from user-approved Douyin homepage URLs, offline exports, explicitly authorized Feishu Bitable or Google Sheets data, local media, scripts, transcripts, comments, and metrics. Use for 抖音主页链接一键解析、MediaCrawler 本地非商业研究采集、账号公开视频自动下载与中文转写、TikHub 可选 API 采集、账号拆解或蒸馏、正式环境验收、批量任务、本地视频分析、评论需求、内容模式、对标迁移、脚本评分、发布预测或复盘，with immutable raw evidence, robust metrics, stable errors, manual-browser authentication boundaries, local-only media processing, and explicit paid-Provider controls."
+description: "Initialize, collect, locally download, transcribe, and visually analyze retained public videos, import, validate, normalize, distill, persist account benchmark profiles, compare, rank, score, predict, register, and retrospect on video accounts from user-approved Douyin homepage URLs, offline exports, authorized tables, local media, scripts, transcripts, comments, and public interaction metrics. Use for 抖音主页链接一键解析、MediaCrawler 本地非商业研究采集、账号公开视频下载与中文转写、Ollama/Qwen 本地视觉与OCR、账号拆解或蒸馏、点赞评论分享收藏画像、跨账号排序、正式环境验收、批量任务、对标迁移、脚本评分、发布预测或复盘，with immutable raw evidence, robust metrics, stable errors, manual-browser authentication boundaries, local-only media processing, and explicit paid-Provider controls."
 ---
 
 # Video Account Distiller
@@ -139,7 +139,8 @@ Whisper readiness, then run:
 
 ```bash
 uv run distiller account enrich-media --project <dir> --account <account-id> \
-  --limit 3 --whisper-model base --json
+  --limit 3 --whisper-model base --vision-provider ollama \
+  --vision-model qwen3-vl:8b --json
 uv run distiller validate --project <dir> --json
 ```
 
@@ -252,6 +253,19 @@ instead of a degraded artifact; add `--strict-vision` for strict visual Schema b
 `media_features.parquet` path. Run `distiller validate` afterward. Never infer unobserved visual
 details or upload the media without separate explicit authorization.
 
+For local Qwen vision/OCR through the loopback-only Ollama service, run:
+
+```bash
+uv run distiller analyze media --project <dir> --video <video-id> \
+  --file <local-video.mp4> --vision-provider ollama \
+  --vision-model qwen3-vl:8b --vision-batch-size 4 --strict-vision --json
+```
+
+Accept only `http://127.0.0.1:11434` or `http://localhost:11434`. The Provider records scene
+labels, color, composition, camera, lighting, artistic text, motion-graphic traces, branding, and
+OCR against exact keyframes. It must not infer video motion from one still frame or send frames to
+a remote host.
+
 Use `--max-keyframes <1-100>` to cap evenly distributed keyframes and `--scene-threshold <0-1>` to
 override scene sensitivity. These options, Provider output, and extracted features are part of the
 content-addressed result, so meaningful differences may create another immutable `mda_*` analysis.
@@ -288,12 +302,22 @@ Patterns may be observations or associations only; never promote them to Level 4
 Distill the target and every benchmark separately, then run:
 
 ```bash
+uv run distiller account benchmark-profile --project <dir> \
+  --account <account-id> --json
 uv run distiller compare --project <dir> --target <account-id> \
   --benchmarks <benchmark-id-1>,<benchmark-id-2> --json
 ```
 
-Keep each platform/account baseline separate. Judge transferability from content features, scope,
-resources, risk, and Pattern maturity; do not compare raw views across accounts or platforms.
+The profile is content-addressed and retains the latest public per-video likes, comments, shares,
+saves/favorites, interaction mix, follower-normalized interaction when available, comment likes,
+sentiment, intent, questions, pain points, objections, purchase-intent signals, content
+opportunities, content pillars, and visual identity. Repeated collection creates new snapshots and
+profiles without overwriting earlier ones.
+
+Rank only accounts on the target platform. Use per-video medians and per-1,000-follower public
+interactions; exclude unavailable dimensions from each account's score and report coverage. Never
+use unavailable homepage views as zero or include views in this ranking. Keep cross-platform
+accounts in the transfer review but exclude them from interaction ranking.
 
 ### Score a script
 
@@ -406,7 +430,7 @@ automatic login, CAPTCHA, or risk-control-evasion features. TikHub remains an op
 provider. Media download is supported only as an explicit bounded step from retained MediaCrawler
 detail evidence, with HTTPS Douyin/CDN allowlisting, local Whisper, and content-addressed storage.
 The pinned MIT `claude-video` source is an attributed workflow reference; the account path does not
-execute upstream `/watch`. Replies remain unsupported. Phase 6 still ships no network vision
-client. The system does not auto-approve Level 4 rules; repeated controlled evidence and explicit
-human approval remain required. Do not fabricate visual/audio evidence, causality, authorization,
-or platform access.
+execute upstream `/watch`. Replies remain unsupported. Phase 6 includes a loopback-only Ollama
+vision Provider and no cloud vision client. The system does not auto-approve Level 4 rules;
+repeated controlled evidence and explicit human approval remain required. Do not fabricate
+visual/audio evidence, causality, authorization, or platform access.

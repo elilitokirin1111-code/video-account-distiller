@@ -24,9 +24,16 @@ Transcript timing may be `null`; never invent timestamps for TXT. Phase 3 semant
 existing transcript segment IDs. `blind-analysis.json` must contain no performance fields.
 
 Phase 4 IDs use `cma_*` comment analyses, `cms_*` comment signals, `cnc_*` need clusters, `dst_*`
-account distillations, `clu_*` content clusters, `pat_*` Patterns, and `cmp_*` comparisons. Every
+account distillations, `clu_*` content clusters, `pat_*` Patterns, `abp_*` account benchmark
+profiles, and `cmp_*` comparisons. Every
 Pattern requires support, a counterexample field, disjoint sample sets, scope, maturity, version,
 risks, and evidence IDs. Core records are not rewritten.
+
+`AccountBenchmarkProfile` stores account/metric snapshot times, per-video public interaction
+medians, totals and mix for likes/comments/shares/saves, follower-normalized interactions when the
+denominator exists, comment-like coverage, semantic comment aggregates, content pillars, visual
+identity, input hashes, and explicit unavailable fields. It never turns unknown views or
+followers into zero. Comparisons embed the exact profiles and same-platform percentile rankings.
 
 Phase 5 IDs use `rule_*`, `rub_*`, `cand_*`, `score_*`, `pred_*`, `pub_*`, `retro_*`, and `exp_*`.
 Rubric weights must total 100. Prediction quantiles must satisfy P25 ≤ P50 ≤ P75 and include

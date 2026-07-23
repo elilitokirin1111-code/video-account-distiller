@@ -100,6 +100,15 @@ class FixtureVisionProvider:
     provider_name = "fixture-vision"
     model_name = "fixture-v1"
 
+    def __init__(self) -> None:
+        self.raw_responses = [
+            {
+                "message": {
+                    "content": "fixture local visual response",
+                }
+            }
+        ]
+
     @property
     def input_hash(self) -> str | None:
         return None
@@ -154,6 +163,9 @@ def test_local_media_analysis_is_traceable_queryable_and_idempotent(
     assert analysis.vision.ocr_observations[0].text == "欢迎入住"
     raw_media = phase3_project.root / analysis.raw_media_path
     assert sha256_file(raw_media) == sha256_file(source)
+    raw_vision_outputs = [path for path in outputs if path.parent.name == "vision-outputs"]
+    assert len(raw_vision_outputs) == 1
+    assert sha256_file(raw_vision_outputs[0]) == raw_vision_outputs[0].stem
 
     with DuckDBStore(phase3_project.normalized_dir) as store:
         assert store.count("media_features") == 1

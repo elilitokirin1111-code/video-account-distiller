@@ -12,7 +12,8 @@
 - Never print credentials, Cookie contents, authorization headers, or browser-session data.
 - For TikHub, keep `TIKHUB_API_KEY` in the local environment, preview paid calls, and require
   explicit cost confirmation.
-- Phase 3/4 ships no network model provider. Do not upload comments, transcripts, or media unless
+- Phase 3/4 ships no network model provider. Phase 6 Ollama vision is loopback-only and keeps
+  keyframes on the same computer. Do not upload comments, transcripts, or media unless
   the user explicitly authorizes it and project policy allows cloud-model upload.
 - Local media, extracted frames, audio measurements, OCR, and reports may expose guests, room
   numbers, screens, or booking data. Keep them local by default.

@@ -12,7 +12,8 @@ Google Sheets 官方 API、批量任务、快照计划接口和团队配置。�
 MediaCrawler 本地研究 Provider 读取公开账号资料、近期作品和有界一级评论，再复用已有的
 原始哈希、数据校验、Parquet、DuckDB、Robust 指标、评论分析、账号体检和蒸馏链路。
 可选的本地视频增强会从已留存、用户批准的 MediaCrawler 作品详情中解析公开视频源，
-在本机完成下载、Whisper 中文转写、场景/关键帧/音频分析和单视频语义分析，再重新蒸馏账号。
+在本机完成下载、Whisper 中文转写、场景/关键帧/音频分析；可通过本机 Ollama 与
+Qwen3-VL 增加画面、艺术字、品牌露出和 OCR，再重新蒸馏并保存可比较的账号画像。
 首次运行会打开专用的可见 Chrome，登录和平台验证由用户手动完成；项目不调用代理池、
 隐身脚本、自动登录、验证码处理或风控绕过。TikHub 保留为可选付费 API Provider。
 
@@ -34,12 +35,15 @@ MediaCrawler 本地研究 Provider 读取公开账号资料、近期作品和有
 - 输出单视频 JSON/Markdown、独立盲分析、字幕/指标证据索引和警告。
 - 使用本机 FFmpeg/FFprobe 分析 MP4、MOV、MKV 等媒体，生成镜头时间线与关键帧证据。
 - 计算可追溯的音频响度、动态范围、静音/活动比例，并在无 FFmpeg 时明确降级。
-- 通过可替换视觉 Provider 添加带时间戳的画面标签和 OCR；默认保持未知且不上传媒体。
+- 通过回环地址上的 Ollama/Qwen3-VL 添加画面、构图、色彩、灯光、艺术字、动效痕迹、
+  品牌露出和 OCR；默认保持未知且不上传媒体。
 - 在评论分析副本中脱敏电话、邮箱、网址、账号和联系方式，不修改原始评论。
 - 输出评论意图、痛点、异议、购买意图、内容机会和带偏差提醒的需求聚类。
 - 将内容簇与账号内表现分层对照，生成同时包含支持样本和反例的可追溯 Pattern。
 - 输出账号定位观察、优势/短板、可复制/不可复制因素、行动建议和 30 天实验草案。
 - 为目标账号与对标账号生成迁移矩阵，并保持不同平台和账号基线独立。
+- 按账号长期保存点赞、评论、分享、收藏、评论点赞和评论语义画像；后续蒸馏可直接做
+  同平台排序，并明确排除平台不可见的播放量。
 - 使用九维 Rubric 给脚本打分，展示每个分项、必改项、风险及低成熟度规则的有限影响。
 - 以同账号历史分布生成 P25/P50/P75 预测区间，记录假设、置信度、版本和不可变输入哈希。
 - 将预测与已导入的视频发布记录关联，规划 T+1h/T+24h/T+3d/T+7d 数据快照。
@@ -74,7 +78,22 @@ uv run distiller doctor --json
 
 已有工作副本先运行 `git submodule update --init --recursive`。默认主页采集还需要本机
 Node.js 与 Chrome；本地视频增强还需要 FFmpeg/FFprobe 和 OpenAI Whisper CLI。
-`doctor` 会分别报告采集、本地媒体、转写和账号视频增强能力。
+本地视觉还需要 Ollama 与一个视觉模型。`doctor` 会分别报告采集、本地媒体、转写、
+本地视觉和账号视频增强能力。
+
+Windows 可把 Ollama 程序和模型都放到 D 盘：
+
+```powershell
+[Environment]::SetEnvironmentVariable(
+  "OLLAMA_MODELS", "D:\AI\Ollama\Models", "User"
+)
+.\OllamaSetup.exe /DIR="D:\AI\Ollama\App"
+$env:OLLAMA_MODELS = "D:\AI\Ollama\Models"
+& "D:\AI\Ollama\App\ollama.exe" pull qwen3-vl:8b
+```
+
+安装前应核验官方安装器签名。项目只允许连接
+`http://127.0.0.1:11434`/`localhost:11434`，不会把关键帧发到远端视觉服务。
 
 如果在 Windows 的中文路径中使用 Python 3.11，且 editable 安装未能加载，可使用：
 
@@ -119,7 +138,8 @@ uv run distiller account analyze --project ./demo-project \
 ```bash
 uv run distiller account analyze --project ./demo-project \
   --url "https://www.douyin.com/user/<sec-user-id>" \
-  --count 10 --sort latest --media-limit 3 --whisper-model base --json
+  --count 10 --sort latest --media-limit 3 --whisper-model base \
+  --vision-provider ollama --vision-model qwen3-vl:8b --json
 ```
 
 对已经采集过的账号，不需要重新打开浏览器：
@@ -129,7 +149,8 @@ uv run distiller account enrich-media --project ./demo-project \
   --account <acc_id> --limit 3 --whisper-model base --dry-run --json
 
 uv run distiller account enrich-media --project ./demo-project \
-  --account <acc_id> --limit 3 --whisper-model base --json
+  --account <acc_id> --limit 3 --whisper-model base \
+  --vision-provider ollama --vision-model qwen3-vl:8b --json
 ```
 
 预演只读取留存批次并报告候选域名、本地转写可用性和预计写入范围；正式执行仅允许留存
@@ -236,9 +257,17 @@ uv run distiller validate --project ./demo-project --json
 完成目标账号和对标账号的蒸馏后，可以生成迁移矩阵：
 
 ```bash
+uv run distiller account benchmark-profile --project ./demo-project \
+  --account acc_target --json
+
 uv run distiller compare --project ./demo-project \
   --target acc_target --benchmarks acc_benchmark_1,acc_benchmark_2 --json
 ```
+
+`benchmark-profile` 会内容寻址地保存作品级点赞/评论/分享/收藏中位数与总量、互动结构、
+每千粉互动（粉丝量可用时）、评论点赞覆盖、评论情绪/意图/问题/痛点/异议/内容机会、
+内容方向和视听特征。`compare` 只在目标平台内按可用维度计算百分位和数据覆盖率；
+不可见播放量不会被写成 0，也不参与排序。旧画像不会被新一次蒸馏覆盖。
 
 ### 7. 评分、预测、登记发布和复盘
 
@@ -277,14 +306,17 @@ uv run distiller retro --project ./demo-project \
 
 ```bash
 uv run distiller analyze media --project ./demo-project \
-  --video video-001 --file ./hotel.mp4 --json
+  --video video-001 --file ./hotel.mp4 \
+  --vision-provider ollama --vision-model qwen3-vl:8b \
+  --strict-vision --json
 
 uv run distiller validate --project ./demo-project --json
 ```
 
-默认只运行 FFmpeg/FFprobe 的本地确定性分析。可使用 `--vision-output ./vision.json` 回放
-离线结构化 OCR/视觉结果；`--strict-media` 会在解码器不可用时返回 `E_MEDIA_DECODE`，否则
-生成带警告的降级产物。输出包含 `media-analysis.json`、`timeline.json`、`report.md`、
+省略 `--vision-provider` 时只运行 FFmpeg/FFprobe 的本地确定性分析；也可使用
+`--vision-output ./vision.json` 回放离线结构化结果。`--strict-media` 会在解码器不可用时
+返回 `E_MEDIA_DECODE`，`--strict-vision` 会在视觉结果不满足 Schema 时停止。输出包含
+`media-analysis.json`、`timeline.json`、`report.md`、
 `evidence-index.json`、`warnings.json`、关键帧以及 `media_features.parquet`。
 
 ### 9. 使用授权协作 Adapter
@@ -343,6 +375,7 @@ demo-project/
 ├── staging/              # 映射并校验后的 JSONL
 ├── normalized/           # 标准化 Parquet
 ├── analyses/accounts/    # 内容寻址的分层样本清单
+│   └── <account>/benchmark-profiles/ # 可复用的历史互动/评论/内容/视觉画像
 ├── analyses/videos/      # 盲分析、单视频报告、证据索引和警告
 ├── analyses/media/       # 镜头、关键帧、音频、OCR 与时间线
 ├── analyses/comments/    # 评论信号、需求聚类、证据索引和警告
@@ -386,9 +419,9 @@ uv run python skills/video-account-distiller/scripts/install-skill.py \
 Google Sheets、批量任务、快照计划、团队策略，以及通过锁定版本 MediaCrawler 本地研究
 Provider 或可选 TikHub API 进行的抖音公开主页解析与限额公开评论采样。
 
-尚未实现：登录/验证码自动化、评论回复树、视频下载、自动批准
-Level 4 规则和 Web 控制台。视觉/OCR 只提供本地离线回放和可注入 Provider 合同，不内置
-网络模型客户端；平台数据仅允许用户导出、明确授权的官方 API，或用户批准的有界
+尚未实现：登录/验证码自动化、评论回复树、自动批准 Level 4 规则和 Web 控制台。
+视觉/OCR 支持离线回放与回环 Ollama，不内置云模型客户端；平台数据仅允许用户导出、
+明确授权的官方 API，或用户批准的有界
 MediaCrawler/TikHub Provider。Phase 5 仍只生成待审批的规则升级建议；详见
 [`docs/delivery-overview.md`](docs/delivery-overview.md)。
 
@@ -402,7 +435,8 @@ MediaCrawler/TikHub Provider。Phase 5 仍只生成待审批的规则升级建�
 - 不将缺失值写成 0。
 - 不提交原始用户数据、密钥、项目状态或本地缓存。
 - 评论作者标识在标准化表中只保存哈希。
-- 当前不包含网络模型 Provider；字幕和评论可能含敏感信息，分享报告前需人工检查。
+- 不包含云模型 Provider；Ollama 只允许本机回环地址。字幕和评论可能含敏感信息，
+  分享报告前需人工检查。
 
 ## 测试与质量门
 
@@ -431,6 +465,7 @@ uv run python tools/generate_large_fixture.py --output ./tmp/large-fixture --row
 - [分层采样与账号体检](docs/sampling-and-reporting.md)
 - [字幕与盲分析](docs/text-video-analysis.md)
 - [本地视频多模态分析](docs/local-media-analysis.md)
+- [本地 Ollama 视觉与账号画像验收](docs/local-vision-and-benchmark-acceptance-2026-07-23.md)
 - [授权平台与协作 Adapter](docs/authorized-collaboration-adapters.md)
 - [评论、Pattern 与账号蒸馏](docs/comment-and-account-distillation.md)
 - [评分、预测、发布与复盘](docs/scoring-prediction-retro.md)

@@ -22,7 +22,8 @@ adds local Whisper transcription, single-video semantics, and re-distillation; s
    remains a hard cap.
 5. Decode a bounded mono PCM stream and calculate RMS/peak dBFS, dynamic range, windowed loudness
    variance, silence/activity ratios, and timestamped silence intervals.
-6. Optionally pass a `MediaVisionBundle` to an injected provider or replay `--vision-output` JSON.
+6. Optionally pass a `MediaVisionBundle` to loopback Ollama/injected Provider or replay
+   `--vision-output` JSON.
 7. Write content-addressed artifacts and an aggregate `media_features.parquet` row.
 
 The built-in `FFmpegMediaBackend` invokes executable argument arrays without a shell. It does not
@@ -60,10 +61,23 @@ stored. Invalid visual output is retried up to `models.max_schema_attempts`; `--
 returns `E_MODEL_SCHEMA_INVALID`, while the default preserves the deterministic media result and
 marks visual analysis degraded.
 
+Run local Qwen vision with:
+
+```bash
+distiller analyze media --project <dir> --video <video-id> --file <video.mp4> \
+  --vision-provider ollama --vision-model qwen3-vl:8b \
+  --vision-batch-size 4 --strict-vision --json
+```
+
+Only loopback port 11434 is accepted. Still frames can establish visible objects, scenes, color,
+composition, lighting, text styles, branding, and OCR; they cannot prove motion, edit causality, or
+performance impact.
+
 ## Privacy boundary
 
 Keyframes may contain faces, room numbers, booking details, screens, license plates, or guests.
-Treat the raw media, frames, OCR, and report as sensitive. The shipped provider reads only a local
-structured JSON file. Any future cloud implementation requires explicit user authorization,
+Treat the raw media, frames, OCR, and report as sensitive. The shipped Providers either read a
+local structured JSON file or send bounded frames to a same-computer loopback Ollama process. Any
+future cloud implementation requires explicit user authorization,
 `privacy.allow_cloud_model_upload: true`, redaction/logging review, retention documentation, and
 mocked contract tests.

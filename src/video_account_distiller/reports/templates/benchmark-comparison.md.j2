@@ -3,6 +3,49 @@
 - 目标账号：`{{ comparison.target_account_id }}`
 - 对标账号：{{ comparison.benchmark_account_ids|join(", ") }}
 
+## 同平台互动排序
+
+| 排名 | 账号 | 综合百分位 | 数据覆盖 | 单条点赞中位数 | 单条评论中位数 | 单条分享中位数 | 单条收藏中位数 | 每千粉互动 |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+{% for item in comparison.rankings -%}
+| {{ item.rank }} | `{{ item.account_id }}` | {{ "%.1f"|format(item.composite_score) }} | {{ "%.0f%%"|format(item.data_coverage * 100) }} | {{ item.raw_indicators.median_likes_per_video }} | {{ item.raw_indicators.median_comments_per_video }} | {{ item.raw_indicators.median_shares_per_video }} | {{ item.raw_indicators.median_saves_per_video }} | {{ item.raw_indicators.interactions_per_1000_followers }} |
+{% endfor %}
+
+播放量因平台可见性限制不参与排序；综合百分位仅在同平台、同一批公开快照口径内解释。
+
+## 互动与评论内容画像
+
+{% for profile in comparison.profiles -%}
+### `{{ profile.account_id }}`
+
+- 样本：{{ profile.sampled_video_count }} 条视频；{{ profile.comment_content.comment_count }} 条已分析评论
+- 快照时间：账号 {{ profile.account_snapshot_at }}；最新互动 {{ profile.latest_metric_snapshot_at or "未知" }}
+- 互动总量：点赞 {{ profile.interactions.totals.likes }}；评论 {{ profile.interactions.totals.comments }}；分享 {{ profile.interactions.totals.shares }}；收藏 {{ profile.interactions.totals.saves }}
+- 评论点赞：已知覆盖 {{ profile.comment_content.comment_like_count_coverage }}；总数 {{ profile.comment_content.comment_like_total }}；中位数 {{ profile.comment_content.comment_like_median }}
+- 评论信号：追问率 {{ profile.comment_content.question_rate }}；痛点率 {{ profile.comment_content.pain_point_rate }}；异议率 {{ profile.comment_content.objection_rate }}；购买意向均值 {{ profile.comment_content.purchase_intent_mean }}
+- 高频问题：{{ profile.comment_content.top_questions|join("；") if profile.comment_content.top_questions else "未提取" }}
+- 内容机会：{{ profile.comment_content.top_content_opportunities|join("；") if profile.comment_content.top_content_opportunities else "未提取" }}
+- 痛点 / 异议：{{ profile.comment_content.top_pain_points|join("；") if profile.comment_content.top_pain_points else "未提取" }} / {{ profile.comment_content.top_objections|join("；") if profile.comment_content.top_objections else "未提取" }}
+- 内容方向：{{ profile.content_pillars|join("、") if profile.content_pillars else "未知" }}
+- 视听特征：{{ profile.visual_and_audio_identity|join("；") if profile.visual_and_audio_identity else "待补充" }}
+
+| 内容特征 | 视频数 | 点赞中位数 | 评论中位数 | 分享中位数 | 收藏中位数 | 总互动中位数 |
+|---|---:|---:|---:|---:|---:|---:|
+{% for item in profile.content_interactions -%}
+| {{ item.feature_value }} | {{ item.video_count }} | {{ item.medians_per_video.likes }} | {{ item.medians_per_video.comments }} | {{ item.medians_per_video.shares }} | {{ item.medians_per_video.saves }} | {{ item.medians_per_video.interactions }} |
+{% endfor %}
+
+以上内容差异只表示当前公开样本关联，不证明该内容特征导致互动。
+{% endfor %}
+
+## 排序口径
+
+{% for item in comparison.ranking_basis -%}
+- {{ item }}
+{% endfor %}
+
+## Pattern 迁移矩阵
+
 | 来源账号 | Pattern | 平台 | 可复制度 | 结论 |
 |---|---|---|---|---|
 {% for item in comparison.transfer_matrix -%}

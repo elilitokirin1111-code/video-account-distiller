@@ -61,6 +61,18 @@ def _whisper() -> RuntimeExecutable:
     return RuntimeExecutable(name="whisper", available=path is not None, path=path)
 
 
+def _ollama() -> RuntimeExecutable:
+    configured = os.environ.get("DISTILLER_OLLAMA_COMMAND")
+    path = shutil.which(configured or "ollama")
+    if path is None:
+        candidates = [
+            Path(r"D:\AI\Ollama\App\ollama.exe"),
+            Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe",
+        ]
+        path = next((str(item.resolve()) for item in candidates if item.is_file()), None)
+    return RuntimeExecutable(name="ollama", available=path is not None, path=path)
+
+
 def _project_diagnostic(path: Path) -> ProjectDiagnostic:
     root = path.expanduser().resolve()
     exists = root.is_dir()
@@ -98,6 +110,7 @@ def doctor_report(project: Path | None = None) -> DoctorReport:
         _executable("node"),
         _executable("uv"),
         _whisper(),
+        _ollama(),
         _chrome(),
     ]
     executable_state = {item.name: item.available for item in executables}
@@ -123,6 +136,7 @@ def doctor_report(project: Path | None = None) -> DoctorReport:
             core=core_ready,
             local_media=executable_state["ffmpeg"] and executable_state["ffprobe"],
             video_transcription=executable_state["whisper"],
+            local_vision=executable_state["ollama"],
             account_media_enrichment=(
                 executable_state["ffmpeg"]
                 and executable_state["ffprobe"]

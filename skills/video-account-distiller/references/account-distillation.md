@@ -14,3 +14,11 @@ cross-platform views. Evaluate feature overlap and platform alignment; keep audi
 stage, resources, and business alignment as unknown unless the user supplied them. Use these
 verdicts: directly test, adapt then test, understand only, or do not migrate. Every transfer item is
 a planning hypothesis and must lead to a bounded target-account experiment, not copying.
+
+After distillation, run `distiller account benchmark-profile`. Preserve every content-addressed
+`abp_*` profile. It summarizes the latest retained public snapshot using per-video medians and
+totals for likes, comments, shares, and saves/favorites, interaction mix, optional interactions per
+1,000 followers, comment semantics, content pillars, and visual identity. `distiller compare`
+embeds the exact profiles and ranks target-platform accounts on available public-interaction
+dimensions. Report per-account data coverage; exclude cross-platform accounts and unavailable
+views from ranking while still allowing a conservative Pattern transfer review.

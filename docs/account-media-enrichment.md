@@ -18,12 +18,15 @@ For a bounded sample of 1–10 videos, `AccountMediaEnrichmentService`:
    measurements. Long videos with too few detected cuts receive uniform fallback coverage instead
    of a single midpoint frame. The media is copied to `raw/media/<sha256>.mp4` before the temporary
    download is removed.
-6. Runs a local OpenAI Whisper CLI, imports the generated JSON transcript through
+6. Optionally sends bounded keyframes to loopback Ollama/Qwen3-VL for strict scene, composition,
+   color, lighting, artistic-text, branding, and OCR evidence.
+7. Runs a local OpenAI Whisper CLI, imports the generated JSON transcript through
    `TranscriptImportService`, and rebuilds `transcripts.parquet`.
-7. Runs blind single-video text analysis, then re-runs account distillation so content clusters,
+8. Runs blind single-video text analysis, then re-runs account distillation so content clusters,
    persona signals, measured framing/edit/audio signals, and warnings reflect the new evidence.
-8. Writes one strict `AccountMediaEnrichment` artifact linking the retained Provider batch,
+9. Writes one strict `AccountMediaEnrichment` artifact linking the retained Provider batch,
    media-analysis IDs, transcript hashes, text-analysis IDs, and resulting distillation.
+10. Rebuilds a content-addressed account benchmark profile for later comparisons.
 
 The implementation is adapted from the workflow shape of the pinned MIT
 `bradautomates/claude-video` project. It uses the project's native media and evidence kernel rather
@@ -43,7 +46,8 @@ Run the local workflow:
 
 ```bash
 uv run distiller account enrich-media --project <dir> --account <acc_id> \
-  --limit 3 --whisper-model base --json
+  --limit 3 --whisper-model base --vision-provider ollama \
+  --vision-model qwen3-vl:8b --strict-vision --json
 ```
 
 Use `--whisper-command <path>` or environment variable `DISTILLER_WHISPER_COMMAND` when `whisper`
@@ -57,7 +61,8 @@ A new homepage run can opt in directly:
 
 ```bash
 uv run distiller account analyze --project <dir> --url <douyin-homepage> \
-  --count 10 --media-limit 3 --whisper-model base --json
+  --count 10 --media-limit 3 --whisper-model base \
+  --vision-provider ollama --vision-model qwen3-vl:8b --json
 ```
 
 `--media-limit 0` is the default and preserves the metadata-only collection behavior.
@@ -75,6 +80,8 @@ uv run distiller account analyze --project <dir> --url <douyin-homepage> \
   `analyses/accounts/<account>/media-enrichments/<ame_*>/enrichment.json`
 - Rebuilt account report:
   `reports/accounts/<account>/<dst_*>/distillation.json`
+- Reusable account snapshot:
+  `analyses/accounts/<account>/benchmark-profiles/<abp_*>/profile.json`
 
 The account enrichment artifact stores only the source batch hash/path and selected response host;
 it never copies signed media URLs into stdout, run manifests, or reports. `distiller validate`
@@ -88,9 +95,10 @@ housekeeping, job-search/career, and accommodation terms at confidence no higher
 remains a degraded heuristic and is not a substitute for a reviewed structured model result.
 
 Framing, median shot duration, and signal-level silence ratio are measured production signals.
-They do not identify people, objects, locations, music meaning, or causal performance effects.
-Without an authorized visual Provider, visual semantic identity and OCR remain unknown even though
-keyframe JPEG evidence exists locally.
+Loopback Ollama can add visible scene/object, composition, lighting, color, text-style, branding,
+and OCR labels tied to exact keyframes. It does not establish real identity, exact location, video
+motion from still frames, music meaning, or causal performance effects. Without a visual Provider,
+visual semantic identity and OCR remain unknown even though keyframe JPEG evidence exists locally.
 
 Public URLs may expire. Re-run homepage collection normally when every retained candidate is
 unavailable; do not obtain cookies, automate login, bypass verification, or evade platform limits.

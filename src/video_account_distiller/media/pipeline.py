@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import shutil
 import sys
@@ -51,6 +52,33 @@ from video_account_distiller.utils.io import atomic_write_json, atomic_write_tex
 from video_account_distiller.utils.lookup import resolve_video
 
 MEDIA_ANALYSIS_VERSION = "1.1.1"
+
+
+def _preserve_provider_responses(
+    project: ProjectLayout,
+    responses: list[Any],
+    response_hashes: list[str],
+) -> list[Path]:
+    paths: list[Path] = []
+    for response, response_hash in zip(responses, response_hashes, strict=True):
+        path = project.root / "raw" / "vision-outputs" / f"{response_hash}.json"
+        if not path.exists():
+            atomic_write_text(
+                path,
+                json.dumps(
+                    response,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+            )
+        if sha256_file(path) != response_hash:
+            raise DistillerError(
+                ErrorCode.RAW_INTEGRITY,
+                "Vision Provider raw output hash mismatch",
+            )
+        paths.append(path)
+    return paths
 
 
 def _resolve_media_path(
@@ -678,6 +706,12 @@ class LocalMediaAnalysisService:
                 max_attempts=config.models.max_schema_attempts,
                 strict=strict_vision,
             )
+            provider_responses = list(
+                getattr(selected_provider, "raw_responses", [])
+                if selected_provider is not None
+                else []
+            )
+            provider_output_hashes = [sha256_json(response) for response in provider_responses]
             if vision_trace.status == "degraded":
                 degraded = True
                 warnings.extend(f"vision_schema:{item}" for item in vision_trace.errors)
@@ -697,6 +731,7 @@ class LocalMediaAnalysisService:
                     "vision_trace": vision_trace.model_dump(mode="json"),
                     "scene_threshold": threshold,
                     "provider_hash": provider_hash,
+                    "provider_output_hashes": provider_output_hashes,
                 }
             )
             analysis_id = stable_id("mda_", analysis_fingerprint)
@@ -724,17 +759,31 @@ class LocalMediaAnalysisService:
                 "warnings": output_dir / "warnings.json",
             }
             relative_paths = [self.project.relative(path) for path in paths.values()]
+            raw_provider_outputs = _preserve_provider_responses(
+                self.project,
+                provider_responses,
+                provider_output_hashes,
+            )
             if paths["analysis"].is_file():
                 return {
                     "ok": True,
                     "dry_run": False,
                     "already_generated": True,
                     "analysis": read_json(paths["analysis"]),
-                    "outputs": relative_paths,
+                    "outputs": [
+                        *relative_paths,
+                        *(self.project.relative(path) for path in raw_provider_outputs),
+                    ],
                 }
             manifest = self.project.begin_run(
                 "analyze media",
-                input_hashes=sorted({media_hash, *([provider_hash] if provider_hash else [])}),
+                input_hashes=sorted(
+                    {
+                        media_hash,
+                        *([provider_hash] if provider_hash else []),
+                        *provider_output_hashes,
+                    }
+                ),
             )
             generated_at = datetime.now(UTC)
             evidence = MediaEvidenceIndex(
@@ -826,6 +875,7 @@ class LocalMediaAnalysisService:
                 template.render(analysis=analysis.model_dump(mode="python")).strip() + "\n",
             )
             feature_id = stable_id("mdf_", analysis_id)
+            visual_annotations = vision.shot_annotations if vision else []
             feature = MediaFeatureRecord(
                 record_id=feature_id,
                 media_feature_id=feature_id,
@@ -843,7 +893,29 @@ class LocalMediaAnalysisService:
                 silence_ratio=audio.silence_ratio,
                 rms_dbfs=audio.rms_dbfs,
                 ocr_observation_count=len(vision.ocr_observations) if vision else 0,
-                visual_annotation_count=len(vision.shot_annotations) if vision else 0,
+                visual_annotation_count=len(visual_annotations),
+                visual_labels=sorted(
+                    {value for item in visual_annotations for value in item.labels}
+                ),
+                dominant_colors=sorted(
+                    {value for item in visual_annotations for value in item.dominant_colors}
+                ),
+                visual_style_tags=sorted(
+                    {
+                        value
+                        for item in visual_annotations
+                        for value in [*item.composition, *item.camera, *item.lighting]
+                    }
+                ),
+                text_overlay_style_tags=sorted(
+                    {value for item in visual_annotations for value in item.text_overlay_styles}
+                ),
+                motion_graphic_tags=sorted(
+                    {value for item in visual_annotations for value in item.motion_graphics}
+                ),
+                branding_tags=sorted(
+                    {value for item in visual_annotations for value in item.branding}
+                ),
                 analysis_status=status,
                 analysis_path=self.project.relative(paths["analysis"]),
                 source_platform=video.source_platform,
@@ -864,7 +936,11 @@ class LocalMediaAnalysisService:
             state = self.project.load_state()
             state.last_media_analysis_at = datetime.now(UTC)
             self.project.save_state(state)
-            output_files = [*relative_paths, self.project.relative(feature_path)]
+            output_files = [
+                *relative_paths,
+                *(self.project.relative(path) for path in raw_provider_outputs),
+                self.project.relative(feature_path),
+            ]
             self.project.finish_run(
                 manifest,
                 success=True,
