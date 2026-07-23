@@ -101,6 +101,27 @@ def run_acceptance(
         _run_json(
             "init", ["init", str(project), "--name", "1.0 production acceptance", "--json"], steps
         )
+        homepage_plan = _run_json(
+            "account-homepage-dry-run",
+            [
+                "account",
+                "analyze",
+                "--project",
+                str(project),
+                "--url",
+                "https://www.douyin.com/user/acceptance",
+                "--count",
+                "10",
+                "--dry-run",
+                "--json",
+            ],
+            steps,
+        )
+        if (
+            homepage_plan.get("dry_run") is not True
+            or homepage_plan.get("provider_calls", {}).get("total_max") != 3
+        ):
+            raise AcceptanceFailure("account homepage dry-run contract was not available")
         for entity, source in (
             ("accounts", phase2 / "accounts.csv"),
             ("videos", phase2 / "videos.csv"),

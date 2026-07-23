@@ -23,6 +23,12 @@ Google Sheets resources through official APIs, preserves provider pages, protect
 isolates Batch task results, exposes scheduled snapshot work, and validates credential-free team
 policy without coupling the analysis kernel to either provider.
 
+After the `1.0.0` release, the main development line adds a Phase 8 pre-release route that accepts
+a user-approved Douyin homepage URL, retrieves public profile/posts through the documented TikHub
+API, preserves the complete response, and sends canonical account/video/metric rows through the
+same import, Parquet, robust-metric, report, and distillation kernel. It does not use a browser,
+login state, cookies, CAPTCHA handling, or direct platform-page scraping.
+
 ## Key user outcomes
 
 - Start a repeatable research project without opening a platform session.
@@ -65,6 +71,8 @@ policy without coupling the analysis kernel to either provider.
 - Handle authorization, rate-limit, and provider-response failures with stable machine errors.
 - Run auditable batches, emit due/future/available snapshot tasks, and keep team roles free of
   credential values.
+- Preview the bounded paid calls for one Douyin homepage, require explicit cost confirmation, and
+  turn its public profile and 1～100 public posts into a traceable quantitative distillation.
 
 ## Verification evidence
 
@@ -91,13 +99,21 @@ Final production acceptance on 2026-07-23 produced the following evidence:
   the normalized Parquet tables in about 4.4 seconds on the delivery workstation, with zero rejected
   rows and zero data-quality warnings. Timings are indicative, not a cross-machine performance SLA.
 
+The Phase 8 main-line increment was accepted offline with 126 tests and 89.04% statement coverage.
+Provider contracts cover URL allowlisting, pagination, public-field mapping, credential absence,
+HTTP authorization/rate-limit errors, cost confirmation, secret non-disclosure, immutable response
+validation, and the complete URL-to-distillation integration path. A real-token paid acceptance run
+remains required before a new stable version is tagged.
+
 ## Not delivered yet
 
-The repository does not include platform-page scraping, browser/login automation, a cloud visual-
-model client, an installed background scheduler, or a Web console. Phase 7 online behavior is
-limited to explicitly authorized Feishu Bitable and Google Sheets official APIs; account-platform
-exports remain user-provided. Level 4 approval remains intentionally human-governed and requires
-repeated controlled evidence; Phase 5 produces only pending proposals.
+The repository does not include direct platform-page scraping, browser/login automation, comment
+text collection from a homepage, video downloading, a cloud visual-model client, an installed
+background scheduler, or a Web console. Phase 7 online behavior is limited to explicitly authorized
+Feishu Bitable and Google Sheets official APIs. Phase 8 uses only the documented fixed-host TikHub
+Provider for a user-approved public Douyin URL and has not yet completed a real-token acceptance
+run. Level 4 approval remains intentionally human-governed and requires repeated controlled
+evidence; Phase 5 produces only pending proposals.
 
 ## Handoff
 
@@ -106,5 +122,6 @@ Read `README.md` for Quick Start, `docs/data-contracts.md` for machine contracts
 `docs/scoring-prediction-retro.md` for the Phase 5 learning loop,
 `docs/local-media-analysis.md` for Phase 6 media evidence,
 `docs/authorized-collaboration-adapters.md` for Phase 7 authorization and synchronization,
+`docs/phase8-account-url-analysis.md` for Phase 8 homepage collection and live acceptance,
 `docs/adapter-guide.md` for field mappings, `docs/privacy-and-compliance.md` for boundaries, and
 `docs/release-notes.md` for current and future updates.

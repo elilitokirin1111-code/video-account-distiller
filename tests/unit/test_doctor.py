@@ -15,6 +15,7 @@ def test_doctor_reports_project_readiness_without_exposing_tokens(
 ) -> None:
     monkeypatch.setenv("FEISHU_BITABLE_TOKEN", "secret-feishu-value")
     monkeypatch.setenv("GOOGLE_SHEETS_TOKEN", "secret-google-value")
+    monkeypatch.setenv("TIKHUB_API_KEY", "secret-tikhub-value")
 
     report = doctor_report(project.root)
     serialized = json.dumps(report.model_dump(mode="json"))
@@ -22,12 +23,14 @@ def test_doctor_reports_project_readiness_without_exposing_tokens(
     assert report.ok is True
     assert report.package_version == "1.0.0"
     assert report.capabilities.core is True
+    assert report.capabilities.tikhub_douyin is True
     assert report.capabilities.feishu_bitable is True
     assert report.capabilities.google_sheets is True
     assert report.project is not None
     assert report.project.validation_ok is True
     assert "secret-feishu-value" not in serialized
     assert "secret-google-value" not in serialized
+    assert "secret-tikhub-value" not in serialized
 
 
 def test_doctor_marks_uninitialized_project_not_ready(tmp_path: Path) -> None:

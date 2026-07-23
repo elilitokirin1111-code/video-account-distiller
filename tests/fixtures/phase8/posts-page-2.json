@@ -1,0 +1,34 @@
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "aweme_list": [
+      {
+        "aweme_id": "7300000000000000003",
+        "desc": "三十秒看完客房清洁流程 #酒店服务",
+        "create_time": 1751155200,
+        "duration": 30500,
+        "is_top": 0,
+        "is_ads": 0,
+        "music": {
+          "title": "工作日",
+          "author": "示例音乐人"
+        },
+        "text_extra": [
+          {
+            "hashtag_name": "酒店服务"
+          }
+        ],
+        "statistics": {
+          "play_count": 122000,
+          "digg_count": 7400,
+          "comment_count": 390,
+          "share_count": 650,
+          "collect_count": 1400
+        }
+      }
+    ],
+    "has_more": 0,
+    "max_cursor": 20
+  }
+}

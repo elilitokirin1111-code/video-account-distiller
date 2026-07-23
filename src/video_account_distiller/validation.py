@@ -10,6 +10,7 @@ import yaml
 from pydantic import BaseModel, ValidationError
 
 from video_account_distiller.models import (
+    AccountCollectionBatch,
     AccountDistillation,
     ArtifactEvidenceIndex,
     AuthorizedExportManifest,
@@ -542,11 +543,15 @@ def validate_project(project: ProjectLayout, *, persist: bool = True) -> Quality
     state = project.load_state()
     raw_media_paths = sorted((project.root / "raw" / "media").glob("*"))
     vision_output_paths = sorted((project.root / "raw" / "vision-outputs").glob("*.json"))
+    collection_batch_paths = sorted(
+        (project.root / "raw" / "account-collections").glob("*/*/provider-batch.json")
+    )
     input_hashes = sorted(
         {
             *(receipt.raw_hash for receipt in state.imports),
             *(path.stem for path in raw_media_paths if path.is_file()),
             *(path.stem for path in vision_output_paths),
+            *(path.parent.name for path in collection_batch_paths),
         }
     )
     manifest = (
@@ -816,6 +821,37 @@ def validate_project(project: ProjectLayout, *, persist: bool = True) -> Quality
                 )
             )
 
+    for path in collection_batch_paths:
+        try:
+            payload = read_json(path)
+            batch = AccountCollectionBatch.model_validate(payload)
+            if sha256_json(payload) != path.parent.name:
+                raise ValueError("content hash does not match account collection directory")
+            if batch.provider.value != path.parent.parent.name:
+                raise ValueError("collection provider does not match directory")
+            companions = {
+                "accounts.json": [batch.account.model_dump(mode="json")],
+                "videos.json": [item.model_dump(mode="json") for item in batch.videos],
+                "metrics.json": [item.model_dump(mode="json") for item in batch.metrics],
+            }
+            for filename, expected in companions.items():
+                companion = path.parent / filename
+                if not companion.is_file() or sha256_json(read_json(companion)) != sha256_json(
+                    expected
+                ):
+                    raise ValueError(f"collection companion mismatch: {filename}")
+        except (OSError, ValueError, ValidationError) as exc:
+            issues.append(
+                DataQualityIssue(
+                    issue_id=stable_id("dqi_", manifest.run_id, project.relative(path), str(exc)),
+                    run_id=manifest.run_id,
+                    severity="error",
+                    code="raw_integrity",
+                    entity="phase8_collection",
+                    message=f"{project.relative(path)}: {exc}",
+                )
+            )
+
     warnings: list[str] = []
     if len(platforms) > 1:
         warnings.append(
@@ -840,6 +876,7 @@ def validate_project(project: ProjectLayout, *, persist: bool = True) -> Quality
             "rubrics": len(rubric_paths),
             "phase7_artifacts": len(phase7_paths) + int(team_config.is_file()),
             "phase7_raw": len(raw_collaboration_paths),
+            "phase8_collections": len(collection_batch_paths),
             "errors": sum(issue.severity == "error" for issue in issues),
             "warnings": sum(issue.severity == "warning" for issue in issues) + len(warnings),
         },

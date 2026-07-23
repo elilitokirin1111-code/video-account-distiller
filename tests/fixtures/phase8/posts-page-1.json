@@ -1,0 +1,62 @@
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "aweme_list": [
+      {
+        "aweme_id": "7300000000000000001",
+        "desc": "推开窗就是山景 #酒店 #旅行",
+        "create_time": 1751328000,
+        "duration": 18200,
+        "share_url": "https://www.douyin.com/video/7300000000000000001",
+        "is_top": 1,
+        "is_ads": 0,
+        "music": {
+          "title": "清晨",
+          "author": "示例音乐人"
+        },
+        "text_extra": [
+          {
+            "hashtag_name": "酒店"
+          },
+          {
+            "hashtag_name": "旅行"
+          }
+        ],
+        "statistics": {
+          "play_count": 260000,
+          "digg_count": 18200,
+          "comment_count": 930,
+          "share_count": 1200,
+          "collect_count": 3600
+        }
+      },
+      {
+        "aweme_id": "7300000000000000002",
+        "desc": "早餐从一碗热汤开始 #酒店早餐",
+        "create_time": 1751241600,
+        "duration": 23100,
+        "is_top": 0,
+        "is_ads": 0,
+        "music": {
+          "title": "一天",
+          "author": "示例音乐人"
+        },
+        "text_extra": [
+          {
+            "hashtag_name": "酒店早餐"
+          }
+        ],
+        "statistics": {
+          "play_count": 86000,
+          "digg_count": 5300,
+          "comment_count": 280,
+          "share_count": 410,
+          "collect_count": 920
+        }
+      }
+    ],
+    "has_more": 1,
+    "max_cursor": 10
+  }
+}

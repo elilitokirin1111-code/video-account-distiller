@@ -5,7 +5,8 @@
 Phase 0/1/2/5 performs no model calls. Phase 3/4 accepts local structured model-output files or uses a
 deterministic fallback; it ships no network model client. Phase 7 may contact only a user-configured,
 explicitly authorized Feishu Bitable or Google Sheets official API. Offline analysis needs no
-credentials.
+credentials. Phase 8 may contact only the fixed-host TikHub API for a user-approved public Douyin
+homepage after explicit cost confirmation.
 
 ## Raw data
 
@@ -22,6 +23,8 @@ credentials.
   access controls as raw exports.
 - Phase 7 provider pages are copied under `raw/collaboration/` before mapping. They may include
   collaboration-only fields or personal data and require the same access controls as raw exports.
+- Phase 8 public account batches are copied under `raw/account-collections/` before mapping. Public
+  availability does not make them unrestricted; apply the user's retention and sharing policy.
 
 ## Comment privacy
 
@@ -74,12 +77,17 @@ secret manager. Errors expose an HTTP/provider code when useful but never respon
 authorization headers, or token values. Sync and Batch outputs record counts, hashes, IDs, and paths,
 not credentials.
 
+Phase 8 reads `TIKHUB_API_KEY` only from the process environment and allows only
+`api.tikhub.dev`/`api.tikhub.io`. Dry-run makes no request. Real calls require explicit cost
+confirmation, and outputs never contain the token or authorization header.
+
 ## Platform compliance
 
 This repository does not implement scraping, login automation, CAPTCHA handling, anti-bot bypass,
 rate-limit bypass, or other platform-control evasion. Collection is limited to authorized official
-APIs, explicitly permitted adapters, or user-provided exports. HTTP 429 responses receive bounded
-backoff and then fail; the software never attempts to evade a provider limit.
+APIs, explicitly permitted fixed-host Providers for user-approved public URLs, or user-provided
+exports. HTTP 429 responses receive bounded backoff and then fail; the software never attempts to
+evade a provider limit.
 
 ## User responsibilities
 

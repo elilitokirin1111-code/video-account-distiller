@@ -1,0 +1,19 @@
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "user": {
+      "sec_uid": "MS4wLjABAAAAhotel-demo",
+      "unique_id": "hotel_demo",
+      "nickname": "示例酒店",
+      "signature": "住进风景里",
+      "follower_count": 12600,
+      "following_count": 38,
+      "total_favorited": 88000,
+      "aweme_count": 31,
+      "enterprise_verify_reason": "酒店官方账号",
+      "country": "中国",
+      "language": "zh-CN"
+    }
+  }
+}

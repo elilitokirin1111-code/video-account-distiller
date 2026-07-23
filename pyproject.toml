@@ -45,6 +45,7 @@ include = [
   "/skills/video-account-distiller",
   "/tools/release_acceptance.py",
   "/docs/production-release.md",
+  "/docs/phase8-account-url-analysis.md",
   "/LICENSE",
   "/README.md",
   "/pyproject.toml",

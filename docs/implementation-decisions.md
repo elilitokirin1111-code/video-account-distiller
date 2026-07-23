@@ -385,3 +385,42 @@ requirements from later phases.
 - **Reason:** A diagnostic command must not create runs or update project state. Real Windows UAT
   also showed that locale-dependent bytes could break UTF-8 automation when Chinese paths were
   redirected through a pipe; JSON escapes preserve the decoded value without encoding ambiguity.
+
+## ID-052 — Add homepage parsing through a replaceable documented Provider
+
+- **Decision:** Accept a user-provided Douyin homepage URL and use TikHub's documented
+  `sec_user_id`, profile, and homepage-post endpoints for the first arbitrary-public-account
+  Provider. Keep the Provider behind `AccountCollectionProvider` and an injectable HTTP executor.
+- **Reason:** Douyin's official account-video API requires the account owner's OAuth authorization
+  and therefore cannot analyze arbitrary benchmark accounts from only a public homepage URL.
+  Isolating TikHub prevents its response schema from leaking into the normalized analysis kernel
+  and leaves an upgrade path for official/self-account adapters.
+
+## ID-053 — Require fixed hosts, dry-run, and explicit cost confirmation
+
+- **Decision:** Allow only HTTPS Douyin input hosts and only the fixed TikHub API hosts
+  `api.tikhub.dev` or `api.tikhub.io`. `--dry-run` performs no network or writes; a real call
+  requires `--confirm-provider-cost`. Keep `TIKHUB_API_KEY` outside the project.
+- **Reason:** URL allowlisting blocks the collection command from becoming a general SSRF client,
+  while cost confirmation prevents accidental paid calls. Environment-only credentials keep raw
+  artifacts, logs, support bundles, and Git history safe.
+
+## ID-054 — Route Provider data through the existing immutable data kernel
+
+- **Decision:** Preserve the complete Provider batch under
+  `raw/account-collections/<provider>/<sha256>/`, emit strict canonical account/video/metric JSON,
+  and call `ImportService`, `NormalizationService`, `MetricsService`, `ReportService`, and
+  `AccountDistillationService` unchanged.
+- **Reason:** A live source must not bypass mapping, validation, raw hashing, quality reports,
+  Parquet normalization, or evidence boundaries. Reusing the kernel also makes offline fixtures
+  representative of the real workflow.
+
+## ID-055 — Keep package 1.0.0 until a real-token acceptance run passes
+
+- **Decision:** Add collection schema `0.8.0` on the main development line without changing the
+  released package/Skill version `1.0.0`. Do not create a new release tag until one explicitly
+  approved public account passes credential, billing, field-mapping, data-count, validation, and
+  secret-leak checks in the real environment.
+- **Reason:** Offline provider contracts prove deterministic behavior but cannot prove a live
+  subscription, current provider payload, or account-specific availability. Version promotion
+  should follow that final operational evidence rather than precede it.

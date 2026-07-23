@@ -8,11 +8,23 @@ changes.
 
 ### Added
 
-- None.
+- Phase 8 collection schema `0.8.0` and strict request, canonical account/video/metric, raw-page,
+  and Provider batch contracts.
+- `distiller account analyze` for a user-approved Douyin homepage URL, bounded 1～100 post
+  pagination, `latest`/`popular` order, no-network dry-run, and explicit paid-call confirmation.
+- Fixed-host TikHub Provider with environment-only credential, bounded retry, stable
+  authorization/rate-limit/response errors, and injectable offline HTTP tests.
+- Immutable Provider batches and canonical companions under `raw/account-collections/`, routed
+  through the existing import, Parquet, robust-metric, report, and account-distillation services.
+- Phase 8 project validation, status counters, `doctor` capability, offline Fixtures, CLI/provider
+  contracts, integration tests, Skill route, live-acceptance guide, and architecture/data docs.
 
 ### Changed
 
-- None.
+- The development Skill can now route user-approved public Douyin homepage analysis without using
+  browser state, cookies, login automation, CAPTCHA handling, or direct platform-page scraping.
+- Package and Skill remain `1.0.0` until a real-token paid acceptance run succeeds; existing core
+  and Phase 2～7 artifact schemas are unchanged.
 
 ## 1.0.0 — 2026-07-23
 

@@ -9,6 +9,10 @@ Instagram Reels 的账号导出数据、字幕和评论，并沉淀可复用的 
 Google Sheets 官方 API、批量任务、快照计划接口和团队配置。它不会自动登录、抓取网页、
 绕过平台控制或在本地模式上传媒体。
 
+当前主线同时提供 Phase 8 预发布能力：输入用户确认的抖音主页链接，通过文档化、需要
+密钥的 TikHub API 自动读取公开账号资料和近期作品，再复用已有的数据校验、Parquet、
+Robust 指标、账号体检和蒸馏链路。它不使用浏览器、Cookie、登录自动化或验证码绕过。
+
 ## 能做什么
 
 - 初始化结构统一、可恢复的本地研究项目。
@@ -43,6 +47,8 @@ Google Sheets 官方 API、批量任务、快照计划接口和团队配置。�
 - 运行可审计批量任务，输出快照到期计划，并维护不含凭证的团队角色配置。
 - 输出 JSON/Markdown 数据质量报告、不可变运行清单和项目状态。
 - 通过稳定错误码和 JSON Envelope 被 Agent 或自动化脚本调用。
+- 从一个抖音主页链接读取公开账号资料与 1～100 条作品，并一键生成账号报告和蒸馏结果。
+- 预演付费 Provider 调用、显式确认费用，并将完整响应作为内容寻址的不可变原始证据。
 
 ## 安装
 
@@ -75,6 +81,27 @@ uv sync --no-editable
 ```bash
 uv run distiller init ./demo-project --json
 ```
+
+### 可选：从抖音主页链接直接解析
+
+先预演，不需要密钥、不会访问网络或写入项目：
+
+```bash
+uv run distiller account analyze --project ./demo-project \
+  --url "https://www.douyin.com/user/<sec-user-id>" \
+  --count 10 --sort latest --dry-run --json
+```
+
+真实执行前，在本机环境设置 `TIKHUB_API_KEY`，确认预计调用次数和 Provider 计费，再运行：
+
+```bash
+uv run distiller account analyze --project ./demo-project \
+  --url "https://www.douyin.com/user/<sec-user-id>" \
+  --count 10 --sort latest --confirm-provider-cost --json
+```
+
+不要把密钥粘贴到聊天、项目配置或 Git。完整边界、错误码与首次真实验收清单见
+[`docs/phase8-account-url-analysis.md`](docs/phase8-account-url-analysis.md)。
 
 ### 2. 导入离线导出数据
 
@@ -265,6 +292,7 @@ demo-project/
 ├── .distiller-state.json
 ├── raw/imports/          # 原始文件，只读保留
 ├── raw/media/            # 本地媒体的 SHA-256 寻址副本
+├── raw/account-collections/ # 主页 Provider 响应与标准行的内容寻址副本
 ├── staging/              # 映射并校验后的 JSONL
 ├── normalized/           # 标准化 Parquet
 ├── analyses/accounts/    # 内容寻址的分层样本清单
@@ -308,16 +336,19 @@ uv run python skills/video-account-distiller/scripts/install-skill.py \
 支持离线项目、CSV/JSON/JSONL、SRT/VTT/TXT 字幕、七个平台字段映射、Parquet、DuckDB、
 稳健指标、代表性采样、账号体检、单视频文本/本地多模态拆解、评论需求分析、Pattern/反例、账号蒸馏、
 对标迁移矩阵、脚本评分、不可变区间预测、发布登记、快照复盘、授权导出、飞书多维表格、
-Google Sheets、批量任务、快照计划和团队策略。
+Google Sheets、批量任务、快照计划、团队策略，以及通过文档化 TikHub API 进行的抖音
+公开主页解析。
 
-尚未实现：网页抓取、浏览器登录自动化、自动批准 Level 4 规则和 Web 控制台。视觉/OCR 只提供
-本地离线回放和可注入 Provider 合同，不内置网络模型客户端；平台数据仅允许用户导出或
-明确授权的官方 API。Phase 5 仍只生成待审批的规则升级建议；详见
+尚未实现：平台网页直接抓取、浏览器登录自动化、评论正文自动采集、视频下载、自动批准
+Level 4 规则和 Web 控制台。视觉/OCR 只提供本地离线回放和可注入 Provider 合同，不内置
+网络模型客户端；平台数据仅允许用户导出、明确授权的官方 API 或用户批准的文档化固定主机
+Provider。Phase 5 仍只生成待审批的规则升级建议；详见
 [`docs/delivery-overview.md`](docs/delivery-overview.md)。
 
 ## 安全限制
 
-- 只访问显式授权的官方表格 API；不绕过登录、验证码、风控、速率限制或服务条款。
+- 只访问显式授权的官方表格 API 或用户确认的固定主机数据 Provider；不绕过登录、验证码、
+  风控、速率限制或服务条款。
 - 不把不同平台的原始播放量直接比较。
 - 不将缺失值写成 0。
 - 不提交原始用户数据、密钥、项目状态或本地缓存。
@@ -344,6 +375,7 @@ uv run python tools/generate_large_fixture.py --output ./tmp/large-fixture --row
 
 - [正式版安装与运行](docs/production-release.md)
 - [1.0.0 生产验收记录](docs/production-acceptance-v1.0.0.md)
+- [Phase 8 抖音主页链接一键解析](docs/phase8-account-url-analysis.md)
 - [交付介绍](docs/delivery-overview.md)
 - [架构](docs/architecture.md)
 - [数据合同](docs/data-contracts.md)

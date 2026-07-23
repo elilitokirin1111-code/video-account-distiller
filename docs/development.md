@@ -176,6 +176,28 @@ preservation, identical-push reuse, missing credentials, HTTP 401/403, exhausted
 JSON, dry-run remote-write suppression, Batch task isolation, team-role validation, and due snapshot
 classification. The automated suite must remain network-disabled.
 
+## Phase 8 smoke test
+
+Keep automated tests network-disabled and inject `HttpResponse` Fixtures for URL resolution,
+profile, and paginated posts. Verify URL/host rejection, latest/popular ordering, pagination,
+unknown-vs-zero mapping, authorization, bounded 429 handling, no token leakage, cost confirmation,
+immutable companion validation, and full URL-to-distillation orchestration.
+
+For a separately approved live acceptance, set `TIKHUB_API_KEY` only in the local environment and
+run:
+
+```bash
+uv run distiller account analyze --project ./demo-project \
+  --url <approved-douyin-homepage> --count 10 --dry-run --json
+uv run distiller account analyze --project ./demo-project \
+  --url <approved-douyin-homepage> --count 10 \
+  --confirm-provider-cost --json
+uv run distiller validate --project ./demo-project --json
+```
+
+Manually compare three public posts and inspect logs/Git for secrets. Do not tag a new stable
+version until the live Provider payload, counts, billing, validation, and secret checks pass.
+
 ## Skill validation
 
 Run `skills-ref validate skills/video-account-distiller` when available. The repository-compatible

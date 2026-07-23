@@ -6,6 +6,7 @@ Phase 4 comment/distillation schema version: `0.4.0`.
 Phase 5 scoring/prediction/Retro schema version: `0.5.0`.
 Phase 6 local media-analysis schema version: `0.6.0`.
 Phase 7 collaboration schema version: `0.7.0`.
+Phase 8 account-collection schema version: `0.8.0`.
 
 The authoritative planning dictionary is `docs/planning/04_DATA_SCHEMA.md`; executable contracts
 are Pydantic models in `src/video_account_distiller/models/core.py` and reject unknown fields.
@@ -15,6 +16,8 @@ unknown-field policy. Phase 3 contracts are in `models/text_analysis.py`; Phase 
 `models/media.py`.
 Phase 7 authorization, connector, Sync, Batch, Snapshot, and Team contracts are in
 `models/collaboration.py`.
+Phase 8 collection request, canonical Provider row, raw-page, and batch contracts are in
+`models/collection.py`.
 
 ## Core tables
 
@@ -197,3 +200,23 @@ enter the existing mapping, Pydantic, quality, staging, deduplication, and Parqu
 read only normalized Parquet. Batch errors use the standard JSON error object per task, and a
 non-dry result returns its `artifact_path`. Snapshot tasks are `future`, `due`, or `available` and
 do not claim that platform collection occurred.
+
+## Phase 8 account-homepage collection artifacts
+
+| Path | Contract | Identity |
+|---|---|---|
+| CLI request | `AccountCollectionRequest` | URL + count + sort + Provider |
+| Provider result | `AccountCollectionBatch` | strict provider-neutral batch |
+| `raw/account-collections/<provider>/<sha256>/provider-batch.json` | full batch and original pages | canonical payload SHA-256 |
+| `raw/account-collections/<provider>/<sha256>/accounts.json` | `CollectedAccount[]` | Provider account ID |
+| `raw/account-collections/<provider>/<sha256>/videos.json` | `CollectedVideo[]` | Provider video ID |
+| `raw/account-collections/<provider>/<sha256>/metrics.json` | `CollectedMetricSnapshot[]` | video ID + collection time |
+
+`AccountCollectionRequest` allows only HTTPS `douyin.com` hosts, no URL credentials, and no custom
+port. Counts are limited to 1～100. `Collected*` models contain only canonical fields accepted by
+the offline importer; Provider-specific aliases remain in `collection/providers.py`.
+
+Unknown public fields stay `null`. In particular, the current follower count is not substituted for
+`follower_count_at_publish`, and missing completion/watch-time data is not fabricated. The full
+Provider response is preserved before canonical rows enter the existing immutable import,
+Pydantic, staging, deduplication, Parquet, and evidence pipeline.

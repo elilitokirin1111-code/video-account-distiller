@@ -24,6 +24,11 @@ from video_account_distiller.collaboration import (
     TeamConfigService,
     load_connector_config,
 )
+from video_account_distiller.collection import (
+    AccountCollectionService,
+    build_account_provider,
+    build_collection_request,
+)
 from video_account_distiller.comments import CommentAnalysisService
 from video_account_distiller.distillation import (
     AccountDistillationService,
@@ -35,7 +40,7 @@ from video_account_distiller.features import VideoAnalysisService
 from video_account_distiller.ingestion import ImportService
 from video_account_distiller.media import LocalMediaAnalysisService
 from video_account_distiller.metrics import MetricsService
-from video_account_distiller.models import Platform
+from video_account_distiller.models import CollectionProviderKind, CollectionSort, Platform
 from video_account_distiller.normalization import NormalizationService
 from video_account_distiller.reports import ReportService
 from video_account_distiller.sampling import SamplingService
@@ -65,12 +70,16 @@ snapshot_app = typer.Typer(
 team_app = typer.Typer(
     help="Create and validate credential-free team policy.", no_args_is_help=True
 )
+account_app = typer.Typer(
+    help="Collect and distill an authorized public account homepage.", no_args_is_help=True
+)
 app.add_typer(import_app, name="import")
 app.add_typer(analyze_app, name="analyze")
 app.add_typer(sync_app, name="sync")
 app.add_typer(batch_app, name="batch")
 app.add_typer(snapshot_app, name="snapshot")
 app.add_typer(team_app, name="team")
+app.add_typer(account_app, name="account")
 
 T = TypeVar("T")
 
@@ -177,6 +186,59 @@ def doctor_command(
             + ("ready" if report.ok else "attention required")
         ),
     )
+
+
+@account_app.command("analyze")
+def account_analyze_command(
+    project: Path = typer.Option(..., "--project", help="Initialized analysis project."),
+    url: str = typer.Option(..., "--url", help="Public Douyin account homepage URL."),
+    count: int = typer.Option(10, "--count", min=1, max=100),
+    sort: CollectionSort = typer.Option(CollectionSort.LATEST, "--sort"),
+    provider: CollectionProviderKind = typer.Option(
+        CollectionProviderKind.TIKHUB,
+        "--provider",
+    ),
+    confirm_provider_cost: bool = typer.Option(
+        False,
+        "--confirm-provider-cost",
+        help="Confirm that the authorized provider may charge for API calls.",
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Validate and show maximum API calls without credentials or writes.",
+    ),
+) -> None:
+    """Turn one Douyin homepage URL into normalized metrics and account distillation."""
+
+    def operation() -> dict[str, Any]:
+        request = build_collection_request(
+            profile_url=url,
+            count=count,
+            sort=sort,
+            provider=provider,
+        )
+        layout = ProjectLayout.open(project)
+        collection_provider = build_account_provider(provider)
+        return AccountCollectionService(layout, collection_provider).analyze_url(
+            request=request,
+            confirm_provider_cost=confirm_provider_cost,
+            dry_run=dry_run,
+        )
+
+    result = _execute(operation, json_output=json_output)
+    if dry_run:
+        human = f"Validated {url}; at most {result['provider_calls']['total_max']} provider calls."
+    else:
+        account = result["account"]
+        collection = result["collection"]
+        human = (
+            f"Analyzed {account['display_name'] or account['account_id']}: "
+            f"{collection['videos']} videos; "
+            f"{result['distillation']['outputs'][0]}"
+        )
+    _emit(result, json_output=json_output, human=human)
 
 
 def _import_command(

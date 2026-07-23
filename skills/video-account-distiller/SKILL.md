@@ -1,12 +1,13 @@
 ---
 name: video-account-distiller
-description: "Initialize, import, validate, normalize, analyze, distill, compare, score, predict, register, and retrospect on video-account exports, explicitly authorized Feishu Bitable or Google Sheets data, local MP4/MOV/MKV media, scripts, transcripts, comments, and metrics with robust evidence, batch jobs, snapshot planning, team policy, and production-release diagnostics. Use for 拆解或蒸馏视频账号、授权导出导入、正式版安装验收、运行环境诊断、飞书多维表格或 Google Sheets 同步、批量任务、定时快照计划、团队配置、分析本地视频、镜头切分、OCR、评论需求、内容模式、对标迁移、脚本评分、发布预测或复盘，using user-provided or explicitly authorized data from Douyin, Xiaohongshu, WeChat Channels, Bilibili, TikTok, YouTube, or Instagram Reels."
+description: "Initialize, collect, import, validate, normalize, analyze, distill, compare, score, predict, register, and retrospect on video accounts from user-approved Douyin homepage URLs, offline exports, explicitly authorized Feishu Bitable or Google Sheets data, local media, scripts, transcripts, comments, and metrics. Use for 抖音主页链接一键解析、账号拆解或蒸馏、授权导出导入、正式环境验收、飞书或 Google Sheets 同步、批量任务、本地视频分析、评论需求、内容模式、对标迁移、脚本评分、发布预测或复盘，with immutable raw evidence, robust metrics, stable errors, and explicit Provider cost/credential controls."
 ---
 
 # Video Account Distiller
 
-Use the Python package and `distiller` CLI for deterministic work. Keep source exports immutable and
-perform Phase 0/1/2/3/4/5/6 tasks offline and Phase 7 table sync only with explicit authorization.
+Use the Python package and `distiller` CLI for deterministic work. Keep source exports immutable.
+Perform Phase 0–6 tasks offline, Phase 7 table sync only with explicit authorization, and Phase 8
+homepage collection only through the documented fixed-host Provider after explicit cost approval.
 
 ## Load references
 
@@ -38,6 +39,8 @@ perform Phase 0/1/2/3/4/5/6 tasks offline and Phase 7 table sync only with expli
 - Read `references/collaboration-adapters.md` before importing an authorized manifest, contacting
   Feishu Bitable or Google Sheets, exporting normalized rows, running a batch, planning snapshots,
   or editing team policy.
+- Read `references/account-url-collection.md` before accepting a Douyin homepage link, planning or
+  running paid Provider calls, interpreting public-field gaps, or doing live collection acceptance.
 - Read `references/production-operation.md` before validating an installed release, running
   `doctor`, accepting a real work environment, or diagnosing deployment readiness.
 - Read `references/privacy.md` for comments, identifiers, credentials, raw exports, or any request
@@ -54,9 +57,10 @@ perform Phase 0/1/2/3/4/5/6 tasks offline and Phase 7 table sync only with expli
 - Compare raw performance only within the same account/platform context. Use account-local robust
   metrics for ranking.
 - Emit machine JSON to stdout and logs/errors to stderr. Preserve stable `E_*` error codes.
-- Access only a user-approved official table API or a user-provided export. Never automate login,
-  bypass CAPTCHA/rate limits/risk controls, scrape, reuse browser sessions, or start a browser.
-  Never upload media in local mode. Keep tokens in environment variables only.
+- Access only a user-approved documented fixed-host Provider, official table API, or user-provided
+  export. Never automate login, bypass CAPTCHA/rate limits/risk controls, scrape platform pages,
+  reuse browser sessions, or start a browser. Never upload media in local mode. Keep tokens in
+  environment variables only.
 
 ## Route tasks
 
@@ -72,7 +76,7 @@ distiller doctor --project <dir> --json
 ```
 
 Treat `doctor` as read-only. Report core readiness separately from optional local-media,
-Feishu-Bitable, and Google-Sheets capabilities. Never print credential values.
+TikHub-Douyin, Feishu-Bitable, and Google-Sheets capabilities. Never print credential values.
 
 ### Initialize
 
@@ -83,6 +87,28 @@ uv run distiller init <project-dir> --json
 ```
 
 Do not overwrite existing config or state. Return the created paths and next import commands.
+
+### Analyze a Douyin account homepage
+
+Read `references/account-url-collection.md`. Always preview before a paid call:
+
+```bash
+uv run distiller account analyze --project <dir> --url <douyin-homepage> \
+  --count 10 --sort latest --dry-run --json
+```
+
+Require the user to approve the public account, expected call count, Provider cost, and retention.
+Require `TIKHUB_API_KEY` in the local environment; never ask the user to paste it into chat or a
+project file. Then run:
+
+```bash
+uv run distiller account analyze --project <dir> --url <douyin-homepage> \
+  --count 10 --sort latest --confirm-provider-cost --json
+```
+
+Return the internal account ID, accepted/rejected row counts, immutable Provider batch path,
+public-field warnings, report path, distillation path, and the next `validate` command. Never claim
+that homepage data includes private completion, watch-time, traffic-source, or audience fields.
 
 ### Import data
 
@@ -331,9 +357,11 @@ uninstall this Skill.
 
 ## Current boundary
 
-Package `1.0.0` stabilizes the completed Phase 0–7 workflow. Phase 7 supports authorized export
-manifests and official Feishu Bitable/Google Sheets table APIs,
-not platform-page scraping or login automation. It exposes batches and snapshot plans but installs
-no background scheduler. Phase 6 still ships no network vision client. The system does not
-auto-approve Level 4 rules: repeated controlled evidence and explicit human approval remain
-required. Do not fabricate visual/audio evidence, causality, authorization, or platform access.
+Package `1.0.0` stabilizes the completed Phase 0–7 workflow. The main line adds Phase 8 collection
+schema `0.8.0` but remains pre-release until a real-token acceptance run passes. Phase 8 supports
+only user-approved Douyin URLs through the documented TikHub API; it does not scrape platform pages,
+automate login, use cookies, handle CAPTCHA, or install a background collector. The first version
+does not collect comment text or download media. Phase 6 still ships no network vision client. The
+system does not auto-approve Level 4 rules: repeated controlled evidence and explicit human approval
+remain required. Do not fabricate visual/audio evidence, causality, authorization, or platform
+access.

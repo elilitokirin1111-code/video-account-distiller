@@ -22,6 +22,7 @@ PROJECT_DIRECTORIES = (
     "raw/media",
     "raw/vision-outputs",
     "raw/collaboration",
+    "raw/account-collections",
     "raw/authorized-manifests",
     "raw/candidates",
     "raw/imports",
@@ -102,6 +103,8 @@ class ProjectLayout:
             atomic_write_text(
                 secrets_example,
                 "# Copy variable names only; keep real values outside the project.\n"
+                "TIKHUB_API_KEY=\n"
+                "TIKHUB_API_BASE_URL=https://api.tikhub.dev\n"
                 "FEISHU_BITABLE_TOKEN=\n"
                 "GOOGLE_SHEETS_TOKEN=\n",
             )

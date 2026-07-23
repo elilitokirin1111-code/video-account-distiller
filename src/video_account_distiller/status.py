@@ -53,6 +53,9 @@ def project_status(project: ProjectLayout) -> dict[str, Any]:
     retros = list((project.root / "reports" / "retros").glob("*/*/retro.json"))
     sync_receipts = list((project.root / "collaboration" / "syncs").glob("*/sync.json"))
     batch_results = list((project.root / "collaboration" / "batches").glob("*/batch-result.json"))
+    account_collections = list(
+        (project.root / "raw" / "account-collections").glob("*/*/provider-batch.json")
+    )
     pending_rule_changes = 0
     pending_rubric_changes = 0
     for path in retros:
@@ -128,6 +131,10 @@ def project_status(project: ProjectLayout) -> dict[str, Any]:
             "snapshot_plan_available": (
                 project.root / "collaboration" / "schedules" / "snapshot-plan.json"
             ).is_file(),
+        },
+        "collection": {
+            "account_batches": len(account_collections),
+            "providers": sorted({path.parent.parent.name for path in account_collections}),
         },
         "artifacts": {
             "sample_manifests": len(sample_manifests),

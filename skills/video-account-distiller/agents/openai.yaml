@@ -1,4 +1,4 @@
 interface:
   display_name: "Video Account Distiller"
-  short_description: "安装验收授权数据，完成视频账号蒸馏、预测、发布复盘与团队协作"
-  default_prompt: "Use $video-account-distiller to verify this production installation and run an evidence-based hotel video-account workflow."
+  short_description: "从抖音主页链接到可追溯的账号蒸馏、内容分析、预测与复盘"
+  default_prompt: "Use $video-account-distiller to analyze an authorized Douyin account homepage into an evidence-based account distillation."

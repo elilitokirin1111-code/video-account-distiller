@@ -57,6 +57,16 @@ from video_account_distiller.models.collaboration import (
     TeamMember,
     TeamRole,
 )
+from video_account_distiller.models.collection import (
+    AccountCollectionBatch,
+    AccountCollectionRequest,
+    CollectedAccount,
+    CollectedMetricSnapshot,
+    CollectedVideo,
+    CollectionProviderKind,
+    CollectionSort,
+    ProviderRawPage,
+)
 from video_account_distiller.models.core import (
     SCHEMA_VERSION,
     Account,
@@ -137,6 +147,8 @@ from video_account_distiller.models.text_analysis import (
 )
 
 __all__ = [
+    "AccountCollectionBatch",
+    "AccountCollectionRequest",
     "CapabilityDiagnostic",
     "DoctorReport",
     "ProjectDiagnostic",
@@ -170,6 +182,11 @@ __all__ = [
     "CommentSentiment",
     "CommentSignal",
     "CommentSignalAnnotation",
+    "CollectedAccount",
+    "CollectedMetricSnapshot",
+    "CollectedVideo",
+    "CollectionProviderKind",
+    "CollectionSort",
     "ContentCluster",
     "ContentCandidate",
     "ConnectorKind",
@@ -214,6 +231,7 @@ __all__ = [
     "Publication",
     "QuantileInterval",
     "ProjectState",
+    "ProviderRawPage",
     "RunManifest",
     "ReportDataScope",
     "ReportFinding",

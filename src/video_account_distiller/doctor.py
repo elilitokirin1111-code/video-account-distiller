@@ -97,6 +97,7 @@ def doctor_report(project: Path | None = None) -> DoctorReport:
         capabilities=CapabilityDiagnostic(
             core=core_ready,
             local_media=executable_state["ffmpeg"] and executable_state["ffprobe"],
+            tikhub_douyin=bool(os.environ.get("TIKHUB_API_KEY")),
             feishu_bitable=bool(os.environ.get("FEISHU_BITABLE_TOKEN")),
             google_sheets=bool(os.environ.get("GOOGLE_SHEETS_TOKEN")),
         ),
