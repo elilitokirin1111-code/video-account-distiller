@@ -150,9 +150,10 @@ def test_bridge_collectors_bound_pages_details_and_top_level_comments(
         bridge._collect_post_summaries(
             client,
             sec_user_id="approved-account",
-            target_count=3,
+            target_count=None,
             request_interval=0,
             raw_pages=raw_pages,
+            warnings=warnings,
         )
     )
     details = _run_immediate(
@@ -191,6 +192,74 @@ def test_bridge_collectors_bound_pages_details_and_top_level_comments(
     ]
     assert client.comment_calls == [("video-b", 0), ("video-b", 20)]
     assert all("reply" not in str(page["endpoint"]) for page in raw_pages)
+
+
+def test_bridge_collector_stops_all_video_mode_on_repeated_cursor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class RepeatingCursorClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def get_user_aweme_posts(
+            self,
+            sec_user_id: str,
+            cursor: str | int,
+        ) -> dict[str, Any]:
+            assert sec_user_id == "approved-account"
+            self.calls += 1
+            return {
+                "aweme_list": [{"aweme_id": f"video-{self.calls}"}],
+                "has_more": 1,
+                "max_cursor": 18,
+            }
+
+    async def no_sleep(_: float) -> None:
+        return None
+
+    monkeypatch.setattr(asyncio, "sleep", no_sleep)
+    client = RepeatingCursorClient()
+    warnings: list[str] = []
+    summaries = _run_immediate(
+        bridge._collect_post_summaries(
+            client,
+            sec_user_id="approved-account",
+            target_count=None,
+            request_interval=0,
+            raw_pages=[],
+            warnings=warnings,
+        )
+    )
+
+    assert [item["aweme_id"] for item in summaries] == ["video-1", "video-2"]
+    assert client.calls == 2
+    assert warnings == []
+
+
+def test_bridge_collector_reports_full_homepage_safety_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def no_sleep(_: float) -> None:
+        return None
+
+    monkeypatch.setattr(asyncio, "sleep", no_sleep)
+    client = FakeDouyinClient()
+    warnings: list[str] = []
+    summaries = _run_immediate(
+        bridge._collect_post_summaries(
+            client,
+            sec_user_id="approved-account",
+            target_count=None,
+            request_interval=0,
+            raw_pages=[],
+            warnings=warnings,
+            max_pages=1,
+        )
+    )
+
+    assert [item["aweme_id"] for item in summaries] == ["video-a", "video-b"]
+    assert client.post_calls == [""]
+    assert warnings == ["homepage_page_safety_limit_reached"]
 
 
 def test_bridge_loader_forces_proxy_and_ssl_bypass_flags_off(

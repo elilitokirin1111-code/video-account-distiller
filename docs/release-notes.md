@@ -13,8 +13,12 @@ changes.
 - Backward-compatible collection schema `0.8.1` with optional canonical comments, one-page
   high-comment-video sampling, immutable comment companions, and automatic redacted comment
   analysis before account distillation.
-- `distiller account analyze` for a user-approved Douyin homepage URL, bounded 1～100 post
-  pagination, `latest`/`popular` order, no-network dry-run, and explicit paid-call confirmation.
+- Backward-compatible collection schema `0.8.2` where an omitted video count means all
+  Provider-exposed homepage videos, with repeated-cursor detection, 1,000-page/20,000-video
+  emergency guards, and an optional explicit count limit.
+- Initial `distiller account analyze` support for a user-approved Douyin homepage URL, bounded
+  1～100 post pagination, `latest`/`popular` order, no-network dry-run, and explicit paid-call
+  confirmation.
 - Fixed-host TikHub Provider with environment-only credential, bounded retry, stable
   authorization/rate-limit/response errors, and injectable offline HTTP tests.
 - Pinned `NanmiCoder/MediaCrawler` Git submodule and controlled sidecar Provider for the declared
@@ -48,6 +52,9 @@ changes.
 
 ### Changed
 
+- `distiller account analyze` now defaults to homepage exhaustion for both MediaCrawler and TikHub.
+  `--count` remains available only as an explicit 1～20,000 video limit; paid TikHub collection
+  still requires a dry-run and cost confirmation.
 - The default `account analyze` provider is now MediaCrawler and the command completes collection,
   immutable import, Parquet/DuckDB normalization, metrics, comment analysis, reporting, and
   distillation in one run. TikHub remains available through `--provider tikhub`.

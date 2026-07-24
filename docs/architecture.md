@@ -132,8 +132,9 @@ proxy, stealth, automatic-login, CAPTCHA, or platform-control-evasion feature.
 - `collaboration/`: authorized export/import orchestration, normalized exports, idempotent Sync
   receipts, batch execution, snapshot planning, and credential-free team policy.
 - `collection/`: Douyin URL validation, provider selection, controlled MediaCrawler sidecar,
-  optional fixed-host TikHub access, bounded post/comment sampling, public-field mapping, immutable
-  response storage, and orchestration into the existing import/analysis kernel.
+  optional fixed-host TikHub access, Provider-terminated full-homepage pagination with emergency
+  guards, bounded comment sampling, public-field mapping, immutable response storage, and
+  orchestration into the existing import/analysis kernel.
 - `third_party/MediaCrawler`: Git submodule pinned to an audited commit and governed by its own
   non-commercial learning license; it is not relicensed by the root project.
 - `third_party/claude-video`: MIT Git submodule pinned to the audited workflow reference. The

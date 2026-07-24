@@ -195,9 +195,9 @@ then run:
 git submodule update --init --recursive
 uv run distiller doctor --json
 uv run distiller account analyze --project ./demo-project \
-  --url <approved-douyin-homepage> --count 10 --dry-run --json
+  --url <approved-douyin-homepage> --dry-run --json
 uv run distiller account analyze --project ./demo-project \
-  --url <approved-douyin-homepage> --count 10 --json
+  --url <approved-douyin-homepage> --json
 uv run distiller validate --project ./demo-project --json
 ```
 

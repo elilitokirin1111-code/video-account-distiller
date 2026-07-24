@@ -12,6 +12,9 @@ from pydantic import Field, field_validator, model_validator
 from video_account_distiller.models.core import StrictModel
 from video_account_distiller.version import COLLECTION_SCHEMA_VERSION
 
+HOMEPAGE_PAGE_SAFETY_LIMIT = 1000
+HOMEPAGE_VIDEO_SAFETY_LIMIT = 20_000
+
 
 class CollectionProviderKind(StrEnum):
     """Supported authorized account collection providers."""
@@ -46,7 +49,14 @@ class AccountCollectionRequest(StrictModel):
 
     schema_version: str = COLLECTION_SCHEMA_VERSION
     profile_url: str = Field(min_length=1, max_length=2048)
-    count: int = Field(default=10, ge=1, le=100)
+    count: int | None = Field(
+        default=None,
+        ge=1,
+        le=HOMEPAGE_VIDEO_SAFETY_LIMIT,
+        description=(
+            "Optional video limit. None collects every homepage video exposed by the provider."
+        ),
+    )
     sort: CollectionSort = CollectionSort.LATEST
     provider: CollectionProviderKind = CollectionProviderKind.MEDIACRAWLER
     comments_per_video: int = Field(default=10, ge=0, le=20)

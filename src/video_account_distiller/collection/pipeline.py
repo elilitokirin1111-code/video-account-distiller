@@ -13,6 +13,8 @@ from video_account_distiller.ingestion import ImportService
 from video_account_distiller.ingestion.importer import EntityName
 from video_account_distiller.metrics import MetricsService
 from video_account_distiller.models import (
+    HOMEPAGE_PAGE_SAFETY_LIMIT,
+    HOMEPAGE_VIDEO_SAFETY_LIMIT,
     AccountCollectionRequest,
     CollectionProviderKind,
     ImportReceipt,
@@ -73,17 +75,31 @@ class AccountCollectionService:
 
         if dry_run:
             page_size = 18 if request.provider == CollectionProviderKind.MEDIACRAWLER else 20
-            collection_count = (
-                min(max(request.count * 3, request.count), 100)
-                if (
-                    request.provider == CollectionProviderKind.MEDIACRAWLER
-                    and request.sort.value == "popular"
+            all_homepage_videos = request.count is None
+            if all_homepage_videos:
+                collection_count = HOMEPAGE_VIDEO_SAFETY_LIMIT
+                page_count = HOMEPAGE_PAGE_SAFETY_LIMIT
+            else:
+                requested_count = request.count
+                assert requested_count is not None
+                collection_count = (
+                    min(
+                        max(requested_count * 3, requested_count),
+                        HOMEPAGE_VIDEO_SAFETY_LIMIT,
+                    )
+                    if (
+                        request.provider == CollectionProviderKind.MEDIACRAWLER
+                        and request.sort.value == "popular"
+                    )
+                    else requested_count
                 )
-                else request.count
-            )
-            page_count = (collection_count + page_size - 1) // page_size
+                page_count = (collection_count + page_size - 1) // page_size
             comment_calls = (
-                min(request.count, request.comment_video_limit)
+                (
+                    request.comment_video_limit
+                    if request.count is None
+                    else min(request.count, request.comment_video_limit)
+                )
                 if request.comments_per_video > 0
                 else 0
             )
@@ -109,6 +125,17 @@ class AccountCollectionService:
                 "ok": True,
                 "dry_run": True,
                 "request": request.model_dump(mode="json"),
+                "collection_scope": {
+                    "mode": ("all_available_homepage_videos" if all_homepage_videos else "limited"),
+                    "requested_video_limit": request.count,
+                    "termination": (
+                        "provider_exhausted_or_safety_guard"
+                        if all_homepage_videos
+                        else "requested_limit_or_provider_exhausted"
+                    ),
+                    "page_safety_limit": HOMEPAGE_PAGE_SAFETY_LIMIT,
+                    "video_safety_limit": HOMEPAGE_VIDEO_SAFETY_LIMIT,
+                },
                 "provider_calls": {
                     "resolve_profile_url": 1,
                     "account_profile": 1,

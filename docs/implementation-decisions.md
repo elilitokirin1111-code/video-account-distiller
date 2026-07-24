@@ -600,3 +600,14 @@ requirements from later phases.
 - **Reason:** Real `qwen3-vl:8b` acceptance returned the requested structured JSON in the local
   thinking field even with thinking disabled. Supporting the actual Ollama response shape closes
   compatibility without weakening Schema or evidence checks.
+
+## ID-073 — Make homepage exhaustion the default video scope
+
+- **Decision:** Interpret `AccountCollectionRequest.count = null` as all Provider-exposed homepage
+  videos and make that the CLI default. Continue pagination until `has_more` is false. Retain
+  `--count <1-20000>` only as an explicit user limit, detect repeated cursors, and stop with a
+  visible warning at the 1,000-page or 20,000-video emergency guard.
+- **Reason:** A fixed 10-video default made account distillation and later cross-account ranking
+  sensitive to a small recent slice. Full accessible history provides the requested account-level
+  evidence, while Provider termination, cursor detection, explicit paid-provider confirmation,
+  and emergency guards prevent accidental infinite or uncontrolled collection.

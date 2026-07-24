@@ -54,7 +54,7 @@ Qwen3-VL 增加画面、艺术字、品牌露出和 OCR，再重新蒸馏并保�
 - 运行可审计批量任务，输出快照到期计划，并维护不含凭证的团队角色配置。
 - 输出 JSON/Markdown 数据质量报告、不可变运行清单和项目状态。
 - 通过稳定错误码和 JSON Envelope 被 Agent 或自动化脚本调用。
-- 从一个抖音主页链接读取公开账号资料与 1～100 条作品，并一键生成账号报告和蒸馏结果。
+- 从一个抖音主页链接遍历全部可获取作品，并一键生成账号报告和蒸馏结果。
 - 从公开评论数最高的少量作品有界采集一级评论，并自动进入脱敏评论需求分析。
 - 本地 MediaCrawler 默认链路不产生 Provider API 费用；可选 TikHub 调用先预演并显式确认费用。
 - 将完整 Provider 响应作为内容寻址的不可变原始证据。
@@ -121,7 +121,7 @@ uv run distiller init ./demo-project --json
 ```bash
 uv run distiller account analyze --project ./demo-project \
   --url "https://www.douyin.com/user/<sec-user-id>" \
-  --count 10 --sort latest --dry-run --json
+  --sort latest --dry-run --json
 ```
 
 确认采集范围后执行完整链路：
@@ -129,7 +129,7 @@ uv run distiller account analyze --project ./demo-project \
 ```bash
 uv run distiller account analyze --project ./demo-project \
   --url "https://www.douyin.com/user/<sec-user-id>" \
-  --count 10 --sort latest --json
+  --sort latest --json
 ```
 
 要在同一条命令中继续分析 3 条公开视频，显式增加 `--media-limit`。视频、帧和字幕留在
@@ -138,7 +138,7 @@ uv run distiller account analyze --project ./demo-project \
 ```bash
 uv run distiller account analyze --project ./demo-project \
   --url "https://www.douyin.com/user/<sec-user-id>" \
-  --count 10 --sort latest --media-limit 3 --whisper-model base \
+  --sort latest --media-limit 3 --whisper-model base \
   --vision-provider ollama --vision-model qwen3-vl:8b --json
 ```
 
@@ -157,8 +157,9 @@ uv run distiller account enrich-media --project ./demo-project \
 批次中的 HTTPS 抖音/CDN 地址。默认优先选择尚未做单视频分析的作品，因此可分批扩充覆盖。
 
 首次运行会准备 MediaCrawler 的锁定环境并打开可见 Chrome。请在窗口内手动登录或完成
-平台验证；专用登录状态保存在用户目录，不写入项目。默认从最多 3 条高评论作品各采集
-10 条一级评论；可用 `--comments-per-video 0` 关闭。
+平台验证；专用登录状态保存在用户目录，不写入项目。默认持续翻页到主页作品耗尽，
+`--count <1-20000>` 只用于显式限量。默认从最多 3 条高评论作品各采集 10 条一级评论；
+可用 `--comments-per-video 0` 关闭。
 
 如需无浏览器的可选 TikHub API 路径，请在本机设置 `TIKHUB_API_KEY`，追加
 `--provider tikhub`，先预演，再用 `--confirm-provider-cost` 执行。不要把密钥粘贴到

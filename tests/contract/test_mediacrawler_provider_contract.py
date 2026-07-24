@@ -101,6 +101,28 @@ def test_mediacrawler_provider_maps_complete_bridge_payload(
     assert executor.commands[0][channel_index + 1] == "msedge"
 
 
+def test_mediacrawler_provider_omits_count_for_full_homepage_collection(
+    tmp_path: Path,
+) -> None:
+    home, bridge = _runtime(tmp_path)
+    provider = MediaCrawlerAccountProvider(
+        home=home,
+        bridge_script=bridge,
+        uv_executable="uv-fixture",
+        executor=FixtureProcessExecutor(tmp_path / "unused.json"),
+    )
+    request = AccountCollectionRequest(
+        profile_url="https://www.douyin.com/user/demo",
+        provider=CollectionProviderKind.MEDIACRAWLER,
+    )
+
+    command = provider._command(request, tmp_path / "result.json")
+
+    assert "--count" not in command
+    assert command[command.index("--max-pages") + 1] == "1000"
+    assert command[command.index("--max-videos") + 1] == "20000"
+
+
 def test_mediacrawler_provider_maps_manual_login_timeout_to_stable_error(
     fixtures_dir: Path,
     tmp_path: Path,

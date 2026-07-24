@@ -50,6 +50,37 @@ def test_account_analyze_dry_run_requires_no_token_and_does_not_write(
     assert not list((project.root / "raw" / "account-collections").rglob("*.json"))
 
 
+def test_account_analyze_defaults_to_all_homepage_videos(
+    project: ProjectLayout,
+) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "account",
+            "analyze",
+            "--project",
+            str(project.root),
+            "--url",
+            "https://www.douyin.com/user/demo",
+            "--dry-run",
+            "--json",
+        ],
+    )
+
+    payload = json.loads(result.stdout)
+    assert result.exit_code == 0
+    assert payload["request"]["count"] is None
+    assert payload["collection_scope"] == {
+        "mode": "all_available_homepage_videos",
+        "requested_video_limit": None,
+        "termination": "provider_exhausted_or_safety_guard",
+        "page_safety_limit": 1000,
+        "video_safety_limit": 20000,
+    }
+    assert payload["provider_calls"]["homepage_post_pages_max"] == 1000
+    assert payload["provider_calls"]["video_detail_calls_max"] == 20000
+
+
 def test_account_analyze_dry_run_includes_bounded_comment_calls(
     project: ProjectLayout,
 ) -> None:

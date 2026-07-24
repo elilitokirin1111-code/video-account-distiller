@@ -6,7 +6,7 @@ Phase 4 comment/distillation schema version: `0.4.0`.
 Phase 5 scoring/prediction/Retro schema version: `0.5.0`.
 Phase 6 local media-analysis schema version: `0.6.0`.
 Phase 7 collaboration schema version: `0.7.0`.
-Phase 8 account-collection schema version: `0.8.1`.
+Phase 8 account-collection schema version: `0.8.2`.
 
 The authoritative planning dictionary is `docs/planning/04_DATA_SCHEMA.md`; executable contracts
 are Pydantic models in `src/video_account_distiller/models/core.py` and reject unknown fields.
@@ -229,7 +229,7 @@ do not claim that platform collection occurred.
 
 | Path | Contract | Identity |
 |---|---|---|
-| CLI request | `AccountCollectionRequest` | URL + count + sort + bounded comment options + Provider |
+| CLI request | `AccountCollectionRequest` | URL + optional count limit + sort + bounded comment options + Provider |
 | Provider result | `AccountCollectionBatch` | strict provider-neutral batch |
 | `raw/account-collections/<provider>/<sha256>/provider-batch.json` | full batch and original pages | canonical payload SHA-256 |
 | `raw/account-collections/<provider>/<sha256>/accounts.json` | `CollectedAccount[]` | Provider account ID |
@@ -238,13 +238,16 @@ do not claim that platform collection occurred.
 | `raw/account-collections/<provider>/<sha256>/comments.json` | optional `CollectedComment[]` | Provider comment ID |
 
 `AccountCollectionRequest` allows only HTTPS `douyin.com` hosts, no URL credentials, and no custom
-port. Video counts are limited to 1～100. The default Provider is `mediacrawler`; `tikhub` is an
-explicit alternative. Comment sampling defaults to 10 top-level comments for each of at most three
-high-comment collected videos, is capped at 20 comments for each of at most 10 videos, and can be
-disabled with `comments_per_video=0`. `Collected*` models contain only canonical fields accepted by
-the offline importer; Provider-specific execution remains in `collection/mediacrawler.py` or
-`collection/providers.py`, while canonical aliases stay centralized in the collection mapping
-helpers.
+port. `count=null` is the default and means “continue until the Provider reports that the homepage
+is exhausted”; an explicit count from 1 through 20,000 is an optional limit. Full-homepage mode has
+a 1,000-page/20,000-video emergency guard, repeated-cursor detection, and a visible warning if the
+guard rather than Provider exhaustion stops collection. The default Provider is `mediacrawler`;
+`tikhub` is an explicit alternative. Comment sampling defaults to 10 top-level comments for each
+of at most three high-comment collected videos, is capped at 20 comments for each of at most 10
+videos, and can be disabled with `comments_per_video=0`. `Collected*` models contain only canonical
+fields accepted by the offline importer; Provider-specific execution remains in
+`collection/mediacrawler.py` or `collection/providers.py`, while canonical aliases stay
+centralized in the collection mapping helpers.
 
 Unknown public fields stay `null`. In particular, the current follower count is not substituted for
 `follower_count_at_publish`, and missing completion/watch-time data is not fabricated. The full

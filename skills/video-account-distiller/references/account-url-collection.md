@@ -19,14 +19,14 @@ Preview first. Dry-run performs no network access, browser launch, or project wr
 
 ```bash
 uv run distiller account analyze --project <dir> --url <url> \
-  --count 10 --sort latest --dry-run --json
+  --sort latest --dry-run --json
 ```
 
 Run the default complete workflow:
 
 ```bash
 uv run distiller account analyze --project <dir> --url <url> \
-  --count 10 --sort latest --json
+  --sort latest --json
 
 uv run distiller validate --project <dir> --json
 ```
@@ -40,19 +40,25 @@ When the user requests local Microsoft Edge, set
 same manual-authentication boundary.
 For a slower first login, set `MEDIACRAWLER_LOGIN_TIMEOUT_SECONDS` to an integer from 30 through
 900. Page navigation during manual authentication is transient until that bounded timeout expires.
+Full-homepage collection allows up to 3,600 seconds by default. Set
+`MEDIACRAWLER_PROCESS_TIMEOUT_SECONDS` from 60 through 3,600 only to tighten that local process
+deadline; never use timeout changes to evade platform verification or limits.
 
-The CLI defaults to 10 comments per video from at most three high-comment collected videos.
-Use `--comments-per-video 0` when the user wants a smaller personal-data scope. Counts are bounded:
-1–100 videos, 0–20 comments per sampled video, and 1–10 sampled videos.
+The CLI defaults to every Provider-exposed homepage video and stops when `has_more` is false.
+`--count <1-20000>` is an optional explicit limit. Full-homepage mode also detects repeated
+cursors and has a 1,000-page/20,000-video emergency guard; disclose a safety-limit warning as
+incomplete collection. Comments remain bounded at 10 comments per video from at most three
+high-comment collected videos. Use `--comments-per-video 0` when the user wants a smaller
+personal-data scope; allowed maxima are 20 comments for each of at most 10 sampled videos.
 
 For the optional paid API route:
 
 ```bash
 uv run distiller account analyze --project <dir> --url <url> \
-  --provider tikhub --count 10 --dry-run --json
+  --provider tikhub --dry-run --json
 
 uv run distiller account analyze --project <dir> --url <url> \
-  --provider tikhub --count 10 --confirm-provider-cost --json
+  --provider tikhub --confirm-provider-cost --json
 ```
 
 ## Interpret
@@ -68,9 +74,10 @@ publication, full comment coverage/reply trees, traffic source, audience composi
 promotion truth. Preserve these as unknown. Describe the first output as quantitative homepage
 distillation until transcripts or local media analysis add semantic evidence.
 
-Popular sort is only within a bounded recent pool. Comments are biased samples, not the whole
-audience. Raw pages may contain public identifiers; canonical comments retain only author hashes
-and analysis uses direct-identifier redaction.
+Popular sort covers the complete Provider-exposed homepage set in default full mode. When an
+explicit `--count` is supplied, popular sort is only within the bounded pool read for that request.
+Comments are biased samples, not the whole audience. Raw pages may contain public identifiers;
+canonical comments retain only author hashes and analysis uses direct-identifier redaction.
 
 Homepage collection defaults to metadata-only. When the user separately approves actual public
 video processing, pass `--media-limit <1-10>` or use the existing account ID with

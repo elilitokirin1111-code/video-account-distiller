@@ -21,6 +21,8 @@ from typing import Any
 
 BRIDGE_SCHEMA_VERSION = "1.0"
 DOUYIN_HOME = "https://www.douyin.com/"
+DEFAULT_HOMEPAGE_PAGE_SAFETY_LIMIT = 1000
+DEFAULT_HOMEPAGE_VIDEO_SAFETY_LIMIT = 20_000
 
 
 class BridgeFailure(Exception):
@@ -160,16 +162,24 @@ async def _collect_post_summaries(
     client: Any,
     *,
     sec_user_id: str,
-    target_count: int,
+    target_count: int | None,
     request_interval: float,
     raw_pages: list[dict[str, Any]],
+    warnings: list[str],
+    max_pages: int = DEFAULT_HOMEPAGE_PAGE_SAFETY_LIMIT,
+    max_videos: int = DEFAULT_HOMEPAGE_VIDEO_SAFETY_LIMIT,
 ) -> list[dict[str, Any]]:
     cursor: str | int = ""
     seen_cursors: set[str] = set()
     seen_videos: set[str] = set()
     summaries: list[dict[str, Any]] = []
-    while len(summaries) < target_count:
+    page_count = 0
+    while target_count is None or len(summaries) < target_count:
+        if page_count >= max_pages:
+            warnings.append("homepage_page_safety_limit_reached")
+            break
         response = _mapping(await client.get_user_aweme_posts(sec_user_id, cursor))
+        page_count += 1
         raw_pages.append(
             {
                 "endpoint": "/aweme/v1/web/aweme/post/",
@@ -185,8 +195,14 @@ async def _collect_post_summaries(
                 continue
             seen_videos.add(item_id)
             summaries.append(item)
-            if len(summaries) >= target_count:
+            if (target_count is not None and len(summaries) >= target_count) or len(
+                summaries
+            ) >= max_videos:
                 break
+        if len(summaries) >= max_videos:
+            if target_count is None or len(summaries) < target_count:
+                warnings.append("homepage_video_safety_limit_reached")
+            break
         has_more = _integer(response.get("has_more")) == 1
         next_cursor = response.get("max_cursor")
         cursor_key = str(next_cursor)
@@ -361,8 +377,8 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
                     }
                 )
                 summary_target = (
-                    min(max(args.count * 3, args.count), 100)
-                    if args.sort == "popular"
+                    min(max(args.count * 3, args.count), args.max_videos)
+                    if args.count is not None and args.sort == "popular"
                     else args.count
                 )
                 summaries = await _collect_post_summaries(
@@ -371,6 +387,9 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
                     target_count=summary_target,
                     request_interval=args.request_interval,
                     raw_pages=raw_pages,
+                    warnings=warnings,
+                    max_pages=args.max_pages,
+                    max_videos=args.max_videos,
                 )
                 details = await _collect_video_details(
                     client,
@@ -381,13 +400,14 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
                 )
                 if args.sort == "popular":
                     details.sort(key=_video_score, reverse=True)
-                    warnings.append("popular_sort_is_within_bounded_recent_pool")
+                    if args.count is not None:
+                        warnings.append("popular_sort_is_within_bounded_recent_pool")
                 else:
                     details.sort(
                         key=lambda item: _integer(item.get("create_time")),
                         reverse=True,
                     )
-                selected = details[: args.count]
+                selected = details if args.count is None else details[: args.count]
                 comments = await _collect_comments(
                     client,
                     selected,
@@ -407,7 +427,7 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
             f"{type(exc).__name__}: {exc}",
         ) from exc
 
-    if len(selected) < args.count:
+    if args.count is not None and len(selected) < args.count:
         warnings.append("provider_returned_fewer_videos_than_requested")
     return {
         "schema_version": BRIDGE_SCHEMA_VERSION,
@@ -424,11 +444,21 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run a bounded MediaCrawler Douyin collection.")
+    parser = argparse.ArgumentParser(description="Run a controlled MediaCrawler Douyin collection.")
     parser.add_argument("--media-root", required=True)
     parser.add_argument("--profile-url", required=True)
-    parser.add_argument("--count", type=int, required=True)
+    parser.add_argument("--count", type=int)
     parser.add_argument("--sort", choices=("latest", "popular"), required=True)
+    parser.add_argument(
+        "--max-pages",
+        type=int,
+        default=DEFAULT_HOMEPAGE_PAGE_SAFETY_LIMIT,
+    )
+    parser.add_argument(
+        "--max-videos",
+        type=int,
+        default=DEFAULT_HOMEPAGE_VIDEO_SAFETY_LIMIT,
+    )
     parser.add_argument("--comments-per-video", type=int, required=True)
     parser.add_argument("--comment-video-limit", type=int, required=True)
     parser.add_argument("--browser-profile", required=True)

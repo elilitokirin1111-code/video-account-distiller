@@ -78,9 +78,9 @@ strict hash and evidence links.
 - Handle authorization, rate-limit, and provider-response failures with stable machine errors.
 - Run auditable batches, emit due/future/available snapshot tasks, and keep team roles free of
   credential values.
-- Preview the bounded calls for one Douyin homepage and turn its public profile, 1～100 posts, and
-  bounded top-level comments into a traceable distillation. Require cost confirmation only for the
-  optional paid TikHub route.
+- Preview full-homepage pagination for one Douyin account and turn every Provider-exposed post plus
+  bounded top-level comments into a traceable distillation. Allow an explicit `--count` limit and
+  require cost confirmation only for the optional paid TikHub route.
 - Preview and process a bounded retained-video sample without manual per-video import, signed-URL
   disclosure, browser cookies, or cloud media upload.
 

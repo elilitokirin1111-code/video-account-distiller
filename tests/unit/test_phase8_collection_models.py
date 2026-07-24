@@ -23,6 +23,26 @@ def test_collection_request_accepts_only_douyin_https_hosts(url: str) -> None:
     request = AccountCollectionRequest(profile_url=url)
 
     assert request.profile_url == url
+    assert request.count is None
+
+
+def test_collection_request_uses_optional_count_only_as_a_limit() -> None:
+    request = AccountCollectionRequest(
+        profile_url="https://www.douyin.com/user/demo",
+        count=20_000,
+    )
+
+    assert request.count == 20_000
+    with pytest.raises(ValidationError):
+        AccountCollectionRequest(
+            profile_url="https://www.douyin.com/user/demo",
+            count=0,
+        )
+    with pytest.raises(ValidationError):
+        AccountCollectionRequest(
+            profile_url="https://www.douyin.com/user/demo",
+            count=20_001,
+        )
 
 
 @pytest.mark.parametrize(

@@ -7,7 +7,7 @@ description: "Initialize, collect, locally download, transcribe, and visually an
 
 Use the Python package and `distiller` CLI for deterministic work. Keep source exports immutable.
 Perform Phase 0–6 tasks offline, Phase 7 table sync only with explicit authorization, and Phase 8
-homepage collection only through the bounded MediaCrawler or TikHub adapters.
+homepage collection only through the controlled MediaCrawler or TikHub adapters.
 
 ## Load references
 
@@ -98,16 +98,18 @@ Read `references/account-url-collection.md`. Always preview first:
 
 ```bash
 uv run distiller account analyze --project <dir> --url <douyin-homepage> \
-  --count 10 --sort latest --dry-run --json
+  --sort latest --dry-run --json
 ```
 
 Require the user to approve the public account and retention scope. The CLI defaults to the pinned
-MediaCrawler research Provider and a bounded 10-comment sample from at most three high-comment
-videos. Use `--comments-per-video 0` when the user requests a smaller data scope. Then run:
+MediaCrawler research Provider, all Provider-exposed homepage videos, and a bounded 10-comment
+sample from at most three high-comment videos. Use `--count <n>` only when the user explicitly
+requests a video limit. Use `--comments-per-video 0` when the user requests a smaller personal-data
+scope. Then run:
 
 ```bash
 uv run distiller account analyze --project <dir> --url <douyin-homepage> \
-  --count 10 --sort latest --json
+  --sort latest --json
 ```
 
 On first use, allow the pinned sidecar environment to prepare and a visible Chrome window to open.
@@ -422,13 +424,14 @@ uninstall this Skill.
 ## Current boundary
 
 Package `1.0.0` stabilizes the completed Phase 0–7 workflow. The main line adds Phase 8 collection
-schema `0.8.1` and a complete homepage-to-distillation workflow. The default provider is the pinned
+schema `0.8.2` and a complete homepage-to-distillation workflow. The default provider is the pinned
 MediaCrawler source for declared personal non-commercial research; preserve its third-party notice
 and reassess authorization before commercial use. Only the controlled bridge is approved: visible
-Chrome, dedicated profile, manual authentication, bounded posts/comments, and no proxy, stealth,
-automatic login, CAPTCHA, or risk-control-evasion features. TikHub remains an optional paid API
-provider. Media download is supported only as an explicit bounded step from retained MediaCrawler
-detail evidence, with HTTPS Douyin/CDN allowlisting, local Whisper, and content-addressed storage.
+Chrome, dedicated profile, manual authentication, Provider-terminated full-homepage pagination
+with emergency guards, bounded comments, and no proxy, stealth, automatic login, CAPTCHA, or
+risk-control-evasion features. TikHub remains an optional paid API provider. Media download is
+supported only as an explicit bounded step from retained MediaCrawler detail evidence, with HTTPS
+Douyin/CDN allowlisting, local Whisper, and content-addressed storage.
 The pinned MIT `claude-video` source is an attributed workflow reference; the account path does not
 execute upstream `/watch`. Replies remain unsupported. Phase 6 includes a loopback-only Ollama
 vision Provider and no cloud vision client. The system does not auto-approve Level 4 rules;

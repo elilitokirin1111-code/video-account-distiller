@@ -1,4 +1,4 @@
-"""Pinned MediaCrawler sidecar provider for bounded Douyin account research."""
+"""Pinned MediaCrawler sidecar provider for controlled Douyin account research."""
 
 from __future__ import annotations
 
@@ -21,6 +21,8 @@ from video_account_distiller.collection.providers import (
 )
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.models import (
+    HOMEPAGE_PAGE_SAFETY_LIMIT,
+    HOMEPAGE_VIDEO_SAFETY_LIMIT,
     AccountCollectionBatch,
     AccountCollectionRequest,
     CollectedComment,
@@ -218,7 +220,7 @@ class MediaCrawlerAccountProvider:
         uv_executable: str | None = None,
         login_timeout_seconds: int = 180,
         request_interval_seconds: float = 1.0,
-        process_timeout_seconds: int = 900,
+        process_timeout_seconds: int = 3600,
         executor: ProcessExecutor | None = None,
         bridge_script: Path | None = None,
     ) -> None:
@@ -247,6 +249,15 @@ class MediaCrawlerAccountProvider:
                 raise DistillerError(
                     ErrorCode.SCHEMA_INVALID,
                     "MEDIACRAWLER_LOGIN_TIMEOUT_SECONDS must be an integer",
+                ) from exc
+        configured_process_timeout = os.environ.get("MEDIACRAWLER_PROCESS_TIMEOUT_SECONDS")
+        if configured_process_timeout:
+            try:
+                process_timeout_seconds = int(configured_process_timeout)
+            except ValueError as exc:
+                raise DistillerError(
+                    ErrorCode.SCHEMA_INVALID,
+                    "MEDIACRAWLER_PROCESS_TIMEOUT_SECONDS must be an integer",
                 ) from exc
         self.login_timeout_seconds = login_timeout_seconds
         self.request_interval_seconds = request_interval_seconds
@@ -293,6 +304,7 @@ class MediaCrawlerAccountProvider:
 
     def _command(self, request: AccountCollectionRequest, output_path: Path) -> list[str]:
         assert self.uv_executable is not None
+        count_arguments = [] if request.count is None else ["--count", str(request.count)]
         return [
             self.uv_executable,
             "run",
@@ -305,10 +317,13 @@ class MediaCrawlerAccountProvider:
             str(self.home),
             "--profile-url",
             request.profile_url,
-            "--count",
-            str(request.count),
+            *count_arguments,
             "--sort",
             request.sort.value,
+            "--max-pages",
+            str(HOMEPAGE_PAGE_SAFETY_LIMIT),
+            "--max-videos",
+            str(HOMEPAGE_VIDEO_SAFETY_LIMIT),
             "--comments-per-video",
             str(request.comments_per_video),
             "--comment-video-limit",

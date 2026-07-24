@@ -15,7 +15,7 @@ Phase 8 把“用户提供抖音主页链接”接入已有的不可变导入、
 `distiller account analyze` 会依次执行：
 
 1. 校验用户提供的 HTTPS 抖音主页 URL。
-2. 用选定 Provider 读取公开账号资料、1～100 条作品和有界一级评论。
+2. 用选定 Provider 遍历公开账号资料、全部可获取主页作品和有界一级评论。
 3. 完整保存 Provider 原始响应，计算 SHA-256，并生成标准账号、视频、指标和评论输入。
 4. 复用原有映射、Pydantic 校验、去重和不可变导入服务。
 5. 输出标准化 Parquet，并刷新只读 DuckDB 查询层。
@@ -23,9 +23,11 @@ Phase 8 把“用户提供抖音主页链接”接入已有的不可变导入、
 7. 生成评论需求分析、账号健康报告、证据索引和账号蒸馏报告。
 8. 保存点赞、评论、分享、收藏、评论语义、内容和视听特征的 `abp_*` 账号画像。
 
-默认采集 10 条作品，并从评论数较高的最多 3 条已采集作品中各读取最多 10 条一级评论。
-可用 `--comments-per-video 0` 关闭评论，或在既有限额内调整数量。默认不下载作品视频，
-不读取私有后台指标，也不把当前粉丝数冒充作品发布时粉丝数。
+默认持续翻页，直到 Provider 明确返回主页作品已耗尽。`--count <1-20000>` 仅用于用户
+显式要求限量的情况；全量模式另有 1,000 页、20,000 条作品的异常保护与重复游标检测，
+保护触发时会明确报告范围警告。从评论数较高的最多 3 条已采集作品中各读取最多 10 条
+一级评论。可用 `--comments-per-video 0` 关闭评论，或在既有限额内调整数量。默认不下载
+作品视频，不读取私有后台指标，也不把当前粉丝数冒充作品发布时粉丝数。
 
 ## 安装与运行准备
 
@@ -56,6 +58,9 @@ Windows 上也可使用本机 Edge。运行前设置
 `~/.video-account-distiller/browser-profiles/mediacrawler-douyin-edge/`。
 如首次登录需要更多时间，可将 `MEDIACRAWLER_LOGIN_TIMEOUT_SECONDS` 设置为
 `30`～`900` 之间的整数；登录页跳转在等待窗口内按临时状态处理。
+全主页采集的进程时限默认提升为 3,600 秒；可用
+`MEDIACRAWLER_PROCESS_TIMEOUT_SECONDS=60..3600` 显式收紧，但不要用缩短超时掩盖平台
+验证、限流或翻页异常。
 
 MediaCrawler 的第三方许可、锁定提交和商业化边界见
 [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)。
@@ -84,7 +89,6 @@ uv run distiller account enrich-media --project <dir> --account <acc_id> \
 uv run distiller account analyze \
   --project ./demo-project \
   --url "https://www.douyin.com/user/<sec-user-id>" \
-  --count 10 \
   --sort latest \
   --dry-run \
   --json
@@ -96,14 +100,14 @@ uv run distiller account analyze \
 uv run distiller account analyze \
   --project ./demo-project \
   --url "https://www.douyin.com/user/<sec-user-id>" \
-  --count 10 \
   --sort latest \
   --json
 ```
 
-热门排序会在一个有界近期作品池中排序，而不是声称遍历账号全部历史。首次运行请保持
-Chrome 窗口可见并手动完成登录。命令成功后返回内部 `account_id`、原始证据路径、各实体
-导入质量、标准化结果、指标结果、评论分析、账号报告、蒸馏报告和可复用账号画像。
+默认全量模式下，热门排序覆盖本次 Provider 暴露的全部主页作品。只有显式传入
+`--count` 时，热门排序才在为该限量请求读取的有界作品池内完成。首次运行请保持 Chrome
+窗口可见并手动完成登录。命令成功后返回内部 `account_id`、原始证据路径、各实体导入
+质量、标准化结果、指标结果、评论分析、账号报告、蒸馏报告和可复用账号画像。
 
 ## 可选 TikHub API 工作流
 
@@ -119,7 +123,6 @@ uv run distiller account analyze \
   --project ./demo-project \
   --url "https://www.douyin.com/user/<sec-user-id>" \
   --provider tikhub \
-  --count 10 \
   --dry-run \
   --json
 
@@ -127,7 +130,6 @@ uv run distiller account analyze \
   --project ./demo-project \
   --url "https://www.douyin.com/user/<sec-user-id>" \
   --provider tikhub \
-  --count 10 \
   --confirm-provider-cost \
   --json
 ```
@@ -140,7 +142,8 @@ TikHub 只允许配置的固定官方 Provider 主机。真实调用必须先预
 - 只处理用户确认的公开抖音主页。
 - 不自动输入账号密码，不自动处理 CAPTCHA/滑块，不调用代理池、隐身脚本或风控绕过。
 - 平台要求验证时暂停等待用户手动处理；失败或超时返回稳定错误。
-- 请求数量、作品数量和评论数量均有上限，并保留采集范围警告。
+- 作品默认翻页到 Provider 耗尽；异常保护限制为 1,000 页/20,000 条作品，评论保持有界，
+  并保留采集范围警告。
 - 完整原始页面保存在 `raw/account-collections/<provider>/<sha256>/`；公开不等于可任意传播。
 - 标准评论只保留作者哈希，评论分析副本继续执行直接标识符脱敏。
 - 完播率、平均观看时长、流量来源、受众画像和投流真值等公开主页没有的数据保持未知。
@@ -167,7 +170,7 @@ TikHub 只允许配置的固定官方 Provider 主机。真实调用必须先预
 自动测试必须继续使用离线 Fixture。首次真实环境验收建议：
 
 1. 运行 `distiller doctor --json`，确认 `capabilities.mediacrawler_douyin` 为 `true`。
-2. 对 10 条作品和默认评论范围运行 `--dry-run`。
+2. 对全主页作品和默认评论范围运行 `--dry-run`，确认异常保护与预计请求量。
 3. 在用户确认的公开测试账号上执行一次默认命令，手动完成登录。
 4. 检查账号、作品、指标和评论接受数以及范围警告。
 5. 运行 `distiller validate --project <dir> --json`。

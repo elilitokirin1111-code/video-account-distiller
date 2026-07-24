@@ -7,6 +7,7 @@ import pytest
 
 from video_account_distiller.adapters.collaboration import HttpResponse
 from video_account_distiller.collection import TikHubAccountProvider
+from video_account_distiller.collection import providers as provider_module
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.models import (
     AccountCollectionRequest,
@@ -64,7 +65,6 @@ def test_tikhub_provider_maps_and_paginates_documented_responses(
     )
     request = AccountCollectionRequest(
         profile_url="https://www.douyin.com/user/MS4wLjABAAAAhotel-demo",
-        count=3,
         sort=CollectionSort.LATEST,
         provider=CollectionProviderKind.TIKHUB,
         comments_per_video=2,
@@ -87,6 +87,7 @@ def test_tikhub_provider_maps_and_paginates_documented_responses(
     assert "/api/v1/douyin/web/fetch_user_post_videos" in str(executor.requests[2]["url"])
     assert "filter_type=0" in str(executor.requests[2]["url"])
     assert "max_cursor=10" in str(executor.requests[3]["url"])
+    assert "count=20" in str(executor.requests[2]["url"])
     assert len(result.comments) == 2
     assert result.comments[0].video_id == "7300000000000000001"
     assert result.comments[0].author_hash is not None
@@ -138,6 +139,32 @@ def test_tikhub_provider_can_opt_into_paid_app_posts_endpoint(
     assert result.metrics[0].metric_source == "tikhub:douyin-app-v3"
     assert "/api/v1/douyin/app/v3/fetch_user_post_videos" in str(executor.requests[2]["url"])
     assert "sort_type=1" in str(executor.requests[2]["url"])
+
+
+def test_tikhub_full_homepage_mode_reports_video_safety_guard(
+    fixtures_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TIKHUB_API_KEY", "test-token")
+    monkeypatch.setattr(provider_module, "HOMEPAGE_VIDEO_SAFETY_LIMIT", 2)
+    phase8 = fixtures_dir / "phase8"
+    executor = FakeHttpExecutor(
+        [
+            _response(phase8 / "resolve.json"),
+            _response(phase8 / "profile.json"),
+            _response(phase8 / "posts-page-1.json"),
+        ]
+    )
+    request = AccountCollectionRequest(
+        profile_url="https://www.douyin.com/user/MS4wLjABAAAAhotel-demo",
+        provider=CollectionProviderKind.TIKHUB,
+        comments_per_video=0,
+    )
+
+    result = TikHubAccountProvider(executor=executor, sleep=lambda _: None).collect(request)
+
+    assert len(result.videos) == 2
+    assert "homepage_video_safety_limit_reached" in result.warnings
 
 
 def test_tikhub_provider_rejects_unknown_posts_api_mode() -> None:

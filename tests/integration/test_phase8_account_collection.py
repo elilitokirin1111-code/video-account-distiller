@@ -31,7 +31,8 @@ class FixtureAccountProvider:
         videos: list[CollectedVideo] = []
         metrics: list[CollectedMetricSnapshot] = []
         comments: list[CollectedComment] = []
-        for index in range(request.count):
+        video_count = request.count if request.count is not None else 12
+        for index in range(video_count):
             video_id = f"74000000000000000{index:02d}"
             videos.append(
                 CollectedVideo(
@@ -111,7 +112,7 @@ class FixtureAccountProvider:
                 ProviderRawPage(
                     endpoint="/fixture/account",
                     fetched_at=fetched_at,
-                    payload={"fixture": True, "videos": request.count},
+                    payload={"fixture": True, "videos": video_count},
                 )
             ],
         )

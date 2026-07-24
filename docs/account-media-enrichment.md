@@ -61,7 +61,7 @@ A new homepage run can opt in directly:
 
 ```bash
 uv run distiller account analyze --project <dir> --url <douyin-homepage> \
-  --count 10 --media-limit 3 --whisper-model base \
+  --media-limit 3 --whisper-model base \
   --vision-provider ollama --vision-model qwen3-vl:8b --json
 ```
 

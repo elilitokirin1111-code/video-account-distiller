@@ -222,7 +222,13 @@ def doctor_command(
 def account_analyze_command(
     project: Path = typer.Option(..., "--project", help="Initialized analysis project."),
     url: str = typer.Option(..., "--url", help="Public Douyin account homepage URL."),
-    count: int = typer.Option(10, "--count", min=1, max=100),
+    count: int | None = typer.Option(
+        None,
+        "--count",
+        min=1,
+        max=20_000,
+        help=("Optional video limit. Omit it to collect every video exposed on the homepage."),
+    ),
     sort: CollectionSort = typer.Option(CollectionSort.LATEST, "--sort"),
     comments_per_video: int = typer.Option(
         10,
@@ -300,7 +306,7 @@ def account_analyze_command(
     dry_run: bool = typer.Option(
         False,
         "--dry-run",
-        help="Validate and show bounded collection work without opening a browser or writing.",
+        help="Validate and show planned collection work without opening a browser or writing.",
     ),
 ) -> None:
     """Turn one Douyin homepage URL into normalized metrics and account distillation."""
@@ -373,7 +379,15 @@ def account_analyze_command(
 
     result = _execute(operation, json_output=json_output)
     if dry_run:
-        human = f"Validated {url}; at most {result['provider_calls']['total_max']} provider calls."
+        if count is None:
+            human = (
+                f"Validated {url}; collection will continue until the homepage is exhausted "
+                "or the safety guard is reached."
+            )
+        else:
+            human = (
+                f"Validated {url}; at most {result['provider_calls']['total_max']} provider calls."
+            )
     else:
         account = result["account"]
         collection = result["collection"]
