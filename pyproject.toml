@@ -12,16 +12,23 @@ license = { file = "LICENSE" }
 authors = [{ name = "video-account-distiller contributors" }]
 dependencies = [
   "duckdb>=1.3.2,<2",
+  "fastapi>=0.115,<1",
   "jinja2>=3.1.6,<4",
   "pyarrow>=20,<24",
   "pydantic>=2.11,<3",
   "pyyaml>=6.0.2,<7",
+  "python-multipart>=0.0.20",
+  "requests>=2.32,<3",
+  "streamlit>=1.44,<2",
   "tzdata>=2025.2",
   "typer>=0.16,<1",
+  "uvicorn[standard]>=0.34,<1",
 ]
 
 [project.scripts]
 distiller = "video_account_distiller.cli:app"
+distiller-api = "video_account_distiller.api.app:main"
+distiller-web = "video_account_distiller.web.app:main"
 
 [dependency-groups]
 dev = [
@@ -61,6 +68,9 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/video_account_distiller/cli.py" = ["B008"]
+"src/video_account_distiller/api/router_analysis.py" = ["B008"]
+"src/video_account_distiller/api/router_closed_loop.py" = ["B008"]
+"src/video_account_distiller/api/router_reports.py" = ["B008"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -74,7 +84,7 @@ pretty = true
 files = ["src"]
 
 [[tool.mypy.overrides]]
-module = ["duckdb.*", "pyarrow.*"]
+module = ["duckdb.*", "pyarrow.*", "numpy", "numpy.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
