@@ -71,6 +71,7 @@ select = ["E", "F", "I", "UP", "B"]
 "src/video_account_distiller/api/router_analysis.py" = ["B008"]
 "src/video_account_distiller/api/router_closed_loop.py" = ["B008"]
 "src/video_account_distiller/api/router_reports.py" = ["B008"]
+"src/video_account_distiller/web/**/*.py" = ["E501"]
 
 [tool.ruff.format]
 quote-style = "double"
