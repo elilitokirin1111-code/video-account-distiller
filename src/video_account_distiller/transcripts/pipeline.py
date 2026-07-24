@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -146,8 +145,12 @@ class TranscriptImportService:
         assert manifest is not None
         raw_path = self.project.root / source_uri
         raw_path.parent.mkdir(parents=True, exist_ok=True)
-        if not raw_path.exists():
-            shutil.copyfile(source, raw_path)
+        # Atomically preserve the raw transcript source.
+        try:
+            with open(raw_path, "xb") as dst:
+                dst.write(source.read_bytes())
+        except FileExistsError:
+            pass
         if sha256_file(raw_path) != raw_hash:
             raise DistillerError(ErrorCode.RAW_INTEGRITY, f"Raw copy hash mismatch: {raw_path}")
         staging_name = f"{canonical_video_id}-{raw_hash}.jsonl"

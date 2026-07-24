@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import time
 from collections.abc import Callable, Iterator
@@ -16,6 +15,11 @@ from video_account_distiller.adapters.collaboration import (
     HttpExecutor,
     HttpResponse,
     UrllibHttpExecutor,
+)
+from video_account_distiller.common.http_utils import (
+    compute_retry_after,
+    read_env_credential,
+    request_json,
 )
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.models import (
@@ -46,24 +50,11 @@ class AccountCollectionProvider(Protocol):
 
 
 def _credential() -> str:
-    token = os.environ.get("TIKHUB_API_KEY")
-    if not token:
-        raise DistillerError(
-            ErrorCode.ADAPTER_AUTH,
-            "TikHub API credential is not available",
-            details={"token_env": "TIKHUB_API_KEY"},
-        )
-    return token
+    return read_env_credential("TIKHUB_API_KEY")
 
 
 def _retry_after(response: HttpResponse, attempt: int, policy: RetryPolicy) -> float:
-    raw = response.headers.get("Retry-After") or response.headers.get("retry-after")
-    if raw:
-        try:
-            return min(float(raw), 60.0)
-        except ValueError:
-            pass
-    return min(policy.base_seconds * float(2**attempt), 60.0)
+    return compute_retry_after(response, attempt, policy)
 
 
 def _mapping(value: object) -> dict[str, Any] | None:
@@ -99,57 +90,23 @@ def _request_json(
     policy: RetryPolicy,
     sleep: Callable[[float], None],
 ) -> dict[str, Any]:
-    headers = {
-        "Authorization": f"Bearer {_credential()}",
-        "Accept": "application/json",
-        "User-Agent": "video-account-distiller/1.0",
-    }
-    for attempt in range(policy.max_retries + 1):
-        response = executor.send(
-            method="GET",
-            url=url,
-            headers=headers,
-            body=None,
-            timeout=policy.timeout_seconds,
-        )
-        if response.status in {401, 403}:
-            raise DistillerError(
-                ErrorCode.ADAPTER_AUTH,
-                "Account collection provider rejected the credential",
-                details={"http_status": response.status},
-            )
-        retryable = response.status == 429 or response.status >= 500
-        if retryable and attempt < policy.max_retries:
-            sleep(_retry_after(response, attempt, policy))
-            continue
-        if response.status == 429:
-            raise DistillerError(
-                ErrorCode.RATE_LIMIT,
-                "Account collection provider rate limit remained active after bounded retries",
-                details={"attempts": attempt + 1},
-            )
-        if response.status < 200 or response.status >= 300:
-            raise DistillerError(
-                ErrorCode.ADAPTER_RESPONSE,
-                "Account collection provider returned an unexpected response",
-                details={"http_status": response.status},
-            )
-        try:
-            decoded = json.loads(response.body.decode("utf-8"))
-        except (UnicodeError, json.JSONDecodeError) as exc:
-            raise DistillerError(
-                ErrorCode.ADAPTER_RESPONSE,
-                "Account collection provider response is not valid UTF-8 JSON",
-            ) from exc
-        mapped = _mapping(decoded)
-        if mapped is None:
-            raise DistillerError(
-                ErrorCode.ADAPTER_RESPONSE,
-                "Account collection provider JSON root must be an object",
-            )
-        _provider_data(mapped)
-        return mapped
-    raise AssertionError("unreachable retry loop")
+    """Fetch a JSON object from the collection provider, with retries.
+
+    Thin wrapper around :func:`request_json` that also validates the
+    provider-specific response envelope via ``_provider_data``.
+    """
+    token = _credential()
+    # The provider always uses GET with no request payload.
+    mapped = request_json(
+        executor,
+        method="GET",
+        url=url,
+        token=token,
+        policy=policy,
+        sleep=sleep,
+    )
+    _provider_data(mapped)
+    return mapped
 
 
 def _walk(value: object) -> Iterator[object]:

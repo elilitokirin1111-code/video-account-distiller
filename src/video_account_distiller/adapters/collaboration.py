@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import os
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -12,6 +10,11 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
+from video_account_distiller.common.http_utils import (
+    compute_retry_after,
+    read_env_credential,
+    request_json,
+)
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.models.collaboration import (
     AdapterReadResult,
@@ -81,25 +84,11 @@ class UrllibHttpExecutor:
 
 
 def _credential(token_env: str) -> str:
-    token = os.environ.get(token_env)
-    if not token:
-        raise DistillerError(
-            ErrorCode.ADAPTER_AUTH,
-            "Adapter credential is not available",
-            details={"token_env": token_env},
-        )
-    return token
+    return read_env_credential(token_env)
 
 
 def _retry_after(response: HttpResponse, attempt: int, policy: RetryPolicy) -> float:
-    raw = response.headers.get("Retry-After") or response.headers.get("retry-after")
-    if raw:
-        try:
-            return min(float(raw), 60.0)
-        except ValueError:
-            pass
-    delay = policy.base_seconds * float(2**attempt)
-    return min(delay, 60.0)
+    return compute_retry_after(response, attempt, policy)
 
 
 def _request_json(
@@ -112,57 +101,15 @@ def _request_json(
     payload: dict[str, Any] | None = None,
     sleep: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
-    body = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8") if payload else None
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/json",
-        "Content-Type": "application/json; charset=utf-8",
-        "User-Agent": "video-account-distiller/0.7",
-    }
-    for attempt in range(policy.max_retries + 1):
-        response = executor.send(
-            method=method,
-            url=url,
-            headers=headers,
-            body=body,
-            timeout=policy.timeout_seconds,
-        )
-        if response.status in {401, 403}:
-            raise DistillerError(
-                ErrorCode.ADAPTER_AUTH,
-                "Official API rejected the adapter credential or permission scope",
-                details={"http_status": response.status},
-            )
-        retryable = response.status == 429 or response.status >= 500
-        if retryable and attempt < policy.max_retries:
-            sleep(_retry_after(response, attempt, policy))
-            continue
-        if response.status == 429:
-            raise DistillerError(
-                ErrorCode.RATE_LIMIT,
-                "Official API rate limit remained active after bounded retries",
-                details={"attempts": attempt + 1},
-            )
-        if response.status < 200 or response.status >= 300:
-            raise DistillerError(
-                ErrorCode.ADAPTER_RESPONSE,
-                "Official API returned an unexpected response",
-                details={"http_status": response.status},
-            )
-        try:
-            decoded = json.loads(response.body.decode("utf-8"))
-        except (UnicodeError, json.JSONDecodeError) as exc:
-            raise DistillerError(
-                ErrorCode.ADAPTER_RESPONSE,
-                "Official API response is not valid UTF-8 JSON",
-            ) from exc
-        if not isinstance(decoded, dict):
-            raise DistillerError(
-                ErrorCode.ADAPTER_RESPONSE,
-                "Official API JSON root must be an object",
-            )
-        return {str(key): value for key, value in decoded.items()}
-    raise AssertionError("unreachable retry loop")
+    return request_json(
+        executor,
+        method=method,
+        url=url,
+        token=token,
+        policy=policy,
+        payload=payload,
+        sleep=sleep,
+    )
 
 
 def _feishu_data(payload: dict[str, Any]) -> dict[str, Any]:

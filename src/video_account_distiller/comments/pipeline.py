@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import shutil
 from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -520,8 +519,15 @@ class CommentAnalysisService:
                 self.project.root / "raw" / "model-outputs" / f"{file_provider.input_hash}.json"
             )
             raw_path.parent.mkdir(parents=True, exist_ok=True)
-            if not raw_path.exists():
-                shutil.copyfile(file_provider.path, raw_path)
+            # Atomically copy the model-output file: try an exclusive open first
+            # (O_EXCL on Unix, CREATE_NEW on Windows) to avoid TOCTOU between
+            # the existence check and the copy.  If the file already exists we
+            # trust the content-addressed hash to validate it.
+            try:
+                with open(raw_path, "xb") as dst:
+                    dst.write(file_provider.path.read_bytes())
+            except FileExistsError:
+                pass
             if sha256_file(raw_path) != file_provider.input_hash:
                 raise DistillerError(
                     ErrorCode.RAW_INTEGRITY, f"Model output raw copy hash mismatch: {raw_path}"

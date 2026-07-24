@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import atexit
 import json
 import re
 import shutil
@@ -89,13 +90,30 @@ def _rotation(stream: dict[str, Any]) -> int | None:
 
 
 class FFmpegMediaBackend:
-    """Read local media through subprocess argument arrays; never invokes a shell."""
+    """Read local media through subprocess argument arrays; never invokes a shell.
+
+    Tracks the active child process so that :func:`atexit` can terminate it
+    when the Python process is shutting down normally, reducing the chance of
+    orphan FFmpeg / FFprobe instances.
+    """
 
     def __init__(self, config: MediaSection) -> None:
         self.config = config
         self.ffmpeg = self._resolve(config.ffmpeg_path, "ffmpeg")
         self.ffprobe = self._resolve(config.ffprobe_path, "ffprobe")
         self._version = self._read_version() if self.available else None
+        self._active_process: subprocess.Popen[Any] | None = None
+        atexit.register(self._cleanup)
+
+    def _cleanup(self) -> None:
+        """Terminate the active child process on normal interpreter shutdown."""
+        proc = self._active_process
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.kill()
+                proc.wait(timeout=5)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
 
     @staticmethod
     def _resolve(configured: str | None, executable: str) -> str | None:
@@ -137,14 +155,22 @@ class FFmpegMediaBackend:
         self, arguments: list[str], *, binary: bool = False
     ) -> subprocess.CompletedProcess[Any]:
         try:
-            return subprocess.run(
+            proc = subprocess.Popen(
                 arguments,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=not binary,
                 encoding=None if binary else "utf-8",
                 errors=None if binary else "replace",
-                timeout=self.config.command_timeout_seconds,
-                check=True,
+            )
+            self._active_process = proc
+            stdout, stderr = proc.communicate(timeout=self.config.command_timeout_seconds)
+            if proc.returncode != 0:
+                raise subprocess.CalledProcessError(
+                    proc.returncode, arguments, output=stdout, stderr=stderr
+                )
+            return subprocess.CompletedProcess(
+                arguments, proc.returncode, stdout=stdout, stderr=stderr
             )
         except subprocess.CalledProcessError as exc:
             stderr = exc.stderr
