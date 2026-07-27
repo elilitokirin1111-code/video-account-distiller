@@ -8,7 +8,8 @@ uv run distiller analyze media --project <dir> --video <video-id> \
 ```
 
 The local pipeline hashes and preserves the media, reads FFprobe metadata, detects FFmpeg scene
-boundaries, extracts evenly distributed middle-of-shot keyframes, decodes a bounded mono PCM stream,
+boundaries, extracts bounded middle-of-shot keyframes, adds uniform coverage when long clips have
+too few detected cuts, decodes a bounded mono PCM stream,
 and writes timestamped evidence. It never opens a browser or uploads the file.
 
 Outputs live under `analyses/media/<video>/<mda_*>/` and include `media-analysis.json`,
@@ -30,6 +31,13 @@ Without a visual provider, OCR and visual labels remain unknown. To replay a loc
 annotation must cite an existing shot; every OCR observation must cite an existing keyframe and a
 millisecond interval inside its shot.
 
+For local Ollama, pass `--vision-provider ollama --vision-model qwen3-vl:8b`. The endpoint is
+hard-limited to loopback port 11434. Bounded keyframe batches are converted to strict structured
+results covering labels, dominant colors, composition, camera, lighting, text-overlay styles,
+motion-graphic traces, branding, and OCR. Qwen may place structured JSON in Ollama's `thinking`
+field even when normal content is empty; validate either field against the same strict Schema.
+Never treat still-frame evidence as proof of motion or upload frames to a remote endpoint.
+
 Use `--strict-media` to stop with `E_MEDIA_DECODE` when FFmpeg/FFprobe is unavailable or metadata
 cannot be decoded. The default degrades visibly. Use `--strict-vision` to stop on invalid visual
 Schema; otherwise deterministic media results are retained with warnings.
@@ -43,3 +51,8 @@ Do not confuse analysis warnings with validator warnings. An expected limitation
 Provider not supplied” belongs in the analysis warning file. Project validation can still report
 zero warnings when the limitation is explicit and every Schema, path, hash, and evidence link is
 valid.
+
+For an approved account already collected with MediaCrawler, use `account enrich-media` rather
+than manually locating each file. That route downloads only allowlisted candidates from retained
+Provider evidence and then calls this same media service before local transcription and account
+re-distillation. Read `account-media-enrichment.md`.

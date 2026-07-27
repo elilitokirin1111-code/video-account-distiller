@@ -3,16 +3,22 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 
 from jinja2 import Environment, StrictUndefined
 
+from video_account_distiller.benchmarking import (
+    AccountBenchmarkProfileService,
+    rank_account_profiles,
+)
 from video_account_distiller.config import load_config
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.metrics.calculations import median
 from video_account_distiller.models import (
+    AccountBenchmarkProfile,
     AccountDistillation,
     AccountPositioning,
     ArtifactEvidenceIndex,
@@ -21,6 +27,8 @@ from video_account_distiller.models import (
     ContentCluster,
     EvidenceItem,
     EvidenceSource,
+    MediaAnalysis,
+    MediaFeatureRecord,
     Pattern,
     PatternScope,
     SingleVideoAnalysis,
@@ -31,16 +39,120 @@ from video_account_distiller.sampling.dataset import (
     AccountVideoRecord,
     load_account_dataset,
 )
+from video_account_distiller.storage.parquet import read_models
 from video_account_distiller.storage.project import ProjectLayout
 from video_account_distiller.utils.hashing import sha256_json
 from video_account_distiller.utils.ids import stable_id
 from video_account_distiller.utils.io import atomic_write_json, atomic_write_text, read_json
 
-DISTILLATION_VERSION = "1.0.0"
-COMPARISON_VERSION = "1.0.0"
+DISTILLATION_VERSION = "1.1.0"
+COMPARISON_VERSION = "1.1.0"
 Classification = Literal[
     "fact", "semantic_annotation", "statistical_association", "hypothesis", "warning"
 ]
+
+
+def _media_features(
+    project: ProjectLayout,
+    video_ids: set[str],
+) -> list[MediaFeatureRecord]:
+    grouped: dict[str, tuple[MediaFeatureRecord, datetime]] = {}
+    for item in read_models(
+        project.normalized_dir / "media_features.parquet",
+        MediaFeatureRecord,
+    ):
+        if item.video_id not in video_ids:
+            continue
+        generated_at = datetime.min.replace(tzinfo=UTC)
+        analysis_path = project.root / item.analysis_path
+        if analysis_path.is_file():
+            try:
+                generated_at = MediaAnalysis.model_validate(read_json(analysis_path)).generated_at
+            except (OSError, ValueError):
+                pass
+        previous = grouped.get(item.video_id)
+        if previous is None or (generated_at, item.analysis_id) > (
+            previous[1],
+            previous[0].analysis_id,
+        ):
+            grouped[item.video_id] = (item, generated_at)
+    return [grouped[key][0] for key in sorted(grouped)]
+
+
+def _production_signals(features: Sequence[MediaFeatureRecord]) -> list[str]:
+    """Summarize only directly measured framing, edit rhythm, and audio activity."""
+
+    if not features:
+        return []
+    signals: list[str] = []
+    vertical = sum(
+        item.width is not None and item.height is not None and item.height > item.width
+        for item in features
+    )
+    measured_orientation = sum(
+        item.width is not None and item.height is not None for item in features
+    )
+    if measured_orientation:
+        if vertical == measured_orientation:
+            signals.append(f"竖屏画幅（{vertical}/{measured_orientation} 条实测）")
+        elif vertical:
+            signals.append(f"以竖屏为主（{vertical}/{measured_orientation} 条实测）")
+    shot_durations = [
+        item.average_shot_duration_ms
+        for item in features
+        if item.average_shot_duration_ms is not None
+    ]
+    typical_shot = median(shot_durations)
+    if typical_shot is not None:
+        pace = (
+            "快节奏剪辑"
+            if typical_shot < 1_500
+            else "中等镜头节奏"
+            if typical_shot <= 3_500
+            else "偏长镜头表达"
+        )
+        signals.append(f"{pace}（镜头时长中位数 {typical_shot / 1000:.1f} 秒）")
+    silence_values = [item.silence_ratio for item in features if item.silence_ratio is not None]
+    typical_silence = median(silence_values)
+    if typical_silence is not None:
+        audio = (
+            "音频持续活跃"
+            if typical_silence <= 0.2
+            else "音频活跃度中等"
+            if typical_silence < 0.5
+            else "音频留白较多"
+        )
+        signals.append(f"{audio}（静音占比中位数 {typical_silence:.0%}）")
+    visual_count = sum(item.visual_annotation_count for item in features)
+    if visual_count:
+        signals.append(f"已有 {visual_count} 个带证据的视觉镜头标注")
+    visual_labels = Counter(value for item in features for value in item.visual_labels)
+    if visual_labels:
+        signals.append(
+            "高频画面元素：" + "、".join(value for value, _ in visual_labels.most_common(5))
+        )
+    colors = Counter(value for item in features for value in item.dominant_colors)
+    if colors:
+        signals.append("常见画面主色：" + "、".join(value for value, _ in colors.most_common(4)))
+    style_tags = Counter(value for item in features for value in item.visual_style_tags)
+    if style_tags:
+        signals.append(
+            "构图与光线特征：" + "、".join(value for value, _ in style_tags.most_common(5))
+        )
+    text_styles = Counter(value for item in features for value in item.text_overlay_style_tags)
+    if text_styles:
+        signals.append(
+            "字幕与艺术字特征：" + "、".join(value for value, _ in text_styles.most_common(5))
+        )
+    motion_tags = Counter(value for item in features for value in item.motion_graphic_tags)
+    if motion_tags:
+        signals.append(
+            "动效与贴纸特征：" + "、".join(value for value, _ in motion_tags.most_common(5))
+        )
+    branding = Counter(value for item in features for value in item.branding_tags)
+    if branding:
+        signals.append("品牌露出特征：" + "、".join(value for value, _ in branding.most_common(5)))
+    return signals
 
 
 def _source(table: str, row: Any) -> EvidenceSource:
@@ -440,6 +552,8 @@ class AccountDistillationService:
         dataset = load_account_dataset(self.project, account_id)
         video_ids = {record.video.video_id for record in dataset.records}
         video_analyses = _latest_video_analyses(self.project, video_ids)
+        media_features = _media_features(self.project, video_ids)
+        production_signals = _production_signals(media_features)
         comment_analysis, comment_evidence = _latest_comment_analysis(self.project, account_id)
         config = load_config(self.project.config_path)
         generated_at = datetime.now(UTC)
@@ -448,6 +562,7 @@ class AccountDistillationService:
             "version": DISTILLATION_VERSION,
             "input_hashes": dataset.input_hashes,
             "video_analyses": sorted(item.analysis_id for item in video_analyses.values()),
+            "media_analyses": sorted(item.analysis_id for item in media_features),
             "comment_analysis": comment_analysis.analysis_id if comment_analysis else None,
             "min_pattern_support": config.analysis.min_pattern_support,
             "analysis_config": config.analysis.model_dump(mode="json"),
@@ -487,6 +602,7 @@ class AccountDistillationService:
             {
                 *dataset.input_hashes,
                 *(comment_analysis.input_hashes if comment_analysis is not None else []),
+                *(item.raw_hash for item in media_features),
             }
         )
         manifest = (
@@ -507,6 +623,23 @@ class AccountDistillationService:
             calculation="latest normalized account record",
             sources=[_source("accounts", dataset.account)],
         )
+        media_evidence: list[str] = []
+        if media_features:
+            media_evidence.append(
+                collector.add(
+                    label="account.production_signals",
+                    classification="fact",
+                    value={
+                        "analyzed_media_count": len(media_features),
+                        "signals": production_signals,
+                    },
+                    calculation=(
+                        "measured media orientation plus medians of shot duration "
+                        "and signal-level silence ratio"
+                    ),
+                    sources=[_source("media_features", item) for item in media_features],
+                )
+            )
         clusters = _build_clusters(dataset, video_analyses, collector)
         if comment_evidence is not None:
             for item in comment_evidence.items:
@@ -528,10 +661,12 @@ class AccountDistillationService:
                 for signal in analysis.blind_analysis.semantics.persona_signals
             }
         )
-        focus = [
+        ranked_focus = [
             cluster.name
             for cluster in sorted(clusters, key=lambda item: (-item.video_count, item.name))[:3]
         ]
+        known_focus = [name for name in ranked_focus if name != "unknown"]
+        focus = known_focus or ([] if ranked_focus == ["unknown"] else ranked_focus)
         need_names = [
             cluster.name
             for cluster in sorted(comment_clusters, key=lambda item: (-item.frequency, item.name))[
@@ -540,13 +675,19 @@ class AccountDistillationService:
         ]
         positioning = AccountPositioning(
             statement=(
-                f"基于标准化样本，账号内容主要集中在：{'、'.join(focus)}。"
+                (
+                    f"在 {len(video_analyses)}/{len(dataset.records)} 条已完成语义分析的视频中，"
+                    f"已观察到的内容方向包括：{'、'.join(focus)}。"
+                )
+                if focus and video_analyses
+                else f"基于标准化内容类型代理，账号内容主要集中在：{'、'.join(focus)}。"
                 if focus
-                else "当前数据不足以形成可观察的内容定位。"
+                else "当前语义证据不足以形成可观察的内容定位。"
             ),
             observed_content_focus=focus,
             audience_need_clusters=need_names,
             persona_signals=persona_signals,
+            visual_and_audio_identity=production_signals,
             confidence=(
                 "high"
                 if len(dataset.records) >= 30 and len(video_analyses) >= 10
@@ -556,12 +697,19 @@ class AccountDistillationService:
             ),
             evidence_ids=[
                 account_evidence,
+                *media_evidence,
                 *(cluster.evidence_id for cluster in clusters[:5]),
                 *(cluster.evidence_id for cluster in comment_clusters[:5]),
             ],
             unknowns=[
                 *([] if persona_signals else ["persona_signals"]),
-                "visual_and_audio_identity",
+                *([] if production_signals else ["visual_and_audio_identity"]),
+                *(
+                    ["visual_semantic_identity"]
+                    if production_signals
+                    and not any(item.visual_annotation_count for item in media_features)
+                    else []
+                ),
                 "account_stage",
                 "commercial_conversion_path",
             ],
@@ -607,6 +755,8 @@ class AccountDistillationService:
             warnings.extend(comment_analysis.warnings)
         if len(video_analyses) < min(10, len(dataset.records)):
             warnings.append("semantic_video_analysis_coverage_low")
+        if len(media_features) < min(3, len(dataset.records)):
+            warnings.append("media_analysis_coverage_low")
         if not patterns:
             warnings.append("no_pattern_met_minimum_support")
         warnings.extend(
@@ -625,6 +775,7 @@ class AccountDistillationService:
                 "video_count": len(dataset.records),
                 "comment_count": comment_analysis.comment_count if comment_analysis else 0,
                 "analyzed_video_count": len(video_analyses),
+                "analyzed_media_count": len(media_features),
                 "content_cluster_count": len(clusters),
                 "pattern_count": len(patterns),
             },
@@ -747,7 +898,7 @@ class BenchmarkComparisonService:
         benchmark_account_ids: list[str],
         dry_run: bool = False,
     ) -> dict[str, Any]:
-        """Compare distilled patterns without cross-platform raw metric comparison."""
+        """Compare distilled patterns plus same-platform public interaction profiles."""
 
         benchmark_ids = sorted(
             {item for item in benchmark_account_ids if item != target_account_id}
@@ -758,11 +909,26 @@ class BenchmarkComparisonService:
             )
         target = _latest_distillation(self.project, target_account_id)
         benchmarks = [_latest_distillation(self.project, item) for item in benchmark_ids]
+        profile_service = AccountBenchmarkProfileService(self.project)
+        profiles = [
+            AccountBenchmarkProfile.model_validate(
+                profile_service.build(account_id=account_id, dry_run=dry_run)["profile"]
+            )
+            for account_id in [target_account_id, *benchmark_ids]
+        ]
+        ranking_profiles = [
+            profile for profile in profiles if profile.platform == profiles[0].platform
+        ]
+        excluded_ranking_accounts = sorted(
+            profile.account_id for profile in profiles if profile not in ranking_profiles
+        )
+        rankings = rank_account_profiles(ranking_profiles)
         target_platform = str(target.data_scope.get("platform") or "unknown")
         target_features = {cluster.feature_value for cluster in target.content_clusters}
         seed = {
             "target": target.distillation_id,
             "benchmarks": [item.distillation_id for item in benchmarks],
+            "profiles": [item.profile_id for item in profiles],
             "version": COMPARISON_VERSION,
         }
         comparison_id = stable_id("cmp_", sha256_json(seed))
@@ -786,6 +952,7 @@ class BenchmarkComparisonService:
             {
                 sha256_json(target.model_dump(mode="json")),
                 *(sha256_json(item.model_dump(mode="json")) for item in benchmarks),
+                *(item for profile in profiles for item in profile.input_hashes),
             }
         )
         manifest = (
@@ -811,6 +978,11 @@ class BenchmarkComparisonService:
         }
         matrix: list[TransferMatrixItem] = []
         warnings: list[str] = []
+        if excluded_ranking_accounts:
+            warnings.append(
+                "cross_platform_accounts_excluded_from_interaction_ranking:"
+                + ",".join(excluded_ranking_accounts)
+            )
         for benchmark in benchmarks:
             source_platform = str(benchmark.data_scope.get("platform") or "unknown")
             same_platform = source_platform == target_platform
@@ -902,6 +1074,14 @@ class BenchmarkComparisonService:
             benchmark_account_ids=benchmark_ids,
             generated_at=generated_at,
             run_id=run_id,
+            profiles=profiles,
+            rankings=rankings,
+            ranking_basis=[
+                "单条视频点赞、评论、分享、收藏中位数的同平台百分位",
+                "粉丝数可用时加入每千粉单条视频互动中位数",
+                "播放量因平台可见性限制不参与排序",
+                "评论情绪、意图、痛点、追问和购买意向只作内容解释，不作为流量分数",
+            ],
             transfer_matrix=matrix,
             recommended_experiments=experiments,
             evidence_index_path=relative[2],

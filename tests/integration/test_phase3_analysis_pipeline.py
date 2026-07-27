@@ -144,7 +144,7 @@ def test_validation_detects_performance_leak_in_blind_artifact(
     assert "performance fields" in validated.issues[0].message
 
 
-def test_missing_provider_degrades_without_strong_conclusions(
+def test_missing_provider_uses_bounded_local_hotel_semantics(
     phase3_project: ProjectLayout,
 ) -> None:
     result = VideoAnalysisService(phase3_project).analyze(
@@ -153,7 +153,9 @@ def test_missing_provider_degrades_without_strong_conclusions(
     )
     analysis = SingleVideoAnalysis.model_validate(result["analysis"])
     assert analysis.status == "degraded"
-    assert analysis.blind_analysis.semantics.confidence <= 0.2
-    assert analysis.blind_analysis.semantics.primary_pillar == "unknown"
+    assert analysis.blind_analysis.semantics.confidence <= 0.45
+    assert analysis.blind_analysis.semantics.primary_pillar == "酒店经营与运营"
+    assert analysis.blind_analysis.semantics.primary_pillar_evidence_segment_ids
+    assert "visual and audio features" in analysis.blind_analysis.semantics.unknowns
     assert "single_video_analysis_not_account_rule" in analysis.warnings
     assert all("validated_rule" not in warning for warning in analysis.warnings)

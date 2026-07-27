@@ -48,11 +48,27 @@ pointer is written to `knowledge-base/accounts/`, with a rebuildable `knowledge-
 
 ## Benchmark transfer
 
-Distill target and benchmark accounts separately before `distiller compare`. The transfer matrix
+Distill target and benchmark accounts separately, then persist each reusable snapshot:
+
+```bash
+distiller account benchmark-profile --project <dir> --account <account-id> --json
+distiller compare --project <dir> --target <account-id> \
+  --benchmarks <account-id-1>,<account-id-2> --json
+```
+
+Each `abp_*` profile stores the latest public per-video likes/comments/shares/saves medians and
+totals, interaction mix, optional per-1,000-follower interaction, comment-like coverage, sentiment,
+intent, questions, pain points, objections, purchase intent, spam, content opportunities, content
+pillars, and visual identity. Profiles are content-addressed: a later collection or labeling
+version creates another profile without replacing history.
+
+The comparison ranks only target-platform accounts on available public interaction dimensions,
+reports data coverage, and embeds the exact profiles used. Public-homepage views are not used and
+missing metrics are never zero-filled. The transfer matrix
 checks content-feature overlap, Pattern maturity, platform alignment, replicability, and risks.
 Audience, account stage, resources, and business alignment remain unknown unless supplied by the
 user. Verdicts are `directly_test`, `adapt_then_test`, `understand_only`, or `do_not_migrate`.
 
 Cross-platform raw views are never compared. Cross-platform items default to understanding rather
-than direct migration, and every transferable item becomes a target-account experiment rather than
-a copying instruction.
+than direct migration, are excluded from interaction ranking, and every transferable item becomes
+a target-account experiment rather than a copying instruction.

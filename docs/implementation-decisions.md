@@ -436,3 +436,178 @@ requirements from later phases.
   analysis, but multiplies Provider calls and expands the personal-data footprint. A one-page,
   high-signal, explicitly enabled sample creates predictable cost and privacy limits while reusing
   the tested Phase 4 pipeline.
+
+## ID-057 — Default live acceptance to the free-credit-compatible Web posts endpoint
+
+- **Decision:** Use TikHub's Douyin Web homepage-post endpoint by default because the API
+  marketplace currently marks it as eligible for welcome credit. Keep the documented APP V3
+  endpoint available through `TIKHUB_DOUYIN_POSTS_MODE=app-v3`, but never fall back to it
+  automatically.
+- **Reason:** The approved first live test has only welcome credit, while TikHub currently marks
+  the APP V3 homepage-post endpoint as paid-credit-only. The Web endpoint has the same bounded
+  pagination contract but is documented as potentially less stable. An explicit opt-in preserves
+  the more stable paid path without risking an unexpected charge or changing normalized schemas.
+
+## ID-058 — Pin MediaCrawler as an explicitly third-party research component
+
+- **Decision:** Add `NanmiCoder/MediaCrawler` as a Git submodule pinned to commit
+  `0625e01a6bc717a3fc9c96d3dac7fb8957043838`. Preserve its upstream license and add
+  `THIRD_PARTY_NOTICES.md`. Limit the bundled path to the user's declared personal,
+  non-commercial learning and research scope; require a new licensing review before commercial
+  use, hosted service, paid delivery, or redistribution beyond the upstream terms.
+- **Reason:** A pinned source tree and lockfile make the research runtime reproducible and
+  auditable, while a clear third-party boundary prevents the root MIT license from being
+  misinterpreted as relicensing MediaCrawler. The notice preserves learning/reference attribution
+  without making an unsupported commercial-rights claim.
+
+## ID-059 — Use a controlled MediaCrawler sidecar instead of its full crawler workflow
+
+- **Decision:** Invoke only MediaCrawler's Douyin client, parsing, and signing code from a separate
+  locked `uv` process. Launch visible Chrome with a dedicated persistent profile and require manual
+  user authentication. Disable proxies and do not invoke upstream stealth injection,
+  automatic-login, slider/CAPTCHA, or risk-control-evasion paths.
+- **Reason:** The project needs the useful data-collection capability but must keep authentication
+  and platform controls under direct user control. A strict JSON sidecar preserves process and
+  dependency isolation, stable errors, offline contract testing, and the existing provider-neutral
+  analysis kernel.
+
+## ID-060 — Make MediaCrawler the default complete homepage-to-distillation workflow
+
+- **Decision:** Default the CLI and request model to `mediacrawler`, sample up to 10 top-level
+  comments from each of at most three high-comment collected videos, and keep TikHub as an explicit
+  optional paid Provider. A single `account analyze` command must still preserve raw pages and
+  hashes, import and validate canonical rows, rebuild Parquet/DuckDB, calculate robust metrics, and
+  generate comment analysis, account health, and distillation artifacts.
+- **Reason:** The requested operating model is a usable end-to-end workflow from one homepage URL,
+  not a disconnected collector or manual export bridge. Reusing `AccountCollectionService` keeps
+  all existing evidence, privacy, and validation contracts intact while removing a mandatory
+  third-party API charge from the default personal-research path.
+
+## ID-061 — Keep manual authentication navigation-safe and browser-specific
+
+- **Decision:** Treat page-navigation errors during the bounded login wait as transient, support
+  `chrome` and `msedge` through separate dedicated profiles, and allow an environment-only
+  30～900-second login timeout. Continue to reject every other browser channel and never automate
+  credentials, CAPTCHA, verification, proxy, stealth, or risk-control behavior.
+- **Reason:** The first Windows acceptance attempt showed that a normal user-initiated login
+  navigation could destroy Playwright's evaluation context, while the default three-minute window
+  could close before a slower manual login completed. These changes make the allowed manual path
+  reliable without broadening the security boundary.
+
+## ID-062 — Treat contradictory zero public views as unavailable
+
+- **Decision:** When a public post reports `play_count = 0` together with any positive interaction,
+  normalize views to `null`, retain every interaction count, and emit the existing missing-view
+  collection warning. If every otherwise-known performance score is tied, assign neutral band
+  `B` rather than incorrectly labeling every row `S`.
+- **Reason:** The first live MediaCrawler payload exposed positive likes, comments, shares, and
+  saves while withholding play counts as zero. Treating that sentinel as a measured zero removed
+  all rate denominators and caused a percentile tie to appear as universal top performance.
+  Missing and neutral output is more honest than a fabricated ranking.
+
+## ID-063 — Pin claude-video as an MIT workflow reference
+
+- **Decision:** Add `bradautomates/claude-video` as a Git submodule pinned to
+  `83da59fa78c3eee9e20f515fe75c438bb5166efd` (`0.2.0`) and preserve its MIT license and
+  attribution in `THIRD_PARTY_NOTICES.md`.
+- **Reason:** The upstream project provides a compact, auditable reference for URL/local-video
+  acquisition, scene-aware frames, captions, and Whisper fallback. Pinning it makes the borrowed
+  workflow boundary reproducible without making an unversioned GitHub dependency part of the
+  analysis kernel.
+
+## ID-064 — Adapt the workflow instead of executing upstream watch.py
+
+- **Decision:** Do not execute upstream `/watch` in the account pipeline. Implement a project-native
+  `AccountMediaEnrichmentService` that reuses the existing FFmpeg media service, transcript
+  importer, normalizer, single-video analyzer, and account distiller.
+- **Reason:** Upstream output is Markdown-oriented, defaults captions to English, falls back only
+  to cloud Whisper APIs, and has an open source/output-directory deletion risk. The native adapter
+  preserves strict Pydantic JSON, raw hashes, stable errors, Windows UTF-8 behavior, offline tests,
+  and the project's evidence chain.
+
+## ID-065 — Resolve video bytes only from retained approved Provider evidence
+
+- **Decision:** Media enrichment may read candidates only from an immutable MediaCrawler
+  `aweme/detail` page for the selected normalized video. Accept only HTTPS `douyin.com` or
+  `douyinvod.com` hosts, validate the final redirect host, limit each file to 512 MiB, never emit
+  signed URLs, and remove only service-owned temporary files after the media is hash-preserved.
+- **Reason:** This removes manual per-video import while keeping the account, sample, provenance,
+  and network boundary explicit. It also prevents the feature from becoming an arbitrary URL
+  fetcher or a second authentication/cookie workflow.
+
+## ID-066 — Keep transcription local and mockable
+
+- **Decision:** Use a local OpenAI Whisper CLI through an argument-array subprocess with no shell,
+  default model `base`, explicit executable override, one-hour timeout, strict JSON conversion,
+  and stable unavailable/failed error codes. Tests inject a local fixture transcriber and disable
+  all sockets.
+- **Reason:** Current public Douyin details do not provide speech captions. Local transcription
+  closes the semantic-analysis gap without uploading guest, room, screen, or booking content to a
+  third-party model service.
+
+## ID-067 — Surface measured production style and bounded local hotel semantics
+
+- **Decision:** Let the degraded text fallback classify only explicit Chinese hotel-operation,
+  service, housekeeping, career, and accommodation keywords, cap confidence at `0.45`, and retain
+  a human/model-review warning. Account positioning may summarize measured orientation, median
+  shot duration, silence ratio, and schema-backed visual annotations from `media_features`.
+- **Reason:** Always returning `primary_pillar=unknown` made a real 10-video report structurally
+  correct but operationally empty. Explicit evidence-linked local labels and measured production
+  signals improve the report without fabricating objects, people, OCR, music meaning, causality,
+  or performance patterns.
+
+## ID-068 — Keep the bundled live visual Provider loopback-only
+
+- **Decision:** Add Ollama/Qwen3-VL as the only bundled live visual path. Accept only
+  `http://127.0.0.1:11434` or `localhost` on port 11434 and reject TLS, remote hosts, credentials,
+  alternate ports, paths, queries, and fragments before reading image bytes.
+- **Reason:** The project needs real visual/OCR analysis without sending guest, room, screen, or
+  booking imagery to a cloud service. A hard loopback boundary is testable and preserves the
+  existing local-first privacy model.
+
+## ID-069 — Install Ollama program and model storage on D
+
+- **Decision:** On the accepted Windows workstation, install Ollama under `D:\AI\Ollama\App`, set
+  the user `OLLAMA_MODELS` value to `D:\AI\Ollama\Models`, and pull `qwen3-vl:8b` there. Keep this
+  path operator-configurable in documentation rather than hard-coding it into project data.
+- **Reason:** The user explicitly requested D-drive installation and the workstation has ample D
+  capacity. Environment-based model storage avoids filling the system drive while keeping normal
+  Ollama behavior.
+
+## ID-070 — Persist reusable public-interaction and comment-content profiles
+
+- **Decision:** Build content-addressed `abp_*` profiles from the latest normalized per-video
+  metrics, exact comment-analysis artifact, exact account distillation, and any visual identity.
+  Retain every profile and automatically rebuild after homepage analysis or media enrichment.
+- **Reason:** Later account comparisons must not require the user to re-enter older data. Immutable
+  raw batches plus versioned derived profiles preserve history and make the exact comparison input
+  auditable.
+
+## ID-071 — Rank only visible same-platform interaction dimensions
+
+- **Decision:** Rank target-platform accounts using percentiles for median likes, comments, shares,
+  saves/favorites, and interactions per 1,000 followers when available. Average only each account's
+  available dimensions, report coverage, exclude cross-platform accounts, and never use homepage
+  views.
+- **Reason:** Douyin public pages may withhold views and follower denominators. Treating them as
+  zero or comparing them across platforms would create false precision. Comment semantics explain
+  audience needs but do not inflate the interaction score.
+
+## ID-072 — Validate Qwen structured output from either Ollama message field
+
+- **Decision:** Prefer non-empty `message.content`; when it is empty, accept `message.thinking` and
+  validate it against the same strict JSON Schema. Do not regex-repair or invent missing evidence.
+- **Reason:** Real `qwen3-vl:8b` acceptance returned the requested structured JSON in the local
+  thinking field even with thinking disabled. Supporting the actual Ollama response shape closes
+  compatibility without weakening Schema or evidence checks.
+
+## ID-073 — Make homepage exhaustion the default video scope
+
+- **Decision:** Interpret `AccountCollectionRequest.count = null` as all Provider-exposed homepage
+  videos and make that the CLI default. Continue pagination until `has_more` is false. Retain
+  `--count <1-20000>` only as an explicit user limit, detect repeated cursors, and stop with a
+  visible warning at the 1,000-page or 20,000-video emergency guard.
+- **Reason:** A fixed 10-video default made account distillation and later cross-account ranking
+  sensitive to a small recent slice. Full accessible history provides the requested account-level
+  evidence, while Provider termination, cursor detection, explicit paid-provider confirmation,
+  and emergency guards prevent accidental infinite or uncontrolled collection.

@@ -204,6 +204,7 @@ class AccountPositioning(StrictModel):
     observed_content_focus: list[str]
     audience_need_clusters: list[str]
     persona_signals: list[str]
+    visual_and_audio_identity: list[str] = Field(default_factory=list)
     confidence: Literal["low", "medium", "high"]
     evidence_ids: list[str]
     unknowns: list[str] = Field(default_factory=list)
@@ -251,6 +252,78 @@ class TransferMatrixItem(StrictModel):
     evidence_ids: list[str] = Field(min_length=1)
 
 
+class InteractionBenchmarkSummary(StrictModel):
+    metric_video_count: int = Field(ge=0)
+    totals: dict[str, int]
+    medians_per_video: dict[str, float | None]
+    interaction_mix: dict[str, float | None]
+    median_interactions_per_video: float | None = Field(default=None, ge=0)
+    interactions_per_1000_followers: float | None = Field(default=None, ge=0)
+    unavailable_fields: list[str] = Field(default_factory=list)
+
+
+class CommentContentBenchmarkSummary(StrictModel):
+    comment_count: int = Field(ge=0)
+    video_count: int = Field(ge=0)
+    sentiment_counts: dict[str, int]
+    intent_counts: dict[str, int]
+    comment_like_count_coverage: float | None = Field(default=None, ge=0, le=1)
+    comment_like_total: int | None = Field(default=None, ge=0)
+    comment_like_median: float | None = Field(default=None, ge=0)
+    question_rate: float | None = Field(default=None, ge=0, le=1)
+    pain_point_rate: float | None = Field(default=None, ge=0, le=1)
+    objection_rate: float | None = Field(default=None, ge=0, le=1)
+    purchase_intent_mean: float | None = Field(default=None, ge=0, le=1)
+    spam_rate: float | None = Field(default=None, ge=0, le=1)
+    need_clusters: list[str] = Field(default_factory=list)
+    top_questions: list[str] = Field(default_factory=list)
+    top_pain_points: list[str] = Field(default_factory=list)
+    top_objections: list[str] = Field(default_factory=list)
+    top_content_opportunities: list[str] = Field(default_factory=list)
+
+
+class ContentInteractionSummary(StrictModel):
+    feature_name: str
+    feature_value: str
+    video_count: int = Field(ge=1)
+    source_video_ids: list[str] = Field(min_length=1)
+    medians_per_video: dict[str, float | None]
+    limitations: list[str] = Field(default_factory=lambda: ["descriptive_association_only"])
+
+
+class AccountBenchmarkProfile(StrictModel):
+    schema_version: str = DISTILLATION_SCHEMA_VERSION
+    profile_id: str
+    account_id: str
+    platform: str
+    generated_at: datetime
+    run_id: str
+    source_distillation_id: str
+    account_snapshot_at: datetime
+    latest_metric_snapshot_at: datetime | None = None
+    follower_count: int | None = Field(default=None, ge=0)
+    sampled_video_count: int = Field(ge=1)
+    analyzed_video_count: int = Field(ge=0)
+    analyzed_media_count: int = Field(ge=0)
+    interactions: InteractionBenchmarkSummary
+    comment_content: CommentContentBenchmarkSummary
+    content_interactions: list[ContentInteractionSummary] = Field(default_factory=list)
+    content_pillars: list[str] = Field(default_factory=list)
+    visual_and_audio_identity: list[str] = Field(default_factory=list)
+    input_hashes: list[str]
+    warnings: list[str] = Field(default_factory=list)
+
+
+class AccountRankingEntry(StrictModel):
+    account_id: str
+    rank: int = Field(ge=1)
+    composite_score: float = Field(ge=0, le=100)
+    dimension_scores: dict[str, float | None]
+    raw_indicators: dict[str, float | None]
+    data_coverage: float = Field(ge=0, le=1)
+    limitations: list[str] = Field(default_factory=list)
+
+
 class BenchmarkComparison(StrictModel):
     schema_version: str = DISTILLATION_SCHEMA_VERSION
     comparison_id: str
@@ -258,6 +331,9 @@ class BenchmarkComparison(StrictModel):
     benchmark_account_ids: list[str] = Field(min_length=1)
     generated_at: datetime
     run_id: str
+    profiles: list[AccountBenchmarkProfile] = Field(default_factory=list)
+    rankings: list[AccountRankingEntry] = Field(default_factory=list)
+    ranking_basis: list[str] = Field(default_factory=list)
     transfer_matrix: list[TransferMatrixItem]
     recommended_experiments: list[str]
     evidence_index_path: str

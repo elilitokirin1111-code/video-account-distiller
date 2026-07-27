@@ -10,8 +10,10 @@ import yaml
 from pydantic import BaseModel, ValidationError
 
 from video_account_distiller.models import (
+    AccountBenchmarkProfile,
     AccountCollectionBatch,
     AccountDistillation,
+    AccountMediaEnrichment,
     ArtifactEvidenceIndex,
     AuthorizedExportManifest,
     BatchResult,
@@ -337,6 +339,39 @@ def _validate_phase4_artifact(
     return [f"{project.relative(path)}: {message}" for message in errors]
 
 
+def _validate_benchmark_profile(path: Path, project: ProjectLayout) -> list[str]:
+    """Validate a reusable cross-account profile and its retained sources."""
+
+    errors: list[str] = []
+    try:
+        profile = AccountBenchmarkProfile.model_validate(read_json(path))
+        warnings_path = path.parent / "warnings.json"
+        if not warnings_path.is_file() or read_json(warnings_path) != profile.warnings:
+            errors.append("warnings.json does not match the profile")
+        if profile.profile_id != path.parent.name:
+            errors.append("profile path does not match profile_id")
+        if profile.account_id != path.parents[2].name:
+            errors.append("profile path does not match account_id")
+        if not profile.input_hashes:
+            errors.append("profile input_hashes must not be empty")
+        source_found = False
+        for source_path in (project.root / "reports" / "accounts" / profile.account_id).glob(
+            "*/distillation.json"
+        ):
+            source_payload = read_json(source_path)
+            if (
+                isinstance(source_payload, dict)
+                and source_payload.get("distillation_id") == profile.source_distillation_id
+            ):
+                source_found = True
+                break
+        if not source_found:
+            errors.append("source distillation is missing")
+    except (OSError, ValueError, ValidationError) as exc:
+        return [f"{project.relative(path)}: {exc}"]
+    return [f"{project.relative(path)}: {message}" for message in errors]
+
+
 def _validate_evidence_companions(
     *,
     artifact_id: str,
@@ -653,6 +688,56 @@ def validate_project(project: ProjectLayout, *, persist: bool = True) -> Quality
             )
         )
 
+    media_enrichment_paths = sorted(
+        (project.root / "analyses" / "accounts").glob("*/media-enrichments/*/enrichment.json")
+    )
+    for path in media_enrichment_paths:
+        try:
+            enrichment = AccountMediaEnrichment.model_validate(read_json(path))
+            if enrichment.enrichment_id != path.parent.name:
+                raise ValueError("media enrichment path does not match enrichment_id")
+            if enrichment.account_id != path.parents[2].name:
+                raise ValueError("media enrichment path does not match account_id")
+            source_batch = project.root / enrichment.source_batch_path
+            if (
+                not source_batch.is_file()
+                or sha256_file(source_batch) != enrichment.source_batch_hash
+            ):
+                raise ValueError("media enrichment source batch hash mismatch")
+            warning_path = path.parent / "warnings.json"
+            if not warning_path.is_file() or read_json(warning_path) != enrichment.warnings:
+                raise ValueError("media enrichment warning artifact mismatch")
+            for video in enrichment.videos:
+                if video.media_analysis_path is not None:
+                    media_path = project.root / video.media_analysis_path
+                    if not media_path.is_file():
+                        raise ValueError(f"media analysis is missing for video: {video.video_id}")
+                if video.text_analysis_path is not None:
+                    text_path = project.root / video.text_analysis_path
+                    if not text_path.is_file():
+                        raise ValueError(f"text analysis is missing for video: {video.video_id}")
+            if (
+                enrichment.distillation_path is not None
+                and not (project.root / enrichment.distillation_path).is_file()
+            ):
+                raise ValueError("media enrichment distillation artifact is missing")
+        except (OSError, ValueError, ValidationError) as exc:
+            issues.append(
+                DataQualityIssue(
+                    issue_id=stable_id(
+                        "dqi_",
+                        manifest.run_id,
+                        project.relative(path),
+                        str(exc),
+                    ),
+                    run_id=manifest.run_id,
+                    severity="error",
+                    code="media_enrichment_artifact_invalid",
+                    entity="media_enrichments",
+                    message=f"{project.relative(path)}: {exc}",
+                )
+            )
+
     phase4_paths: list[tuple[Path, type[Any]]] = [
         *[
             (path, CommentAnalysis)
@@ -678,6 +763,27 @@ def validate_project(project: ProjectLayout, *, persist: bool = True) -> Quality
                     severity="error",
                     code="analysis_artifact_invalid",
                     entity="phase4_artifacts",
+                    message=message,
+                )
+            )
+
+    benchmark_profile_paths = sorted(
+        (project.root / "analyses" / "accounts").glob("*/benchmark-profiles/*/profile.json")
+    )
+    for path in benchmark_profile_paths:
+        for message in _validate_benchmark_profile(path, project):
+            issues.append(
+                DataQualityIssue(
+                    issue_id=stable_id(
+                        "dqi_",
+                        manifest.run_id,
+                        project.relative(path),
+                        message,
+                    ),
+                    run_id=manifest.run_id,
+                    severity="error",
+                    code="benchmark_profile_artifact_invalid",
+                    entity="benchmark_profiles",
                     message=message,
                 )
             )
@@ -875,7 +981,9 @@ def validate_project(project: ProjectLayout, *, persist: bool = True) -> Quality
             "platforms": len(platforms),
             "video_analyses": len(analysis_paths),
             "phase6_artifacts": len(media_analysis_paths),
+            "media_enrichments": len(media_enrichment_paths),
             "phase4_artifacts": len(phase4_paths),
+            "benchmark_profiles": len(benchmark_profile_paths),
             "phase5_artifacts": len(phase5_checks),
             "rules": len(rule_paths),
             "rubrics": len(rubric_paths),

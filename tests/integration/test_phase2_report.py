@@ -83,6 +83,8 @@ def test_account_health_report_outputs_are_traceable_and_idempotent(
         "account_health_reports": 1,
         "video_analyses": 0,
         "media_analyses": 0,
+        "media_enrichments": 0,
+        "benchmark_profiles": 0,
         "comment_analyses": 0,
         "account_distillations": 0,
         "benchmark_comparisons": 0,

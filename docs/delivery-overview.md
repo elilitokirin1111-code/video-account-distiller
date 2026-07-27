@@ -24,14 +24,19 @@ isolates Batch task results, exposes scheduled snapshot work, and validates cred
 policy without coupling the analysis kernel to either provider.
 
 After the `1.0.0` release, the main development line adds a Phase 8 pre-release route that accepts
-a user-approved Douyin homepage URL, retrieves public profile/posts through the documented TikHub
-API, preserves the complete response, and sends canonical account/video/metric rows through the
-same import, Parquet, robust-metric, report, and distillation kernel. It does not use a browser,
-login state, cookies, CAPTCHA handling, or direct platform-page scraping.
+a user-approved Douyin homepage URL. Its default personal non-commercial research path uses a
+pinned MediaCrawler source and controlled visible-Chrome sidecar; TikHub remains an optional paid
+API. Both preserve complete responses and send canonical account/video/metric/comment rows through
+the same import, Parquet, robust-metric, comment-analysis, report, and distillation kernel.
+The same main line now adds opt-in retained-video enrichment: an allowlisted public media download,
+local Whisper Chinese transcript, existing scene/keyframe/audio analysis, blind single-video
+semantics, loopback-only Ollama/Qwen3-VL visual/OCR analysis, account re-distillation, reusable
+interaction/comment/content/visual account profiles, and same-platform comparison rankings with
+strict hash and evidence links.
 
 ## Key user outcomes
 
-- Start a repeatable research project without opening a platform session.
+- Start a repeatable research project from offline exports or a user-approved homepage.
 - Trace every normalized record back to its source hash and run.
 - Keep unknown metrics as `null` and reject impossible negatives.
 - Avoid direct raw comparisons across platforms.
@@ -52,6 +57,8 @@ login state, cookies, CAPTCHA handling, or direct platform-page scraping.
   every Pattern.
 - Produce actionable account experiments without claiming causality or a validated rule.
 - Keep benchmark and platform baselines separate while reviewing what can be tested or adapted.
+- Persist content-addressed likes/comments/shares/saves plus comment-semantic account profiles for
+  later comparisons, and rank only same-platform accounts with visible data coverage.
 - Score new scripts with visible dimensions, missing items, risks, and bounded low-maturity Rule
   influence.
 - Save P25/P50/P75 predictions with assumptions, confidence, input hashes, and Rule/Rubric versions.
@@ -60,8 +67,8 @@ login state, cookies, CAPTCHA handling, or direct platform-page scraping.
 - Produce pending Rule/Rubric proposals and next experiments without silently changing policy.
 - Preserve local media by SHA-256 and extract reproducible metadata, shots, keyframes, and bounded
   audio signal features.
-- Keep visual/OCR unknown by default or attach only provider output that cites exact shot/keyframe
-  timestamps.
+- Keep visual/OCR unknown by default or use loopback Ollama/Provider output that cites exact
+  shot/keyframe timestamps.
 - Degrade visibly when FFmpeg is unavailable, with an optional stable strict failure mode.
 - Require explicit read/write grants and environment-only credentials for collaboration adapters.
 - Preserve official provider pages before mapping and route pulled rows through the same strict
@@ -71,8 +78,11 @@ login state, cookies, CAPTCHA handling, or direct platform-page scraping.
 - Handle authorization, rate-limit, and provider-response failures with stable machine errors.
 - Run auditable batches, emit due/future/available snapshot tasks, and keep team roles free of
   credential values.
-- Preview the bounded paid calls for one Douyin homepage, require explicit cost confirmation, and
-  turn its public profile and 1～100 public posts into a traceable quantitative distillation.
+- Preview full-homepage pagination for one Douyin account and turn every Provider-exposed post plus
+  bounded top-level comments into a traceable distillation. Allow an explicit `--count` limit and
+  require cost confirmation only for the optional paid TikHub route.
+- Preview and process a bounded retained-video sample without manual per-video import, signed-URL
+  disclosure, browser cookies, or cloud media upload.
 
 ## Verification evidence
 
@@ -99,21 +109,26 @@ Final production acceptance on 2026-07-23 produced the following evidence:
   the normalized Parquet tables in about 4.4 seconds on the delivery workstation, with zero rejected
   rows and zero data-quality warnings. Timings are indicative, not a cross-machine performance SLA.
 
-The Phase 8 main-line increment was accepted offline with 126 tests and 88.93% statement coverage.
-Provider contracts cover URL allowlisting, pagination, public-field mapping, credential absence,
-HTTP authorization/rate-limit errors, cost confirmation, secret non-disclosure, immutable response
-validation, and the complete URL-to-distillation integration path. A real-token paid acceptance run
-remains required before a new stable version is tagged.
+The current Phase 8 main-line increment is accepted with 141 tests and 88.35% statement coverage.
+Provider contracts cover URL allowlisting, MediaCrawler sidecar pagination and manual
+login errors, public-field mapping, pinned-runtime absence, TikHub credentials and HTTP
+authorization/rate-limit errors, paid-call confirmation, secret non-disclosure, immutable response
+validation, and the complete URL-to-distillation integration path. The first live MediaCrawler Edge
+acceptance passed on 2026-07-23 with 10 videos, 10 metric snapshots, and 30 comments accepted,
+zero row rejections, and zero final project validation findings. The live payload's unavailable
+public view counts remain explicit instead of being converted into fabricated performance ranks.
 
 ## Not delivered yet
 
-The repository does not include direct platform-page scraping, browser/login automation, comment
-text collection from a homepage, video downloading, a cloud visual-model client, an installed
-background scheduler, or a Web console. Phase 7 online behavior is limited to explicitly authorized
-Feishu Bitable and Google Sheets official APIs. Phase 8 uses only the documented fixed-host TikHub
-Provider for a user-approved public Douyin URL and has not yet completed a real-token acceptance
-run. Level 4 approval remains intentionally human-governed and requires repeated controlled
-evidence; Phase 5 produces only pending proposals.
+The repository does not include credential/CAPTCHA automation, proxy or stealth evasion, comment
+reply trees, arbitrary video downloading, a cloud visual-model client, an installed background
+scheduler, or a Web console. Opt-in video download is limited to retained approved MediaCrawler
+evidence and allowlisted Douyin/CDN hosts. Phase 7 online behavior is limited to explicitly authorized Feishu Bitable and
+Google Sheets official APIs. Phase 8's default MediaCrawler adapter is limited to personal
+non-commercial learning/research; TikHub is an optional paid route. Public view counts may be
+unavailable, and semantic video/transcript analysis still requires local media or transcripts.
+Level 4 approval remains intentionally human-governed and requires repeated controlled evidence;
+Phase 5 produces only pending proposals.
 
 ## Handoff
 
@@ -121,6 +136,7 @@ Read `README.md` for Quick Start, `docs/data-contracts.md` for machine contracts
 `docs/comment-and-account-distillation.md` for Phase 4 interpretation,
 `docs/scoring-prediction-retro.md` for the Phase 5 learning loop,
 `docs/local-media-analysis.md` for Phase 6 media evidence,
+`docs/account-media-enrichment.md` for the retained public-video workflow,
 `docs/authorized-collaboration-adapters.md` for Phase 7 authorization and synchronization,
 `docs/phase8-account-url-analysis.md` for Phase 8 homepage collection and live acceptance,
 `docs/adapter-guide.md` for field mappings, `docs/privacy-and-compliance.md` for boundaries, and

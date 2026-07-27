@@ -5,8 +5,9 @@
 Phase 0/1/2/5 performs no model calls. Phase 3/4 accepts local structured model-output files or uses a
 deterministic fallback; it ships no network model client. Phase 7 may contact only a user-configured,
 explicitly authorized Feishu Bitable or Google Sheets official API. Offline analysis needs no
-credentials. Phase 8 may contact only the fixed-host TikHub API for a user-approved public Douyin
-homepage after explicit cost confirmation.
+credentials. Phase 8 may use the controlled, pinned MediaCrawler adapter for a user-approved public
+Douyin homepage in the declared personal non-commercial research scope, or the optional fixed-host
+TikHub API after explicit cost confirmation.
 
 ## Raw data
 
@@ -24,7 +25,7 @@ homepage after explicit cost confirmation.
 - Phase 7 provider pages are copied under `raw/collaboration/` before mapping. They may include
   collaboration-only fields or personal data and require the same access controls as raw exports.
 - Phase 8 public account batches are copied under `raw/account-collections/` before mapping. When
-  optional comment sampling is enabled, raw pages may include public usernames and identifiers.
+  comment sampling is enabled, raw pages may include public usernames and identifiers.
   Public availability does not make them unrestricted; apply the user's retention and sharing
   policy.
 
@@ -63,9 +64,10 @@ manifests.
 only; adding any cloud provider requires explicit user authorization, policy checks, a documented
 retention boundary, redacted logging, and independent contract tests.
 
-The shipped Phase 6 visual Provider also reads only local structured JSON. FFmpeg/FFprobe are local
-processes and do not upload media. Treat extracted keyframes and OCR as sensitive raw-derived
-evidence; review and redact them before sharing outside the project.
+The shipped Phase 6 visual Providers either read local structured JSON or call same-computer
+loopback Ollama on port 11434. Remote hosts, credentials, alternate ports, and URL paths are
+rejected. FFmpeg/FFprobe are local processes and do not upload media. Treat extracted keyframes and
+OCR as sensitive raw-derived evidence; review and redact them before sharing outside the project.
 
 Phase 5 scoring, prediction, publication, and Retro are deterministic and local. Prediction files
 record versions and hashes, not credentials. Publication URLs and notes may still be sensitive;
@@ -79,18 +81,40 @@ secret manager. Errors expose an HTTP/provider code when useful but never respon
 authorization headers, or token values. Sync and Batch outputs record counts, hashes, IDs, and paths,
 not credentials.
 
-Phase 8 reads `TIKHUB_API_KEY` only from the process environment and allows only
-`api.tikhub.dev`/`api.tikhub.io`. Dry-run makes no request. Real calls require explicit cost
-confirmation, and outputs never contain the token or authorization header. Comment collection is
-off by default and independently bounded by per-video and sampled-video caps.
+Phase 8 MediaCrawler collection may open a dedicated visible Chrome profile under the user's home
+directory. The user completes login and platform verification manually. The project does not copy
+Cookie values, local storage, passwords, or session material into analysis artifacts, logs, or Git.
+The CLI comment defaults remain bounded and can be disabled with `--comments-per-video 0`.
+
+The optional TikHub route reads `TIKHUB_API_KEY` only from the process environment and allows only
+`api.tikhub.dev`/`api.tikhub.io`. Dry-run makes no request. Real TikHub calls require explicit cost
+confirmation, and outputs never contain the token or authorization header.
+
+Opt-in account media enrichment reads signed public-video candidates only from the immutable
+MediaCrawler batch for the approved account. It permits HTTPS Douyin/CDN hosts only, validates the
+redirect host, enforces a file-size limit, and never returns or logs the signed URL. Downloaded
+bytes are copied into content-addressed `raw/media/` before the service-owned temporary directory
+is removed. No Cookie or browser session is supplied to the downloader.
+
+Whisper transcription runs through a local executable and generated subtitles pass through the
+same immutable import/normalization path as user-provided subtitles. Media, extracted audio,
+frames, and transcripts are not uploaded. They may still expose guests, staff, room numbers,
+screens, voices, or booking information; restrict project access and review/redact them before
+sharing. The pinned `claude-video` source retains its MIT license and is used as an attributed
+workflow reference, not as a network service.
 
 ## Platform compliance
 
-This repository does not implement scraping, login automation, CAPTCHA handling, anti-bot bypass,
-rate-limit bypass, or other platform-control evasion. Collection is limited to authorized official
-APIs, explicitly permitted fixed-host Providers for user-approved public URLs, or user-provided
-exports. HTTP 429 responses receive bounded backoff and then fail; the software never attempts to
-evade a provider limit.
+The controlled MediaCrawler path reads public pages only for a user-approved URL and bounded sample.
+It does not invoke upstream proxy, stealth, automatic-login, slider/CAPTCHA, or risk-control-evasion
+features. Platform challenges remain manual user actions; unresolved challenges stop with a stable
+error. Other collection is limited to authorized official APIs, the optional fixed-host TikHub
+Provider, or user-provided exports. HTTP 429 responses receive bounded backoff and then fail; the
+software never attempts to evade a provider limit.
+
+MediaCrawler keeps its upstream non-commercial learning license. Preserve
+`THIRD_PARTY_NOTICES.md` and the submodule license, and complete a separate licensing review before
+commercial use, hosted service, or paid delivery.
 
 ## User responsibilities
 

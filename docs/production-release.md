@@ -25,13 +25,33 @@ the Python wheel and Skill archive are versioned together but installed independ
 - installed package and dependency versions;
 - Python and operating-system details;
 - FFmpeg/FFprobe availability;
+- pinned MediaCrawler source plus local `uv`/Node readiness for optional homepage collection;
 - whether collaboration token environment variables are present, never their values;
 - optional project readability, writability, and integrity-validation status.
 
 `ok: true` means the core runtime is usable and, when `--project` is supplied, the project is
 initialized and validates successfully. `capabilities.local_media` may be false without blocking
-the table-analysis core. Feishu and Google capabilities remain false until their token environment
-variables are configured.
+the table-analysis core. `capabilities.mediacrawler_douyin` may be false in a wheel-only install
+because the third-party source is intentionally not relicensed into the wheel. Feishu and Google
+capabilities remain false until their token environment variables are configured.
+
+## Optional homepage collection runtime
+
+The default MediaCrawler homepage workflow requires a source checkout with its pinned Git submodule,
+or an explicit compatible checkout supplied through `MEDIACRAWLER_HOME`:
+
+```bash
+git clone --recurse-submodules \
+  https://github.com/elilitokirin1111-code/video-account-distiller.git
+cd video-account-distiller
+uv sync
+uv run distiller doctor --json
+```
+
+MediaCrawler retains its own non-commercial learning license and is not included in the root wheel.
+Review `THIRD_PARTY_NOTICES.md` before use. The controlled adapter may launch visible Chrome, but
+login and platform verification remain manual; browser session contents are not written to the
+analysis project.
 
 ## First production workflow
 

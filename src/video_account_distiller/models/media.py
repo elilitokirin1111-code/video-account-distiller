@@ -114,6 +114,12 @@ class ShotVisualAnnotation(StrictModel):
     summary: str | None = None
     labels: list[str] = Field(default_factory=list)
     dominant_colors: list[str] = Field(default_factory=list)
+    composition: list[str] = Field(default_factory=list)
+    camera: list[str] = Field(default_factory=list)
+    lighting: list[str] = Field(default_factory=list)
+    text_overlay_styles: list[str] = Field(default_factory=list)
+    motion_graphics: list[str] = Field(default_factory=list)
+    branding: list[str] = Field(default_factory=list)
     ocr_observation_ids: list[str] = Field(default_factory=list)
     confidence: float | None = Field(default=None, ge=0, le=1)
 
@@ -267,5 +273,11 @@ class MediaFeatureRecord(TraceFields):
     rms_dbfs: float | None = None
     ocr_observation_count: int = Field(ge=0)
     visual_annotation_count: int = Field(ge=0)
+    visual_labels: list[str] = Field(default_factory=list)
+    dominant_colors: list[str] = Field(default_factory=list)
+    visual_style_tags: list[str] = Field(default_factory=list)
+    text_overlay_style_tags: list[str] = Field(default_factory=list)
+    motion_graphic_tags: list[str] = Field(default_factory=list)
+    branding_tags: list[str] = Field(default_factory=list)
     analysis_status: Literal["complete", "degraded"]
     analysis_path: str
