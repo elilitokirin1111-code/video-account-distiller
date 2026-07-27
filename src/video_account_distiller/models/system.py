@@ -32,6 +32,10 @@ class ProjectDiagnostic(StrictModel):
 class CapabilityDiagnostic(StrictModel):
     core: bool
     local_media: bool
+    video_transcription: bool
+    local_vision: bool
+    account_media_enrichment: bool
+    mediacrawler_douyin: bool
     tikhub_douyin: bool
     feishu_bitable: bool
     google_sheets: bool

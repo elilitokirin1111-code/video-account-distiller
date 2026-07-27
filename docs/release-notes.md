@@ -13,23 +13,89 @@ changes.
 - Backward-compatible collection schema `0.8.1` with optional canonical comments, one-page
   high-comment-video sampling, immutable comment companions, and automatic redacted comment
   analysis before account distillation.
-- `distiller account analyze` for a user-approved Douyin homepage URL, bounded 1～100 post
-  pagination, `latest`/`popular` order, no-network dry-run, and explicit paid-call confirmation.
+- Backward-compatible collection schema `0.8.2` where an omitted video count means all
+  Provider-exposed homepage videos, with repeated-cursor detection, 1,000-page/20,000-video
+  emergency guards, and an optional explicit count limit.
+- Initial `distiller account analyze` support for a user-approved Douyin homepage URL, bounded
+  1～100 post pagination, `latest`/`popular` order, no-network dry-run, and explicit paid-call
+  confirmation.
 - Fixed-host TikHub Provider with environment-only credential, bounded retry, stable
   authorization/rate-limit/response errors, and injectable offline HTTP tests.
+- Pinned `NanmiCoder/MediaCrawler` Git submodule and controlled sidecar Provider for the declared
+  personal non-commercial learning/research workflow.
+- Visible dedicated Chrome profile with manual authentication, stable runtime/login/timeout errors,
+  offline bridge Fixtures, and a third-party licensing notice.
+- Dedicated Microsoft Edge support, browser-specific login profiles, a bounded configurable login
+  timeout, and navigation-safe manual authentication.
 - Immutable Provider batches and canonical companions under `raw/account-collections/`, routed
   through the existing import, Parquet, robust-metric, report, and account-distillation services.
 - Phase 8 project validation, status counters, `doctor` capability, offline Fixtures, CLI/provider
   contracts, integration tests, Skill route, live-acceptance guide, and architecture/data docs.
+- Pinned MIT `bradautomates/claude-video` workflow reference and project-native
+  `AccountMediaEnrichmentService`.
+- `distiller account enrich-media` plus opt-in `account analyze --media-limit`, with retained
+  Douyin-source allowlisting, immutable media, local Whisper Chinese transcription, scene/keyframe/
+  audio analysis, single-video semantics, and account re-distillation.
+- Strict `AccountMediaEnrichment`, `VideoMediaEnrichment`, and `TranscriptionSummary` contracts;
+  stable media-download/transcription errors; project validation/status/doctor coverage; and
+  network-disabled unit, contract, and integration tests.
+- Loopback-only `OllamaVisionProvider` with `qwen3-vl:8b`, strict JSON Schema, bounded keyframe
+  batches, frame-to-shot evidence mapping, OCR, scene/color/composition/camera/lighting,
+  artistic-text, motion-graphic, and branding fields.
+- Content-addressed `abp_*` account benchmark profiles that retain likes/comments/shares/saves,
+  comment-like and semantic aggregates, content pillars, visual identity, snapshot times, hashes,
+  and unavailable-field warnings for future comparisons.
+- Same-platform account ranking based on per-video public-interaction medians and optional
+  per-1,000-follower interactions, with per-account coverage and explicit view exclusion.
+- `distiller account benchmark-profile`, automatic profile generation after homepage analysis and
+  retained-media enrichment, profile validation, status counts, report tables, and offline tests.
 
 ### Changed
 
-- The development Skill can now route user-approved public Douyin homepage analysis without using
-  browser state, cookies, login automation, CAPTCHA handling, or direct platform-page scraping.
-- Comment sampling remains disabled by default; `--comments-per-video` and
-  `--comment-video-limit` add explicit bounded calls that are included in dry-run billing output.
-- Package and Skill remain `1.0.0` until a real-token paid acceptance run succeeds; existing core
-  and Phase 2～7 artifact schemas are unchanged.
+- `distiller account analyze` now defaults to homepage exhaustion for both MediaCrawler and TikHub.
+  `--count` remains available only as an explicit 1～20,000 video limit; paid TikHub collection
+  still requires a dry-run and cost confirmation.
+- The default `account analyze` provider is now MediaCrawler and the command completes collection,
+  immutable import, Parquet/DuckDB normalization, metrics, comment analysis, reporting, and
+  distillation in one run. TikHub remains available through `--provider tikhub`.
+- Comment sampling defaults to 10 comments from each of at most three high-comment collected
+  videos; `--comments-per-video 0` disables it.
+- Only the controlled MediaCrawler bridge is approved: visible Chrome and manual authentication,
+  with no proxy, stealth, automatic-login, CAPTCHA, or risk-control-evasion features.
+- Contradictory public `play_count = 0` values with positive interactions are normalized as missing,
+  and all-tied performance scores use neutral band `B` instead of labeling every work `S`.
+- TikHub Douyin homepage posts now default to the welcome-credit-compatible Web endpoint. Operators
+  with paid credit can opt into the more stable APP V3 endpoint with
+  `TIKHUB_DOUYIN_POSTS_MODE=app-v3`; there is no automatic paid fallback.
+- The first real MediaCrawler Edge acceptance passed on 2026-07-23 with 10 videos, 10 metric
+  snapshots, and 30 comments accepted, zero row rejections, and zero project validation findings.
+  Package and Skill remain `1.0.0` until an explicit release/tag decision; existing core and
+  Phase 2～7 artifact schemas are unchanged.
+- The conservative no-model video fallback now classifies only explicit Chinese hotel keywords at
+  confidence no greater than `0.45`. Account positioning also reports measured orientation, median
+  shot duration, audio activity, and any schema-backed visual annotations, while preserving
+  unknown visual semantics and causal limits.
+- Long clips with too few detected cuts now receive bounded uniform keyframe coverage, and repeated
+  analyses/distillations select the newest timestamped media artifact rather than relying on an ID
+  sort. Media-chain status and degraded local semantic status are reported independently.
+- Qwen3-VL structured output is accepted from Ollama's local `message.content` or
+  `message.thinking`, then validated identically; empty or malformed output still fails with the
+  stable model Schema error.
+- Cross-platform accounts remain available for conservative Pattern transfer but are excluded from
+  public-interaction ranking. Missing views remain unknown and never enter the composite score.
+
+### Acceptance
+
+- A separately approved local run enriched two retained public videos (106.4 seconds and
+  318.8 seconds) with local Whisper, yielding 53 and 208 transcript segments.
+- The refreshed media kernel produced 12 keyframes for the long single-shot clip and 151 detected
+  shots with 16 bounded keyframes for the longer edited clip.
+- The account report reached 2/10 evidence-linked semantic coverage, added two measured
+  media-production records, and passed final project validation with zero errors and zero warnings.
+  See `docs/phase8-media-enrichment-acceptance-2026-07-23.md`.
+- Ollama and `qwen3-vl:8b` were installed on the D drive for local visual acceptance; exact
+  versions, model digest, real-project result, and validation outcome are recorded in the current
+  `docs/local-vision-and-benchmark-acceptance-2026-07-23.md` note.
 
 ## 1.0.0 — 2026-07-23
 

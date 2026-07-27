@@ -6,14 +6,14 @@ Phase 4 comment/distillation schema version: `0.4.0`.
 Phase 5 scoring/prediction/Retro schema version: `0.5.0`.
 Phase 6 local media-analysis schema version: `0.6.0`.
 Phase 7 collaboration schema version: `0.7.0`.
-Phase 8 account-collection schema version: `0.8.1`.
+Phase 8 account-collection schema version: `0.8.2`.
 
 The authoritative planning dictionary is `docs/planning/04_DATA_SCHEMA.md`; executable contracts
 are Pydantic models in `src/video_account_distiller/models/core.py` and reject unknown fields.
 Phase 2 contracts are in `src/video_account_distiller/models/analysis.py` and use the same strict
 unknown-field policy. Phase 3 contracts are in `models/text_analysis.py`; Phase 4 contracts are in
 `models/distillation.py`; Phase 5 contracts are in `models/closed_loop.py`; Phase 6 contracts are in
-`models/media.py`.
+`models/media.py`; account media-enrichment contracts are in `models/media_enrichment.py`.
 Phase 7 authorization, connector, Sync, Batch, Snapshot, and Team contracts are in
 `models/collaboration.py`.
 Phase 8 collection request, canonical Provider row, raw-page, and batch contracts are in
@@ -114,12 +114,20 @@ for known semantic labels. The blind bundle and blind artifact exclude all perfo
 | `analyses/comments/<account>/<cma_*>/evidence-index.json` | `ArtifactEvidenceIndex` | comment and cluster evidence |
 | `reports/accounts/<account>/<dst_*>/distillation.json` | `AccountDistillation` | account inputs + config + upstream analyses |
 | `knowledge-base/patterns/<pat_*>.json` | `Pattern` | feature + support + counterexamples + version |
-| `reports/comparisons/<cmp_*>/comparison.json` | `BenchmarkComparison` | target + benchmark distillation hashes |
+| `analyses/accounts/<account>/benchmark-profiles/<abp_*>/profile.json` | `AccountBenchmarkProfile` | latest normalized metrics + exact comment/distillation artifacts |
+| `reports/comparisons/<cmp_*>/comparison.json` | `BenchmarkComparison` | target + benchmark distillations + exact `abp_*` profiles |
 
 `CommentSignalAnnotation` rejects empty intent labels and out-of-range probabilities/confidence.
 `CommentAnalysis` counts must match its signals and unique videos. `ContentCluster.video_count` must
 match unique video IDs. `Pattern` requires at least one support video, exact support/counterexample
 counts, disjoint sets, evidence IDs, scope, confidence, maturity, and version.
+
+`AccountBenchmarkProfile` preserves account and latest metric snapshot time, sampled/analyzed
+coverage, likes/comments/shares/saves totals and per-video medians, interaction mix, optional
+interactions per 1,000 followers, comment-like coverage/total/median, semantic comment aggregates,
+content pillars, visual identity, input hashes, and explicit warnings. Unknown views and followers
+remain `null`. `AccountRankingEntry` contains target-platform rank, available-dimension percentile
+scores, raw indicators, composite score, data coverage, and limitations.
 
 `ArtifactEvidenceIndex` resolves Phase 4 conclusions to normalized comment/account/video/metric
 records, source IDs, source runs, and raw hashes. `distiller validate` verifies companion files,
@@ -175,6 +183,22 @@ Shots require ordered non-negative intervals and exact durations. Keyframes cite
 local path, and SHA-256. OCR cites an existing shot/keyframe and interval. Missing decoder/audio/
 visual information remains `null`, `skipped`, or absent; it is never represented as observed zero.
 
+Account-level media enrichment adds strict artifacts without adding a new normalized table:
+
+| Path | Contract | Identity |
+|---|---|---|
+| `analyses/accounts/<account>/media-enrichments/<ame_*>/enrichment.json` | `AccountMediaEnrichment` | source batch + downstream analysis IDs |
+| `analyses/accounts/<account>/media-enrichments/<ame_*>/warnings.json` | warning list | enrichment ID |
+
+`AccountMediaEnrichment` links a retained Provider batch SHA-256 to 1–10
+`VideoMediaEnrichment` results. Each result may cite a media hash/analysis, local transcription
+summary and raw hash, and single-video analysis. Signed source URLs are deliberately excluded from
+the contract. `TranscriptionSummary.status` distinguishes `complete`, `reused`, `skipped`, and
+`failed`; unknown model, language, hashes, or paths remain `null`.
+`VideoMediaEnrichment.status` describes the acquisition/media/transcription chain, while
+`text_analysis_status` independently records `complete` or bounded-local-heuristic `degraded`
+semantic analysis.
+
 ## Phase 7 authorization and collaboration artifacts
 
 | Path | Contract | Identity |
@@ -205,7 +229,7 @@ do not claim that platform collection occurred.
 
 | Path | Contract | Identity |
 |---|---|---|
-| CLI request | `AccountCollectionRequest` | URL + count + sort + bounded comment options + Provider |
+| CLI request | `AccountCollectionRequest` | URL + optional count limit + sort + bounded comment options + Provider |
 | Provider result | `AccountCollectionBatch` | strict provider-neutral batch |
 | `raw/account-collections/<provider>/<sha256>/provider-batch.json` | full batch and original pages | canonical payload SHA-256 |
 | `raw/account-collections/<provider>/<sha256>/accounts.json` | `CollectedAccount[]` | Provider account ID |
@@ -214,10 +238,16 @@ do not claim that platform collection occurred.
 | `raw/account-collections/<provider>/<sha256>/comments.json` | optional `CollectedComment[]` | Provider comment ID |
 
 `AccountCollectionRequest` allows only HTTPS `douyin.com` hosts, no URL credentials, and no custom
-port. Video counts are limited to 1～100. Comment sampling is disabled by default, capped at 20
-top-level comments for each of at most 10 high-comment collected videos, and adds at most one
-Provider call per sampled video. `Collected*` models contain only canonical fields accepted by the
-offline importer; Provider-specific aliases remain in `collection/providers.py`.
+port. `count=null` is the default and means “continue until the Provider reports that the homepage
+is exhausted”; an explicit count from 1 through 20,000 is an optional limit. Full-homepage mode has
+a 1,000-page/20,000-video emergency guard, repeated-cursor detection, and a visible warning if the
+guard rather than Provider exhaustion stops collection. The default Provider is `mediacrawler`;
+`tikhub` is an explicit alternative. Comment sampling defaults to 10 top-level comments for each
+of at most three high-comment collected videos, is capped at 20 comments for each of at most 10
+videos, and can be disabled with `comments_per_video=0`. `Collected*` models contain only canonical
+fields accepted by the offline importer; Provider-specific execution remains in
+`collection/mediacrawler.py` or `collection/providers.py`, while canonical aliases stay
+centralized in the collection mapping helpers.
 
 Unknown public fields stay `null`. In particular, the current follower count is not substituted for
 `follower_count_at_publish`, and missing completion/watch-time data is not fabricated. The full

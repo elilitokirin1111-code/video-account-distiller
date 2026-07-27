@@ -31,7 +31,8 @@ class FixtureAccountProvider:
         videos: list[CollectedVideo] = []
         metrics: list[CollectedMetricSnapshot] = []
         comments: list[CollectedComment] = []
-        for index in range(request.count):
+        video_count = request.count if request.count is not None else 12
+        for index in range(video_count):
             video_id = f"74000000000000000{index:02d}"
             videos.append(
                 CollectedVideo(
@@ -84,7 +85,7 @@ class FixtureAccountProvider:
                         )
                     )
         return AccountCollectionBatch(
-            provider=CollectionProviderKind.TIKHUB,
+            provider=request.provider,
             profile_url=request.profile_url,
             platform_account_id=platform_account_id,
             fetched_at=fetched_at,
@@ -111,7 +112,7 @@ class FixtureAccountProvider:
                 ProviderRawPage(
                     endpoint="/fixture/account",
                     fetched_at=fetched_at,
-                    payload={"fixture": True, "videos": request.count},
+                    payload={"fixture": True, "videos": video_count},
                 )
             ],
         )
@@ -180,3 +181,26 @@ def test_account_url_dry_run_never_calls_provider_or_writes(
     assert provider.calls == 0
     assert result["provider_calls"]["homepage_post_pages_max"] == 3
     assert not list(collection_dir.rglob("*.json"))
+
+
+def test_mediacrawler_account_url_runs_full_pipeline_without_cost_confirmation(
+    project: ProjectLayout,
+) -> None:
+    provider = FixtureAccountProvider()
+    request = AccountCollectionRequest(
+        profile_url="https://www.douyin.com/user/MS4wLjABAAAAphase8-hotel",
+        count=10,
+        provider=CollectionProviderKind.MEDIACRAWLER,
+        comments_per_video=2,
+        comment_video_limit=2,
+    )
+
+    result = AccountCollectionService(project, provider).analyze_url(request=request)
+
+    assert provider.calls == 1
+    assert result["request"]["provider"] == "mediacrawler"
+    assert result["collection"]["videos"] == 10
+    assert result["collection"]["comments"] == 4
+    assert result["normalization"]["counts"]["metrics"] == 10
+    assert result["comment_analysis"]["analysis"]["comment_count"] == 4
+    assert result["distillation"]["distillation"]["data_scope"]["video_count"] == 10

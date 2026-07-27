@@ -1,13 +1,13 @@
 ---
 name: video-account-distiller
-description: "Initialize, collect, import, validate, normalize, analyze, distill, compare, score, predict, register, and retrospect on video accounts from user-approved Douyin homepage URLs, offline exports, explicitly authorized Feishu Bitable or Google Sheets data, local media, scripts, transcripts, comments, and metrics. Use for 抖音主页链接一键解析、账号拆解或蒸馏、授权导出导入、正式环境验收、飞书或 Google Sheets 同步、批量任务、本地视频分析、评论需求、内容模式、对标迁移、脚本评分、发布预测或复盘，with immutable raw evidence, robust metrics, stable errors, and explicit Provider cost/credential controls."
+description: "Initialize, collect, locally download, transcribe, and visually analyze retained public videos, import, validate, normalize, distill, persist account benchmark profiles, compare, rank, score, predict, register, and retrospect on video accounts from user-approved Douyin homepage URLs, offline exports, authorized tables, local media, scripts, transcripts, comments, and public interaction metrics. Use for 抖音主页链接一键解析、MediaCrawler 本地非商业研究采集、账号公开视频下载与中文转写、Ollama/Qwen 本地视觉与OCR、账号拆解或蒸馏、点赞评论分享收藏画像、跨账号排序、正式环境验收、批量任务、对标迁移、脚本评分、发布预测或复盘，with immutable raw evidence, robust metrics, stable errors, manual-browser authentication boundaries, local-only media processing, and explicit paid-Provider controls."
 ---
 
 # Video Account Distiller
 
 Use the Python package and `distiller` CLI for deterministic work. Keep source exports immutable.
 Perform Phase 0–6 tasks offline, Phase 7 table sync only with explicit authorization, and Phase 8
-homepage collection only through the documented fixed-host Provider after explicit cost approval.
+homepage collection only through the controlled MediaCrawler or TikHub adapters.
 
 ## Load references
 
@@ -25,6 +25,8 @@ homepage collection only through the documented fixed-host Provider after explic
   Hook/structure/emotion/CTA/content-pillar labels, or interpreting blind analysis.
 - Read `references/media-analysis.md` before analyzing MP4/MOV/MKV media, scene cuts, keyframes,
   audio features, OCR, visual labels, decoder degradation, or a shot timeline.
+- Read `references/account-media-enrichment.md` before downloading retained public account videos,
+  invoking local Whisper, interpreting `ame_*` artifacts, or re-distilling after video analysis.
 - Read `references/model-providers.md` before supplying structured model output, choosing strict or
   degraded behavior, or handling a model Schema failure.
 - Read `references/comment-analysis.md` before labeling comments, interpreting audience demand,
@@ -57,9 +59,10 @@ homepage collection only through the documented fixed-host Provider after explic
 - Compare raw performance only within the same account/platform context. Use account-local robust
   metrics for ranking.
 - Emit machine JSON to stdout and logs/errors to stderr. Preserve stable `E_*` error codes.
-- Access only a user-approved documented fixed-host Provider, official table API, or user-provided
-  export. Never automate login, bypass CAPTCHA/rate limits/risk controls, scrape platform pages,
-  reuse browser sessions, or start a browser. Never upload media in local mode. Keep tokens in
+- Access only a user-approved bounded Provider, official table API, or user-provided export. The
+  MediaCrawler adapter may start its dedicated visible Chrome profile; require the user to perform
+  login or verification manually. Never automate credentials/CAPTCHA, invoke proxy or stealth
+  features, or bypass rate limits/risk controls. Never upload media in local mode. Keep tokens in
   environment variables only.
 
 ## Route tasks
@@ -76,7 +79,8 @@ distiller doctor --project <dir> --json
 ```
 
 Treat `doctor` as read-only. Report core readiness separately from optional local-media,
-TikHub-Douyin, Feishu-Bitable, and Google-Sheets capabilities. Never print credential values.
+MediaCrawler-Douyin, TikHub-Douyin, Feishu-Bitable, and Google-Sheets capabilities. Never print
+credential values or browser-session data.
 
 ### Initialize
 
@@ -90,33 +94,64 @@ Do not overwrite existing config or state. Return the created paths and next imp
 
 ### Analyze a Douyin account homepage
 
-Read `references/account-url-collection.md`. Always preview before a paid call:
+Read `references/account-url-collection.md`. Always preview first:
 
 ```bash
 uv run distiller account analyze --project <dir> --url <douyin-homepage> \
-  --count 10 --sort latest --dry-run --json
+  --sort latest --dry-run --json
 ```
 
-Keep comment sampling disabled unless the user wants audience-demand analysis. When requested, add
-`--comments-per-video <1-20> --comment-video-limit <1-10>` to the preview. Explain that each sampled
-video adds at most one Provider call and that the command prioritizes collected videos with higher
-public comment counts.
-
-Require the user to approve the public account, expected call count, Provider cost, and retention.
-Require `TIKHUB_API_KEY` in the local environment; never ask the user to paste it into chat or a
-project file. Then run:
+Require the user to approve the public account and retention scope. The CLI defaults to the pinned
+MediaCrawler research Provider, all Provider-exposed homepage videos, and a bounded 10-comment
+sample from at most three high-comment videos. Use `--count <n>` only when the user explicitly
+requests a video limit. Use `--comments-per-video 0` when the user requests a smaller personal-data
+scope. Then run:
 
 ```bash
 uv run distiller account analyze --project <dir> --url <douyin-homepage> \
-  --count 10 --sort latest [--comments-per-video 20 --comment-video-limit 3] \
-  --confirm-provider-cost --json
+  --sort latest --json
 ```
+
+On first use, allow the pinned sidecar environment to prepare and a visible Chrome window to open.
+The user must manually complete login or platform verification. For TikHub, require
+`--provider tikhub`, an environment-only `TIKHUB_API_KEY`, a dry-run billing preview, and
+`--confirm-provider-cost`.
 
 Return the internal account ID, accepted/rejected row counts, immutable Provider batch path,
 public-field warnings, optional redacted comment-analysis path, report path, distillation path, and
 the next `validate` command. Treat raw Provider comment pages as sensitive retained evidence and
 never claim that homepage data includes private completion, watch-time, traffic-source, or audience
 fields.
+
+When the user explicitly approves local processing of actual public videos, add a bounded
+`--media-limit <1-10> --whisper-model base` or run the separate retained-media route below. Keep
+the default at `0`; do not silently expand a metadata-only request into video download.
+
+### Enrich retained account videos
+
+Read `references/account-media-enrichment.md`. Preview the existing retained batch first:
+
+```bash
+uv run distiller account enrich-media --project <dir> --account <account-id> \
+  --limit 3 --whisper-model base --dry-run --json
+```
+
+The preview must show only candidate counts/hosts, never signed URLs. Confirm FFmpeg and local
+Whisper readiness, then run:
+
+```bash
+uv run distiller account enrich-media --project <dir> --account <account-id> \
+  --limit 3 --whisper-model base --vision-provider ollama \
+  --vision-model qwen3-vl:8b --json
+uv run distiller validate --project <dir> --json
+```
+
+Return completed/degraded/failed video counts, media hashes and analysis paths, transcript hashes
+and segment counts, single-video analysis paths, the `ame_*` artifact, and the rebuilt `dst_*`
+report. Treat local keyword semantics as degraded evidence with confidence at most `0.45`.
+Measured framing, shot rhythm, and signal-level audio activity are observations; keyframes alone
+do not establish visual identity. Never print signed media URLs, supply browser cookies, use
+Computer Use for this route, or upload media/transcripts without separate explicit authorization.
 
 ### Import data
 
@@ -220,6 +255,19 @@ instead of a degraded artifact; add `--strict-vision` for strict visual Schema b
 `media_features.parquet` path. Run `distiller validate` afterward. Never infer unobserved visual
 details or upload the media without separate explicit authorization.
 
+For local Qwen vision/OCR through the loopback-only Ollama service, run:
+
+```bash
+uv run distiller analyze media --project <dir> --video <video-id> \
+  --file <local-video.mp4> --vision-provider ollama \
+  --vision-model qwen3-vl:8b --vision-batch-size 4 --strict-vision --json
+```
+
+Accept only `http://127.0.0.1:11434` or `http://localhost:11434`. The Provider records scene
+labels, color, composition, camera, lighting, artistic text, motion-graphic traces, branding, and
+OCR against exact keyframes. It must not infer video motion from one still frame or send frames to
+a remote host.
+
 Use `--max-keyframes <1-100>` to cap evenly distributed keyframes and `--scene-threshold <0-1>` to
 override scene sensitivity. These options, Provider output, and extracted features are part of the
 content-addressed result, so meaningful differences may create another immutable `mda_*` analysis.
@@ -256,12 +304,22 @@ Patterns may be observations or associations only; never promote them to Level 4
 Distill the target and every benchmark separately, then run:
 
 ```bash
+uv run distiller account benchmark-profile --project <dir> \
+  --account <account-id> --json
 uv run distiller compare --project <dir> --target <account-id> \
   --benchmarks <benchmark-id-1>,<benchmark-id-2> --json
 ```
 
-Keep each platform/account baseline separate. Judge transferability from content features, scope,
-resources, risk, and Pattern maturity; do not compare raw views across accounts or platforms.
+The profile is content-addressed and retains the latest public per-video likes, comments, shares,
+saves/favorites, interaction mix, follower-normalized interaction when available, comment likes,
+sentiment, intent, questions, pain points, objections, purchase-intent signals, content
+opportunities, content pillars, and visual identity. Repeated collection creates new snapshots and
+profiles without overwriting earlier ones.
+
+Rank only accounts on the target platform. Use per-video medians and per-1,000-follower public
+interactions; exclude unavailable dimensions from each account's score and report coverage. Never
+use unavailable homepage views as zero or include views in this ranking. Keep cross-platform
+accounts in the transfer review but exclude them from interaction ranking.
 
 ### Score a script
 
@@ -366,10 +424,16 @@ uninstall this Skill.
 ## Current boundary
 
 Package `1.0.0` stabilizes the completed Phase 0–7 workflow. The main line adds Phase 8 collection
-schema `0.8.1` but remains pre-release until a real-token acceptance run passes. Phase 8 supports
-only user-approved Douyin URLs through the documented TikHub API; it does not scrape platform pages,
-automate login, use cookies, handle CAPTCHA, or install a background collector. Public top-level
-comment sampling is optional, one-page-per-video, cost-bounded, and privacy-minimized; replies and
-media downloads remain unsupported. Phase 6 still ships no network vision client. The system does
-not auto-approve Level 4 rules: repeated controlled evidence and explicit human approval remain
-required. Do not fabricate visual/audio evidence, causality, authorization, or platform access.
+schema `0.8.2` and a complete homepage-to-distillation workflow. The default provider is the pinned
+MediaCrawler source for declared personal non-commercial research; preserve its third-party notice
+and reassess authorization before commercial use. Only the controlled bridge is approved: visible
+Chrome, dedicated profile, manual authentication, Provider-terminated full-homepage pagination
+with emergency guards, bounded comments, and no proxy, stealth, automatic login, CAPTCHA, or
+risk-control-evasion features. TikHub remains an optional paid API provider. Media download is
+supported only as an explicit bounded step from retained MediaCrawler detail evidence, with HTTPS
+Douyin/CDN allowlisting, local Whisper, and content-addressed storage.
+The pinned MIT `claude-video` source is an attributed workflow reference; the account path does not
+execute upstream `/watch`. Replies remain unsupported. Phase 6 includes a loopback-only Ollama
+vision Provider and no cloud vision client. The system does not auto-approve Level 4 rules;
+repeated controlled evidence and explicit human approval remain required. Do not fabricate
+visual/audio evidence, causality, authorization, or platform access.

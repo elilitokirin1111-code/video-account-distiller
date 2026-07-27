@@ -100,6 +100,15 @@ class FixtureVisionProvider:
     provider_name = "fixture-vision"
     model_name = "fixture-v1"
 
+    def __init__(self) -> None:
+        self.raw_responses = [
+            {
+                "message": {
+                    "content": "fixture local visual response",
+                }
+            }
+        ]
+
     @property
     def input_hash(self) -> str | None:
         return None
@@ -154,6 +163,9 @@ def test_local_media_analysis_is_traceable_queryable_and_idempotent(
     assert analysis.vision.ocr_observations[0].text == "欢迎入住"
     raw_media = phase3_project.root / analysis.raw_media_path
     assert sha256_file(raw_media) == sha256_file(source)
+    raw_vision_outputs = [path for path in outputs if path.parent.name == "vision-outputs"]
+    assert len(raw_vision_outputs) == 1
+    assert sha256_file(raw_vision_outputs[0]) == raw_vision_outputs[0].stem
 
     with DuckDBStore(phase3_project.normalized_dir) as store:
         assert store.count("media_features") == 1
@@ -219,3 +231,38 @@ def test_media_without_audio_is_skipped_without_fabricating_silence(
     assert analysis.audio.status == "skipped"
     assert analysis.audio.has_audio is False
     assert analysis.audio.silence_ratio is None
+
+
+class LongSingleShotBackend(FakeMediaBackend):
+    def probe(self, source: Path, media_hash: str) -> MediaMetadata:
+        return super().probe(source, media_hash).model_copy(update={"duration_ms": 120_000})
+
+    def detect_scenes(
+        self, source: Path, *, duration_ms: int, threshold: float, max_shots: int
+    ) -> SceneDetectionResult:
+        del source, threshold, max_shots
+        return SceneDetectionResult([0, duration_ms], [])
+
+
+def test_long_single_shot_adds_uniform_keyframe_coverage(
+    phase3_project: ProjectLayout,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "long-talking-head.mp4"
+    source.write_bytes(b"offline-long-media")
+    result = LocalMediaAnalysisService(
+        phase3_project,
+        backend=LongSingleShotBackend(),
+    ).analyze(
+        video_id="p2-01",
+        file=source,
+        max_keyframes=16,
+    )
+    analysis = MediaAnalysis.model_validate(result["analysis"])
+
+    assert len(analysis.shots) == 1
+    assert len(analysis.keyframes) == 12
+    assert len(analysis.shots[0].keyframe_ids) == 12
+    assert [item.timestamp_ms for item in analysis.keyframes] == sorted(
+        item.timestamp_ms for item in analysis.keyframes
+    )

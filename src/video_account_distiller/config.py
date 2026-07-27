@@ -67,6 +67,10 @@ class ModelsSection(BaseModel):
     model_config = ConfigDict(extra="forbid")
     text_provider: str | None = None
     vision_provider: str | None = None
+    vision_model: str = "qwen3-vl:8b"
+    ollama_base_url: str = "http://127.0.0.1:11434"
+    vision_batch_size: int = Field(default=4, ge=1, le=8)
+    vision_timeout_seconds: int = Field(default=180, ge=1, le=1800)
     require_schema_validation: bool = True
     max_schema_attempts: int = Field(default=2, ge=1, le=5)
     allow_degraded_analysis: bool = True

@@ -45,6 +45,12 @@ def project_status(project: ProjectLayout) -> dict[str, Any]:
     account_reports = list((project.root / "reports" / "accounts").glob("*/*/report.json"))
     comment_analyses = list((project.root / "analyses" / "comments").glob("*/*/analysis.json"))
     media_analyses = list((project.root / "analyses" / "media").glob("*/*/media-analysis.json"))
+    media_enrichments = list(
+        (project.root / "analyses" / "accounts").glob("*/media-enrichments/*/enrichment.json")
+    )
+    benchmark_profiles = list(
+        (project.root / "analyses" / "accounts").glob("*/benchmark-profiles/*/profile.json")
+    )
     distillations = list((project.root / "reports" / "accounts").glob("*/*/distillation.json"))
     comparisons = list((project.root / "reports" / "comparisons").glob("*/comparison.json"))
     scores = list((project.root / "reports" / "scoring").glob("*/*/score.json"))
@@ -143,6 +149,8 @@ def project_status(project: ProjectLayout) -> dict[str, Any]:
                 list((project.root / "analyses" / "videos").glob("*/*/analysis.json"))
             ),
             "media_analyses": len(media_analyses),
+            "media_enrichments": len(media_enrichments),
+            "benchmark_profiles": len(benchmark_profiles),
             "comment_analyses": len(comment_analyses),
             "account_distillations": len(distillations),
             "benchmark_comparisons": len(comparisons),

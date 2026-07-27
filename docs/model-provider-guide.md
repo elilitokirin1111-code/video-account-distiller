@@ -1,6 +1,6 @@
 # Text model provider guide
 
-## Current provider
+## Text providers
 
 Phase 3/4 intentionally ships only an offline structured-file provider. This keeps model calls
 mockable, tests network-free, and user content local. A response file contains:
@@ -35,7 +35,7 @@ Before adding a cloud implementation:
 5. Add mocked provider, privacy, retry, timeout, and Schema contract tests.
 6. Redact comment direct identifiers before upload and preserve raw response hashes/prompt versions.
 
-No current command contacts OpenAI or any other model service.
+No current text-analysis command contacts OpenAI or any other model service.
 
 Phase 5 scoring, prediction, publication, and Retro do not use this provider. Their formulas,
 intervals, version linkage, and approval boundary are deterministic. A future model may suggest
@@ -50,6 +50,16 @@ retry array. It performs no network operation. Every returned annotation must ci
 `shot_id`; every OCR observation must cite an existing `keyframe_id` and timestamp interval.
 
 The bundle contains local keyframe paths so an explicitly supplied custom local Provider can read
-them. A cloud implementation must not be bundled or activated implicitly. It requires explicit user
+them. The bundled `OllamaVisionProvider` accepts only
+`http://127.0.0.1:11434` or `http://localhost:11434`, defaults to `qwen3-vl:8b`, batches one to
+eight keyframes, requests JSON Schema output, and maps frame indexes back to exact shot/keyframe
+evidence. It extracts scene labels, colors, composition, camera, lighting, artistic text,
+motion-graphic traces, branding, and OCR. Qwen3-VL may return valid structured JSON in Ollama's
+local `message.thinking` field when `message.content` is empty; both are validated by the same
+strict Pydantic contract.
+
+Remote hosts, HTTPS, alternate ports, embedded credentials, paths, queries, and fragments are
+rejected before image bytes are read. A cloud implementation must not be bundled or activated
+implicitly. It requires explicit user
 authorization, `privacy.allow_cloud_model_upload: true`, documented retention and region, redacted
 logging, and mocked upload/timeout/Schema tests.

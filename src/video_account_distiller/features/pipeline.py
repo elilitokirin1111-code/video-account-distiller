@@ -57,7 +57,7 @@ from video_account_distiller.utils.ids import stable_id
 from video_account_distiller.utils.io import atomic_write_json, atomic_write_text, read_json
 from video_account_distiller.utils.lookup import resolve_video
 
-ANALYSIS_VERSION = "1.0.0"
+ANALYSIS_VERSION = "1.1.0"
 ResponseT = TypeVar("ResponseT", bound=BaseModel)
 ResponseValidator = Callable[[ResponseT, set[str]], None]
 CTA_KEYWORDS: tuple[tuple[CtaType, tuple[str, ...]], ...] = (
@@ -82,6 +82,89 @@ FORBIDDEN_BLIND_KEYS = {
     "completion_efficiency",
     "is_promoted",
 }
+LOCAL_PILLAR_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "酒店经营与运营",
+        (
+            "酒店",
+            "宾馆",
+            "民宿",
+            "门店",
+            "房价",
+            "入住率",
+            "ota",
+            "店长",
+            "经营",
+            "运营",
+        ),
+    ),
+    (
+        "酒店服务与客诉",
+        (
+            "客诉",
+            "投诉",
+            "差评",
+            "客人",
+            "住客",
+            "前台",
+            "入住",
+            "退房",
+            "服务",
+        ),
+    ),
+    (
+        "客房与清洁管理",
+        (
+            "客房",
+            "保洁",
+            "打扫",
+            "清洁",
+            "布草",
+            "床单",
+            "卫生",
+            "查房",
+        ),
+    ),
+    (
+        "职场与求职",
+        (
+            "上班",
+            "下班",
+            "员工",
+            "工资",
+            "面试",
+            "面試",
+            "求职",
+            "求職",
+            "打工",
+            "同事",
+            "职业",
+            "職業",
+            "工作",
+            "简历",
+            "簡歷",
+            "履历",
+            "履歷",
+            "毕业生",
+            "畢業生",
+            "应届",
+            "應屆",
+            "招聘",
+        ),
+    ),
+    (
+        "旅行住宿知识",
+        (
+            "旅行",
+            "旅游",
+            "住宿",
+            "订房",
+            "房型",
+            "出差",
+            "旅客",
+        ),
+    ),
+)
 
 
 def _latest_by_snapshot(records: list[ResponseT]) -> ResponseT | None:
@@ -188,12 +271,123 @@ def _fallback_hook(opening: TranscriptInputSegment) -> HookType:
     return HookType.UNKNOWN
 
 
+def _local_semantic_labels(
+    bundle: BlindVideoBundle,
+    *,
+    cta_type: CtaType,
+) -> tuple[
+    str,
+    list[str],
+    list[str],
+    str,
+    str,
+    list[str],
+    list[str],
+    list[str],
+    str,
+    float,
+]:
+    """Infer bounded Chinese semantic labels from explicit transcript keywords only."""
+
+    segments = bundle.transcript_segments
+    scored: list[tuple[int, int, str, tuple[str, ...], list[str]]] = []
+    for order, (pillar, keywords) in enumerate(LOCAL_PILLAR_KEYWORDS):
+        evidence = [
+            item.segment_id
+            for item in segments
+            if any(keyword.casefold() in item.text.casefold() for keyword in keywords)
+        ]
+        scored.append((len(evidence), -order, pillar, keywords, evidence))
+    count, _, primary_pillar, _, evidence = max(scored)
+    if count == 0:
+        primary_pillar = "unknown"
+        evidence = []
+    secondary_topics = [
+        pillar
+        for matched, _, pillar, _, _ in sorted(scored, reverse=True)
+        if matched > 0 and pillar != primary_pillar
+    ][:3]
+    joined = " ".join(item.text for item in segments)
+    audience_tasks: list[str] = []
+    if primary_pillar == "酒店经营与运营":
+        audience_tasks.append("提升酒店经营与门店运营效率")
+    elif primary_pillar == "酒店服务与客诉":
+        audience_tasks.append("处理住客服务问题与客诉")
+    elif primary_pillar == "客房与清洁管理":
+        audience_tasks.append("改善客房清洁与房务流程")
+    elif primary_pillar == "职场与求职":
+        audience_tasks.append("了解求职、面试与职场选择")
+    elif primary_pillar == "旅行住宿知识":
+        audience_tasks.append("获取订房与住宿决策信息")
+    instructional = any(
+        keyword in joined for keyword in ("怎么", "如何", "方法", "技巧", "流程", "注意", "教你")
+    )
+    story = any(keyword in joined for keyword in ("今天", "有一次", "遇到", "后来", "结果", "当时"))
+    list_like = bool(re.search(r"(?:^|\D)[一二三四五六七八九十123456789][、.，]", joined))
+    if cta_type in {CtaType.PRODUCT, CtaType.DIRECT_MESSAGE, CtaType.PROFILE}:
+        content_goal = "conversion"
+        funnel_stage = "conversion"
+    elif instructional:
+        content_goal = "education"
+        funnel_stage = "consideration"
+    elif story:
+        content_goal = "experience_sharing"
+        funnel_stage = "awareness"
+    else:
+        content_goal = "information_sharing" if primary_pillar != "unknown" else "unknown"
+        funnel_stage = "awareness" if primary_pillar != "unknown" else "unknown"
+    narrative_type = (
+        "list_explainer"
+        if list_like
+        else "process_explainer"
+        if instructional
+        else "case_story"
+        if story
+        else "direct_explainer"
+        if primary_pillar != "unknown"
+        else "unknown"
+    )
+    persona_signals: list[str] = []
+    if any(keyword in joined for keyword in ("我们酒店", "我们店", "前台", "客房", "店长")):
+        persona_signals.append("酒店一线从业者")
+    if any(keyword in joined for keyword in ("我做酒店", "经营酒店", "酒店老板", "我的酒店")):
+        persona_signals.append("酒店经营者")
+    language_signals = (
+        ["中文口语化表达"] if re.search(r"[\u4e00-\u9fff]", joined) is not None else []
+    )
+    confidence = 0.45 if primary_pillar != "unknown" else 0.2
+    return (
+        primary_pillar,
+        evidence,
+        secondary_topics,
+        content_goal,
+        funnel_stage,
+        audience_tasks,
+        persona_signals,
+        language_signals,
+        narrative_type,
+        confidence,
+    )
+
+
 def _fallback_semantics(bundle: BlindVideoBundle) -> VideoSemanticAnnotation:
     segments = bundle.transcript_segments
     first = segments[0]
     last = segments[-1]
     hook_type = _fallback_hook(first)
     cta_type, cta_text = _cta(last.text)
+    (
+        primary_pillar,
+        primary_evidence,
+        secondary_topics,
+        content_goal,
+        funnel_stage,
+        audience_tasks,
+        persona_signals,
+        language_signals,
+        narrative_type,
+        confidence,
+    ) = _local_semantic_labels(bundle, cta_type=cta_type)
     structure = [
         StructureAnnotation(
             function=StructureFunction.HOOK,
@@ -259,12 +453,12 @@ def _fallback_semantics(bundle: BlindVideoBundle) -> VideoSemanticAnnotation:
                 )
                 break
     return VideoSemanticAnnotation(
-        primary_pillar="unknown",
-        primary_pillar_evidence_segment_ids=[],
-        secondary_topics=[],
-        audience_tasks=[],
-        content_goal="unknown",
-        funnel_stage="unknown",
+        primary_pillar=primary_pillar,
+        primary_pillar_evidence_segment_ids=primary_evidence,
+        secondary_topics=secondary_topics,
+        audience_tasks=audience_tasks,
+        content_goal=content_goal,
+        funnel_stage=funnel_stage,
         hook=HookAnnotation(
             primary_type=hook_type,
             hook_text=first.text[:240],
@@ -273,7 +467,7 @@ def _fallback_semantics(bundle: BlindVideoBundle) -> VideoSemanticAnnotation:
             evidence_segment_ids=([first.segment_id] if hook_type != HookType.UNKNOWN else []),
         ),
         structure_segments=structure,
-        narrative_type="unknown",
+        narrative_type=narrative_type,
         information_density=cast(Any, density),
         emotion_timeline=emotion_timeline,
         cta=CtaAnnotation(
@@ -282,14 +476,16 @@ def _fallback_semantics(bundle: BlindVideoBundle) -> VideoSemanticAnnotation:
             alignment_score=None,
             evidence_segment_ids=([last.segment_id] if cta_type != CtaType.NONE else []),
         ),
-        risk_flags=["heuristic labels require human or model review"],
+        persona_signals=persona_signals,
+        language_signals=language_signals,
+        risk_flags=["local_keyword_heuristic_requires_human_or_model_review"],
         unknowns=[
-            "content pillar",
-            "audience task",
-            "narrative type",
+            *([] if primary_pillar != "unknown" else ["content pillar"]),
+            *([] if audience_tasks else ["audience task"]),
+            *([] if narrative_type != "unknown" else ["narrative type"]),
             "visual and audio features",
         ],
-        confidence=0.2,
+        confidence=confidence,
     )
 
 

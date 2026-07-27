@@ -1,0 +1,107 @@
+{
+  "schema_version": "1.0",
+  "ok": true,
+  "fetched_at": "2026-07-23T08:00:00+00:00",
+  "profile_url": "https://www.douyin.com/user/MS4wLjABAAAAmediacrawler-hotel",
+  "platform_account_id": "MS4wLjABAAAAmediacrawler-hotel",
+  "profile": {
+    "sec_uid": "MS4wLjABAAAAmediacrawler-hotel",
+    "unique_id": "hotel_research",
+    "nickname": "酒店研究样本",
+    "signature": "记录酒店服务与空间",
+    "follower_count": 16800,
+    "following_count": 86,
+    "total_favorited": 420000,
+    "aweme_count": 132,
+    "enterprise_verify_reason": "酒店官方账号",
+    "country": "中国"
+  },
+  "videos": [
+    {
+      "aweme_id": "7600000000000000001",
+      "desc": "住进江景房是什么体验 #酒店 #旅行",
+      "create_time": 1784790000,
+      "duration": 21800,
+      "aweme_type": 0,
+      "share_url": "https://www.douyin.com/video/7600000000000000001",
+      "statistics": {
+        "play_count": 280000,
+        "digg_count": 18600,
+        "comment_count": 920,
+        "share_count": 680,
+        "collect_count": 3100
+      },
+      "music": {
+        "title": "夏日晚风",
+        "author": "示例音乐人"
+      },
+      "text_extra": [
+        {
+          "hashtag_name": "酒店"
+        },
+        {
+          "hashtag_name": "旅行"
+        }
+      ]
+    },
+    {
+      "aweme_id": "7600000000000000002",
+      "desc": "前台夜班的一天 #酒店服务",
+      "create_time": 1784703600,
+      "video": {
+        "duration": 30500
+      },
+      "aweme_type": 0,
+      "statistics": {
+        "play_count": 92000,
+        "digg_count": 4600,
+        "comment_count": 180,
+        "share_count": 96,
+        "collect_count": 620
+      },
+      "text_extra": [
+        {
+          "hashtag_name": "酒店服务"
+        }
+      ]
+    }
+  ],
+  "comments": {
+    "7600000000000000001": [
+      {
+        "cid": "7700000000000000001",
+        "text": "亲子入住有没有儿童用品？",
+        "create_time": 1784793600,
+        "digg_count": 38,
+        "reply_id": "0",
+        "user": {
+          "sec_uid": "MS4wLjABAAAAcomment-user"
+        }
+      }
+    ]
+  },
+  "raw_pages": [
+    {
+      "endpoint": "/aweme/v1/web/user/profile/other/?sec_user_id=MS4wLjABAAAAmediacrawler-hotel",
+      "payload": {
+        "nickname": "酒店研究样本",
+        "follower_count": 16800
+      }
+    },
+    {
+      "endpoint": "/aweme/v1/web/aweme/post/",
+      "payload": {
+        "has_more": 0,
+        "aweme_list": [
+          {
+            "aweme_id": "7600000000000000001"
+          },
+          {
+            "aweme_id": "7600000000000000002"
+          }
+        ]
+      }
+    }
+  ],
+  "warnings": []
+}

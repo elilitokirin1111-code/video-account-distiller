@@ -9,6 +9,12 @@
 
 {{ distillation.positioning.statement }}
 
+## 人设与视听风格
+
+- 人设信号：{{ distillation.positioning.persona_signals|join("；") or "待补充更多单视频语义分析" }}
+- 视听风格：{{ distillation.positioning.visual_and_audio_identity|join("；") or "待补充本地视频分析" }}
+- 仍未知：{{ distillation.positioning.unknowns|join("；") or "无" }}
+
 ## 内容簇
 
 {% for cluster in distillation.content_clusters -%}
