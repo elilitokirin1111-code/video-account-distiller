@@ -110,6 +110,8 @@ def run_acceptance(
                 str(project),
                 "--url",
                 "https://www.douyin.com/user/acceptance",
+                "--provider",
+                "tikhub",
                 "--count",
                 "10",
                 "--dry-run",
@@ -196,6 +198,63 @@ def run_acceptance(
             ["distill", "--project", str(project), "--account", account_id, "--json"],
             steps,
         )
+        growth = _run_json(
+            "account-growth",
+            ["account", "growth", "--project", str(project), "--account", account_id, "--json"],
+            steps,
+        )
+        if growth.get("status") != "insufficient_history" or growth.get("snapshot_count") != 1:
+            raise AcceptanceFailure("single-snapshot growth boundary was not preserved")
+        context = _run_json(
+            "account-analysis-context",
+            ["account", "context", "--project", str(project), "--account", account_id, "--json"],
+            steps,
+        )
+        if (
+            context.get("context_version") != "1.0.0"
+            or context.get("account", {}).get("account_id") != account_id
+            or not context.get("analysis_contract")
+        ):
+            raise AcceptanceFailure("bounded GPT analysis context contract was not available")
+        knowledge_export = _run_json(
+            "openkb-knowledge-export",
+            [
+                "knowledge",
+                "openkb",
+                "export",
+                "--project",
+                str(project),
+                "--account",
+                account_id,
+                "--json",
+            ],
+            steps,
+        )
+        if (
+            knowledge_export.get("ok") is not True
+            or knowledge_export.get("manifest", {}).get("account_id") != account_id
+        ):
+            raise AcceptanceFailure("curated OpenKB knowledge export was not available")
+        knowledge_sync_plan = _run_json(
+            "openkb-sync-dry-run",
+            [
+                "knowledge",
+                "openkb",
+                "sync",
+                "--project",
+                str(project),
+                "--account",
+                account_id,
+                "--dry-run",
+                "--json",
+            ],
+            steps,
+        )
+        if (
+            knowledge_sync_plan.get("dry_run") is not True
+            or knowledge_sync_plan.get("would_upload") is not True
+        ):
+            raise AcceptanceFailure("offline OpenKB sync preview contract was not available")
         media_evidence: dict[str, Any] | None = None
         if media is not None:
             media_result = _run_json(
