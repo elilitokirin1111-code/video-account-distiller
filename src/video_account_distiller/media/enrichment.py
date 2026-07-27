@@ -288,6 +288,11 @@ class WhisperCliTranscriber:
                 "False",
             ]
             try:
+                child_env = os.environ.copy()
+                # Windows may otherwise expose a legacy console encoding (for
+                # example GBK) to Whisper. One undecodable transcript glyph can
+                # then make the CLI exit before it writes its JSON result.
+                child_env["PYTHONIOENCODING"] = "utf-8"
                 completed = subprocess.run(
                     command,
                     capture_output=True,
@@ -295,6 +300,7 @@ class WhisperCliTranscriber:
                     text=True,
                     encoding="utf-8",
                     errors="replace",
+                    env=child_env,
                     timeout=self.timeout_seconds,
                     creationflags=(
                         subprocess.CREATE_NO_WINDOW
@@ -476,14 +482,21 @@ def _provider_sources(
     return sources
 
 
-def _has_usable_video_analysis(project: ProjectLayout, video_id: str) -> bool:
+def _has_existing_video_analysis(project: ProjectLayout, video_id: str) -> bool:
+    """Return whether a valid single-video analysis already exists.
+
+    Selection is a work-avoidance concern, not a semantic-quality gate. A
+    completed analysis whose deterministic fallback leaves ``primary_pillar``
+    as ``unknown`` has still consumed the retained media and transcript. Treat
+    it as analyzed so later bounded batches can advance to unseen videos.
+    """
+
     for path in (project.root / "analyses" / "videos" / video_id).glob("*/analysis.json"):
         try:
-            analysis = SingleVideoAnalysis.model_validate(read_json(path))
+            SingleVideoAnalysis.model_validate(read_json(path))
         except (OSError, ValidationError, ValueError):
             continue
-        if analysis.blind_analysis.semantics.primary_pillar != "unknown":
-            return True
+        return True
     return False
 
 
@@ -494,7 +507,7 @@ def _select_sources(
 ) -> list[ProviderVideoSource]:
     ordered = sorted(
         enumerate(sources),
-        key=lambda item: (_has_usable_video_analysis(project, item[1].video_id), item[0]),
+        key=lambda item: (_has_existing_video_analysis(project, item[1].video_id), item[0]),
     )
     return [item[1] for item in ordered[:limit]]
 

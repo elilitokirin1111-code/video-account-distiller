@@ -87,6 +87,37 @@ class FixtureTranscriber:
         )
 
 
+class UnknownFixtureTranscriber(FixtureTranscriber):
+    def transcribe(
+        self,
+        source: Path,
+        destination: Path,
+        *,
+        language: str,
+    ) -> TranscribedMedia:
+        assert source.is_file()
+        atomic_write_json(
+            destination,
+            {
+                "segments": [
+                    {
+                        "segment_id": "1",
+                        "start": 0.0,
+                        "end": 4.0,
+                        "text": "今天记录一只刚认识的小猫，大家来帮它取个名字。",
+                    }
+                ]
+            },
+        )
+        return TranscribedMedia(
+            path=destination,
+            provider=self.provider_name,
+            model=self.model_name,
+            language=language,
+            segment_count=1,
+        )
+
+
 class FixtureMediaBackend:
     available = True
     name = "fixture-ffmpeg"
@@ -143,8 +174,49 @@ class FixtureMediaBackend:
         return array("h", [1200] * 72_000).tobytes()
 
 
-def _write_provider_batch(project: ProjectLayout) -> Path:
+def _write_provider_batch(project: ProjectLayout, *, video_count: int = 1) -> Path:
     fetched_at = datetime(2026, 7, 23, 8, 0, tzinfo=UTC)
+    videos = [
+        CollectedVideo(
+            platform_video_id=f"p2-{index:02d}",
+            account_id="phase2-hotel",
+            title=f"客房样本{index:02d}",
+            duration_seconds=20,
+            language="zh-CN",
+        )
+        for index in range(1, video_count + 1)
+    ]
+    metrics = [
+        CollectedMetricSnapshot(
+            video_id=video.platform_video_id,
+            snapshot_at=fetched_at,
+            views=1000,
+            likes=100,
+            comments=10,
+            shares=5,
+        )
+        for video in videos
+    ]
+    raw_pages = [
+        ProviderRawPage(
+            endpoint=f"/aweme/v1/web/aweme/detail/?aweme_id={video.platform_video_id}",
+            fetched_at=fetched_at,
+            payload={
+                "aweme_id": video.platform_video_id,
+                "video": {
+                    "play_addr_h264": {
+                        "url_list": [
+                            (
+                                "https://v11-weba.douyinvod.com/"
+                                f"{video.platform_video_id}.mp4?signed_token=fixture-opaque"
+                            )
+                        ]
+                    }
+                },
+            },
+        )
+        for video in videos
+    ]
     batch = AccountCollectionBatch(
         provider=CollectionProviderKind.MEDIACRAWLER,
         profile_url="https://www.douyin.com/user/phase2-hotel",
@@ -156,44 +228,9 @@ def _write_provider_batch(project: ProjectLayout) -> Path:
             display_name="Phase 2 酒店样本",
             snapshot_at=fetched_at,
         ),
-        videos=[
-            CollectedVideo(
-                platform_video_id="p2-01",
-                account_id="phase2-hotel",
-                title="客房样本01",
-                duration_seconds=20,
-                language="zh-CN",
-            )
-        ],
-        metrics=[
-            CollectedMetricSnapshot(
-                video_id="p2-01",
-                snapshot_at=fetched_at,
-                views=1000,
-                likes=100,
-                comments=10,
-                shares=5,
-            )
-        ],
-        raw_pages=[
-            ProviderRawPage(
-                endpoint="/aweme/v1/web/aweme/detail/?aweme_id=p2-01",
-                fetched_at=fetched_at,
-                payload={
-                    "aweme_id": "p2-01",
-                    "video": {
-                        "play_addr_h264": {
-                            "url_list": [
-                                (
-                                    "https://v11-weba.douyinvod.com/video.mp4"
-                                    "?signed_token=fixture-opaque"
-                                )
-                            ]
-                        }
-                    },
-                },
-            )
-        ],
+        videos=videos,
+        metrics=metrics,
+        raw_pages=raw_pages,
     )
     payload = batch.model_dump(mode="json")
     directory = project.root / "raw" / "account-collections" / "mediacrawler" / sha256_json(payload)
@@ -256,3 +293,32 @@ def test_account_media_enrichment_completes_traceable_video_to_distillation_chai
     validation = validate_project(phase2_project)
     assert validation.error_count == 0
     assert validation.stats["media_enrichments"] == 1
+
+
+def test_account_media_enrichment_advances_past_valid_unknown_analysis(
+    phase2_project: ProjectLayout,
+) -> None:
+    _write_provider_batch(phase2_project, video_count=2)
+    account_id = stable_id("acc_", "douyin", "phase2-hotel")
+    service = AccountMediaEnrichmentService(
+        phase2_project,
+        downloader=FixtureDownloader(),
+        transcriber=UnknownFixtureTranscriber(),
+        media_backend=FixtureMediaBackend(),
+    )
+
+    first = AccountMediaEnrichment.model_validate(
+        service.enrich(account_id=account_id, limit=1)["enrichment"]
+    )
+    first_item = first.videos[0]
+    assert first_item.text_analysis_path is not None
+    first_analysis = read_json(phase2_project.root / first_item.text_analysis_path)
+    assert first_analysis["blind_analysis"]["semantics"]["primary_pillar"] == "unknown"
+
+    second = AccountMediaEnrichment.model_validate(
+        service.enrich(account_id=account_id, limit=1)["enrichment"]
+    )
+
+    assert first_item.platform_video_id == "p2-01"
+    assert second.videos[0].platform_video_id == "p2-02"
+    assert second.enrichment_id != first.enrichment_id
