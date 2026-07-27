@@ -18,7 +18,9 @@ col1, col2 = st.columns([3, 1])
 with col1:
     api_url = st.text_input(
         "后端 API 地址",
-        value=st.session_state.get("api_url", os.environ.get("DISTILLER_API_URL", "http://127.0.0.1:8000")),
+        value=st.session_state.get(
+            "api_url", os.environ.get("DISTILLER_API_URL", "http://127.0.0.1:8000")
+        ),
         placeholder="http://127.0.0.1:8000",
         help="FastAPI 后端地址。本地开发默认 http://127.0.0.1:8000",
     )
@@ -63,6 +65,31 @@ if st.button("🔄 查询状态"):
         st.json(r.json())
     except Exception as exc:
         st.error(f"无法获取 API 状态: {exc}")
+
+st.subheader("🧾 最近任务")
+if st.button("刷新任务历史"):
+    try:
+        response = requests.get(f"{api_url}/api/tasks", params={"limit": 20}, timeout=5)
+        payload = response.json()
+        tasks = payload.get("tasks", [])
+        if tasks:
+            st.dataframe(
+                [
+                    {
+                        "任务": item.get("task_id"),
+                        "状态": item.get("status"),
+                        "进度": item.get("progress"),
+                        "更新时间": item.get("updated_at"),
+                        "错误码": (item.get("error") or {}).get("code"),
+                    }
+                    for item in tasks
+                ],
+                use_container_width=True,
+            )
+        else:
+            st.info("暂无任务记录")
+    except Exception as exc:
+        st.error(f"无法获取任务历史: {exc}")
 
 # ── API 文档链接 ─────────────────────────────────────────────────────
 st.divider()

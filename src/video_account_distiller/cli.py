@@ -27,8 +27,10 @@ from video_account_distiller.collaboration import (
 )
 from video_account_distiller.collection import (
     AccountCollectionService,
+    CollectionProfile,
     build_account_provider,
     build_collection_request,
+    resolve_profile_options,
 )
 from video_account_distiller.comments import CommentAnalysisService
 from video_account_distiller.distillation import (
@@ -38,7 +40,14 @@ from video_account_distiller.distillation import (
 from video_account_distiller.doctor import doctor_report
 from video_account_distiller.errors import EXIT_CODES, DistillerError, ErrorCode
 from video_account_distiller.features import VideoAnalysisService
+from video_account_distiller.growth import AccountGrowthService
 from video_account_distiller.ingestion import ImportService
+from video_account_distiller.insights import AnalysisContextService
+from video_account_distiller.knowledge import (
+    KnowledgeExportService,
+    OpenKBIntegrationService,
+    resolve_openkb_target,
+)
 from video_account_distiller.media import (
     AccountMediaEnrichmentService,
     LocalMediaAnalysisService,
@@ -80,6 +89,14 @@ team_app = typer.Typer(
 account_app = typer.Typer(
     help="Collect and distill an authorized public account homepage.", no_args_is_help=True
 )
+knowledge_app = typer.Typer(
+    help="Export curated evidence-backed knowledge for optional external tools.",
+    no_args_is_help=True,
+)
+openkb_app = typer.Typer(
+    help="Synchronize curated analysis artifacts with a separate OpenKB service.",
+    no_args_is_help=True,
+)
 app.add_typer(import_app, name="import")
 app.add_typer(analyze_app, name="analyze")
 app.add_typer(sync_app, name="sync")
@@ -87,6 +104,8 @@ app.add_typer(batch_app, name="batch")
 app.add_typer(snapshot_app, name="snapshot")
 app.add_typer(team_app, name="team")
 app.add_typer(account_app, name="account")
+app.add_typer(knowledge_app, name="knowledge")
+knowledge_app.add_typer(openkb_app, name="openkb")
 
 T = TypeVar("T")
 
@@ -222,20 +241,33 @@ def doctor_command(
 def account_analyze_command(
     project: Path = typer.Option(..., "--project", help="Initialized analysis project."),
     url: str = typer.Option(..., "--url", help="Public Douyin account homepage URL."),
+    collection_profile: CollectionProfile = typer.Option(
+        CollectionProfile.STANDARD,
+        "--profile",
+        help=(
+            "standard=20 videos; comprehensive=all available plus bounded comments; "
+            "owned=public plus authorized private-data imports."
+        ),
+    ),
     count: int | None = typer.Option(
         None,
         "--count",
         min=1,
         max=20_000,
-        help=("Optional video limit. Omit it to collect every video exposed on the homepage."),
+        help="Maximum videos to collect; profile default applies when omitted.",
+    ),
+    all_videos: bool = typer.Option(
+        False,
+        "--all",
+        help="Collect every homepage video up to safety limits; overrides --count.",
     ),
     sort: CollectionSort = typer.Option(CollectionSort.LATEST, "--sort"),
-    comments_per_video: int = typer.Option(
-        10,
+    comments_per_video: int | None = typer.Option(
+        None,
         "--comments-per-video",
         min=0,
         max=20,
-        help="Collect up to this many public comments from each sampled video; 0 disables.",
+        help="Public top-level comment sample; profile default applies when omitted.",
     ),
     comment_video_limit: int = typer.Option(
         3,
@@ -245,14 +277,21 @@ def account_analyze_command(
         help="Maximum high-comment videos sampled when comment collection is enabled.",
     ),
     provider: CollectionProviderKind = typer.Option(
-        CollectionProviderKind.MEDIACRAWLER,
+        CollectionProviderKind.TIKHUB,
         "--provider",
-        help="Collection engine. MediaCrawler is the local non-commercial research default.",
+        help="Collection engine. TikHub is the documented API default; MediaCrawler is optional.",
     ),
     confirm_provider_cost: bool = typer.Option(
         False,
         "--confirm-provider-cost",
         help="Required only for providers that may charge for API calls, such as TikHub.",
+    ),
+    max_provider_calls: int | None = typer.Option(
+        None,
+        "--max-provider-calls",
+        min=1,
+        max=50_000,
+        help="Hard provider-call ceiling enforced before a non-dry-run collection.",
     ),
     media_limit: int = typer.Option(
         0,
@@ -312,12 +351,18 @@ def account_analyze_command(
     """Turn one Douyin homepage URL into normalized metrics and account distillation."""
 
     def operation() -> dict[str, Any]:
+        resolved_count, resolved_comments = resolve_profile_options(
+            profile=collection_profile,
+            count=count,
+            all_videos=all_videos,
+            comments_per_video=comments_per_video,
+        )
         request = build_collection_request(
             profile_url=url,
-            count=count,
+            count=resolved_count,
             sort=sort,
             provider=provider,
-            comments_per_video=comments_per_video,
+            comments_per_video=resolved_comments,
             comment_video_limit=comment_video_limit,
         )
         layout = ProjectLayout.open(project)
@@ -326,6 +371,8 @@ def account_analyze_command(
             request=request,
             confirm_provider_cost=confirm_provider_cost,
             dry_run=dry_run,
+            collection_profile=collection_profile,
+            max_provider_calls=max_provider_calls,
         )
         if dry_run:
             if media_limit <= 0:
@@ -379,7 +426,7 @@ def account_analyze_command(
 
     result = _execute(operation, json_output=json_output)
     if dry_run:
-        if count is None:
+        if result["request"]["count"] is None:
             human = (
                 f"Validated {url}; collection will continue until the homepage is exhausted "
                 "or the safety guard is reached."
@@ -541,6 +588,235 @@ def account_benchmark_profile_command(
             f"{result['outputs'][0]}"
         ),
     )
+
+
+@account_app.command("growth")
+def account_growth_command(
+    project: Path = typer.Option(..., "--project"),
+    account: str = typer.Option(..., "--account"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Summarize observed follower and account-stat changes across snapshots."""
+    result = _execute(
+        lambda: AccountGrowthService(ProjectLayout.open(project)).summarize(account_id=account),
+        json_output=json_output,
+    )
+    changes = result.get("changes")
+    follower_delta = None if changes is None else changes["followers"]["delta"]
+    _emit(
+        result,
+        json_output=json_output,
+        human=(
+            f"Growth history for {account}: {result['snapshot_count']} snapshots; "
+            f"follower delta={follower_delta}"
+        ),
+    )
+
+
+@account_app.command("context")
+def account_context_command(
+    project: Path = typer.Option(..., "--project"),
+    account: str = typer.Option(..., "--account"),
+    max_video_analyses: int = typer.Option(
+        10,
+        "--max-video-analyses",
+        min=1,
+        max=50,
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Build a bounded evidence payload for GPT-compatible analysis."""
+    result = _execute(
+        lambda: AnalysisContextService(ProjectLayout.open(project)).build(
+            account_id=account,
+            max_video_analyses=max_video_analyses,
+        ),
+        json_output=json_output,
+    )
+    _emit(
+        result,
+        json_output=json_output,
+        human=(
+            f"Built analysis context for {account}: "
+            f"{result['data_availability']['account_videos']} videos, "
+            f"{len(result['source_paths'])} evidence artifacts"
+        ),
+    )
+
+
+def _openkb_integration(
+    *,
+    project: Path,
+    base_url: str | None,
+    kb: str | None,
+    token_env: str,
+    timeout_seconds: int,
+    require_remote_token: bool = True,
+) -> OpenKBIntegrationService:
+    layout = ProjectLayout.open(project)
+    target, token = resolve_openkb_target(
+        layout,
+        base_url=base_url,
+        kb=kb,
+        token_env=token_env,
+        timeout_seconds=timeout_seconds,
+        require_remote_token=require_remote_token,
+    )
+    return OpenKBIntegrationService.from_target(layout, target, token=token)
+
+
+@openkb_app.command("export")
+def openkb_export_command(
+    project: Path = typer.Option(..., "--project"),
+    account: str = typer.Option(..., "--account"),
+    max_video_analyses: int = typer.Option(10, "--max-video-analyses", min=1, max=25),
+    max_export_bytes: int = typer.Option(
+        1_000_000,
+        "--max-export-bytes",
+        min=10_000,
+        max=5_000_000,
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Build a deterministic, privacy-aware account knowledge document."""
+    result = _execute(
+        lambda: KnowledgeExportService(ProjectLayout.open(project)).export_account(
+            account_id=account,
+            max_video_analyses=max_video_analyses,
+            max_export_bytes=max_export_bytes,
+            dry_run=dry_run,
+        ),
+        json_output=json_output,
+    )
+    _emit(
+        result,
+        json_output=json_output,
+        human=(
+            f"{'Would export' if dry_run else 'Exported'} curated knowledge for "
+            f"{account}: {result['document_path']}"
+        ),
+    )
+
+
+@openkb_app.command("sync")
+def openkb_sync_command(
+    project: Path = typer.Option(..., "--project"),
+    account: str = typer.Option(..., "--account"),
+    base_url: str | None = typer.Option(None, "--base-url"),
+    kb: str | None = typer.Option(None, "--kb"),
+    token_env: str = typer.Option("DISTILLER_OPENKB_API_TOKEN", "--token-env"),
+    timeout_seconds: int = typer.Option(600, "--timeout-seconds", min=1, max=1800),
+    confirm_model_processing: bool = typer.Option(
+        False,
+        "--confirm-model-processing",
+        help="Confirm that OpenKB compilation may invoke a paid or remote model.",
+    ),
+    create_kb: bool = typer.Option(True, "--create-kb/--no-create-kb"),
+    force: bool = typer.Option(False, "--force"),
+    max_video_analyses: int = typer.Option(10, "--max-video-analyses", min=1, max=25),
+    max_export_bytes: int = typer.Option(
+        1_000_000,
+        "--max-export-bytes",
+        min=10_000,
+        max=5_000_000,
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """One-way sync a curated account document into OpenKB."""
+    result = _execute(
+        lambda: _openkb_integration(
+            project=project,
+            base_url=base_url,
+            kb=kb,
+            token_env=token_env,
+            timeout_seconds=timeout_seconds,
+            require_remote_token=not dry_run,
+        ).sync_account(
+            account_id=account,
+            confirm_model_processing=confirm_model_processing,
+            create_kb=create_kb,
+            force=force,
+            max_video_analyses=max_video_analyses,
+            max_export_bytes=max_export_bytes,
+            dry_run=dry_run,
+        ),
+        json_output=json_output,
+    )
+    _emit(
+        result,
+        json_output=json_output,
+        human=(
+            f"{'OpenKB sync plan' if dry_run else 'OpenKB sync'} for {account}: "
+            f"{result.get('status', 'ready')}"
+        ),
+    )
+
+
+@openkb_app.command("status")
+def openkb_status_command(
+    project: Path = typer.Option(..., "--project"),
+    account: str = typer.Option(..., "--account"),
+    base_url: str | None = typer.Option(None, "--base-url"),
+    kb: str | None = typer.Option(None, "--kb"),
+    token_env: str = typer.Option("DISTILLER_OPENKB_API_TOKEN", "--token-env"),
+    timeout_seconds: int = typer.Option(60, "--timeout-seconds", min=1, max=1800),
+    remote: bool = typer.Option(False, "--remote"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Inspect local sync state and optionally the remote OpenKB status."""
+    result = _execute(
+        lambda: _openkb_integration(
+            project=project,
+            base_url=base_url,
+            kb=kb,
+            token_env=token_env,
+            timeout_seconds=timeout_seconds,
+            require_remote_token=remote,
+        ).status(account_id=account, remote=remote),
+        json_output=json_output,
+    )
+    state = "not synced" if result["sync"] is None else "synced"
+    _emit(
+        result,
+        json_output=json_output,
+        human=f"OpenKB knowledge for {account}: {state}",
+    )
+
+
+@openkb_app.command("query")
+def openkb_query_command(
+    question: str = typer.Argument(..., help="Question for the compiled knowledge base."),
+    project: Path = typer.Option(..., "--project"),
+    base_url: str | None = typer.Option(None, "--base-url"),
+    kb: str | None = typer.Option(None, "--kb"),
+    token_env: str = typer.Option("DISTILLER_OPENKB_API_TOKEN", "--token-env"),
+    timeout_seconds: int = typer.Option(600, "--timeout-seconds", min=1, max=1800),
+    confirm_model_processing: bool = typer.Option(
+        False,
+        "--confirm-model-processing",
+        help="Confirm that the query may invoke a paid or remote model.",
+    ),
+    save: bool = typer.Option(False, "--save"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Query derived OpenKB knowledge while preserving Distiller as source of truth."""
+    result = _execute(
+        lambda: _openkb_integration(
+            project=project,
+            base_url=base_url,
+            kb=kb,
+            token_env=token_env,
+            timeout_seconds=timeout_seconds,
+        ).query(
+            question=question,
+            confirm_model_processing=confirm_model_processing,
+            save=save,
+        ),
+        json_output=json_output,
+    )
+    _emit(result, json_output=json_output, human=str(result["answer"]))
 
 
 def _import_command(

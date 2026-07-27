@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import os
 import time
+from typing import Any
+from urllib.parse import quote
 
 import requests
 import streamlit as st
@@ -41,33 +43,74 @@ st.sidebar.caption("💡 先在「设置」页测试 API 连接，再使用本�
 # ── 表单 ──────────────────────────────────────────────────────────────
 
 with st.form("collection_form"):
-    col_url, col_count = st.columns([3, 1])
+    col_url, col_profile, col_provider = st.columns([3, 1, 1])
     with col_url:
         profile_url = st.text_input(
             "📎 抖音主页链接",
             placeholder="https://www.douyin.com/user/MS4wLjABAAAA...",
             help="抖音创作者的主页 URL",
         )
+    with col_profile:
+        profile = st.selectbox(
+            "采集档位",
+            ["standard", "comprehensive", "owned"],
+            help="标准=20条无评论；深度=尽可能完整并采样评论；自有=等待授权私域数据",
+        )
+    with col_provider:
+        provider = st.selectbox("采集引擎", ["tikhub", "mediacrawler"])
+
+    use_count_limit = st.checkbox(
+        "使用视频数量上限",
+        value=profile != "comprehensive",
+        help="关闭后采集主页可用作品，仍受 1,000 页/20,000 条安全限制",
+    )
+    col_count, col_budget = st.columns(2)
     with col_count:
-        count = st.number_input("采集视频数", min_value=1, max_value=100, value=10,
-                                help="拉取最近 N 个视频（最多 100）")
+        count = st.number_input(
+            "视频数量上限",
+            min_value=1,
+            max_value=20_000,
+            value=20,
+            disabled=not use_count_limit,
+            help="启用后最多采集 N 条作品",
+        )
+    with col_budget:
+        max_provider_calls = st.number_input(
+            "最大 Provider 调用数",
+            min_value=1,
+            max_value=50_000,
+            value=10,
+            help="执行前硬性检查；超出不会访问平台",
+        )
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        sort = st.selectbox("排序方式", ["latest", "popular"],
-                            help="latest=最新发布, popular=最热门")
+        sort = st.selectbox(
+            "排序方式", ["latest", "popular"], help="latest=最新发布, popular=最热门"
+        )
     with col2:
-        comments_per_video = st.number_input("每条视频采集评论数", min_value=0, max_value=20, value=0,
-                                             help="0=不采集评论。拉取评论会产生额外 API 费用")
+        comments_per_video = st.number_input(
+            "每条视频采集评论数",
+            min_value=0,
+            max_value=20,
+            value=20 if profile == "comprehensive" else 0,
+            help="0=不采集评论。拉取评论会产生额外 API 费用",
+        )
     with col3:
-        comment_video_limit = st.number_input("评论采集视频上限", min_value=1, max_value=10, value=3,
-                                              help="最多对几个视频拉取评论")
+        comment_video_limit = st.number_input(
+            "评论采集视频上限", min_value=1, max_value=10, value=3, help="最多对几个视频拉取评论"
+        )
 
-    submitted = st.form_submit_button("🔍 先预览 (dry-run)", type="secondary", use_container_width=True)
-    confirm = st.form_submit_button("🚀 确认采集分析 (需要付费)", type="primary", use_container_width=True)
+    submitted = st.form_submit_button(
+        "🔍 先预览 (dry-run)", type="secondary", use_container_width=True
+    )
+    confirm = st.form_submit_button(
+        "🚀 确认执行（TikHub 可能付费）", type="primary", use_container_width=True
+    )
 
 
 # ── 处理 ──────────────────────────────────────────────────────────────
+
 
 def _submit(dry_run: bool) -> None:
     if not profile_url:
@@ -80,14 +123,17 @@ def _submit(dry_run: bool) -> None:
     with st.spinner("提交采集任务..."):
         try:
             r = requests.post(
-                f"{api_url}/api/projects/{project_path}/collection/analyze",
+                (f"{api_url}/api/projects/{quote(project_path, safe='')}/collection/analyze"),
                 json={
                     "url": profile_url,
-                    "count": count,
+                    "profile": profile,
+                    "provider": provider,
+                    "count": int(count) if use_count_limit else None,
                     "sort": sort,
-                    "comments_per_video": comments_per_video,
-                    "comment_video_limit": comment_video_limit,
-                    "confirm_provider_cost": not dry_run,
+                    "comments_per_video": int(comments_per_video),
+                    "comment_video_limit": int(comment_video_limit),
+                    "max_provider_calls": int(max_provider_calls),
+                    "confirm_provider_cost": not dry_run and provider == "tikhub",
                 },
                 params={"dry_run": str(dry_run).lower()},
                 timeout=30,
@@ -143,15 +189,34 @@ def _submit(dry_run: bool) -> None:
     status_placeholder.warning("⏰ 等待超时，请稍后手动查询任务状态")
 
 
-def _show_result(result: dict) -> None:
+def _show_result(result: dict[str, Any]) -> None:
     if not result:
         return
 
     st.divider()
+    if result.get("dry_run"):
+        st.subheader("🧾 采集预演")
+        calls = result.get("provider_calls", {})
+        budget = result.get("budget", {})
+        c1, c2, c3 = st.columns(3)
+        c1.metric("最大调用数", calls.get("total_max", 0))
+        c2.metric("可能计费调用", result.get("billing", {}).get("chargeable_calls_max", 0))
+        c3.metric("预算内", "是" if budget.get("within_limit") else "否")
+        st.json(
+            {
+                "采集范围": result.get("collection_scope"),
+                "预算": budget,
+                "能力与缺口": result.get("capabilities"),
+                "可能写入": result.get("would_write"),
+            }
+        )
+        return
+
     st.subheader("📊 采集结果")
 
     account = result.get("account", {})
     collection = result.get("collection", {})
+    coverage = result.get("coverage", {})
 
     # 账号信息
     c1, c2, c3, c4 = st.columns(4)
@@ -163,6 +228,9 @@ def _show_result(result: dict) -> None:
         st.metric("采集视频数", collection.get("videos", 0))
     with c4:
         st.metric("评论数", collection.get("comments", 0))
+    if coverage:
+        with st.expander("🎯 查看实际覆盖率"):
+            st.json(coverage)
 
     # 报告
     report = result.get("report", {})

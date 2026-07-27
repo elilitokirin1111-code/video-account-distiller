@@ -140,6 +140,13 @@ def test_account_url_runs_existing_normalized_report_and_distillation_pipeline(
     assert result["collection"]["videos"] == 10
     assert result["collection"]["comments"] == 4
     assert result["collection"]["comment_videos"] == 2
+    assert result["coverage"]["status"] == "complete_for_declared_scope"
+    assert result["coverage"]["videos"]["status"] == "requested_limit_reached"
+    assert (
+        result["coverage"]["comments"]["scope"]
+        == "bounded_top_level_sample_not_full_comment_universe"
+    )
+    assert result["coverage"]["account_snapshot"]["followers"] is True
     assert result["normalization"]["counts"]["accounts"] == 1
     assert result["normalization"]["counts"]["videos"] == 10
     assert result["normalization"]["counts"]["metrics"] == 10

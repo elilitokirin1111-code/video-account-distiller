@@ -1,6 +1,6 @@
 """Distiller Web — 一体化 Web 应用.
 
-    uv run distiller-web
+uv run distiller-web
 """
 
 from __future__ import annotations
@@ -55,11 +55,17 @@ def main() -> None:
 
     subprocess.run(
         [
-            sys.executable, "-m", "streamlit", "run",
+            sys.executable,
+            "-m",
+            "streamlit",
+            "run",
             str(web_dir / "home.py"),
-            "--server.port", str(web_port),
-            "--server.headless", "true",
-            "--browser.serverAddress", "localhost",
+            "--server.port",
+            str(web_port),
+            "--server.headless",
+            "true",
+            "--browser.serverAddress",
+            "localhost",
         ],
         env=env,
     )

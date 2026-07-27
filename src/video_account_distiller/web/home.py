@@ -3,26 +3,28 @@
 import os
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import requests
 import streamlit as st
 
-st.set_page_config(page_title="Distiller 仪表盘", page_icon="📊", layout="wide",
-                   initial_sidebar_state="expanded")
+st.set_page_config(
+    page_title="Distiller 仪表盘", page_icon="📊", layout="wide", initial_sidebar_state="expanded"
+)
 
 # ── 侧边栏 ───────────────────────────────────────────────────────────
 st.sidebar.title("📊 Video Account Distiller")
 st.sidebar.caption("v1.0.0 — 基于证据的视频账号分析")
 
 api_url = st.sidebar.text_input(
-    "🔗 后端 API", value=os.environ.get("DISTILLER_API_URL", "http://127.0.0.1:8000"),
-    help="FastAPI 服务地址，可按需更换"
+    "🔗 后端 API",
+    value=os.environ.get("DISTILLER_API_URL", "http://127.0.0.1:8000"),
+    help="FastAPI 服务地址，可按需更换",
 )
 st.session_state["api_url"] = api_url
 
 project_path = st.sidebar.text_input(
-    "📁 项目路径", value=str(Path.home() / "distiller-demo"),
-    help="Distiller 项目目录的绝对路径"
+    "📁 项目路径", value=str(Path.home() / "distiller-demo"), help="Distiller 项目目录的绝对路径"
 )
 st.session_state["project_path"] = project_path
 
@@ -30,33 +32,40 @@ st.sidebar.divider()
 
 if st.sidebar.button("🚀 初始化项目", use_container_width=True):
     try:
-        r = requests.post(f"{api_url}/api/projects/init",
-                          json={"path": project_path, "name": Path(project_path).name}, timeout=10)
-        if r.json().get("ok"):
+        init_response = requests.post(
+            f"{api_url}/api/projects/init",
+            json={"path": project_path, "name": Path(project_path).name},
+            timeout=10,
+        )
+        if init_response.json().get("ok"):
             st.sidebar.success("项目已就绪 ✅")
-    except Exception as e:
-        st.sidebar.error(f"API 未连接: {e}")
+    except (requests.RequestException, ValueError) as exc:
+        st.sidebar.error(f"API 未连接: {exc}")
 
 st.sidebar.markdown("---")
 st.sidebar.caption("💡 其他页面在左侧导航栏 →")
 st.sidebar.caption("⬆️ 如果看不到，点击左上角 `>` 展开")
 
 
-def _api(path: str) -> dict:
+def _api(path: str) -> dict[str, Any]:
     try:
-        return requests.get(f"{api_url}{path}", timeout=15).json()
-    except Exception:
+        payload: Any = requests.get(f"{api_url}{path}", timeout=15).json()
+        return payload if isinstance(payload, dict) else {}
+    except (requests.RequestException, ValueError):
         return {}
+
 
 # ── 主页内容 ─────────────────────────────────────────────────────────
 st.title("📊 Video Account Distiller")
-st.caption("基于证据的视频账号分析平台 — 抖音 · B站 · YouTube · TikTok · 小红书 · Instagram · 微信视频号")
+st.caption(
+    "基于证据的视频账号分析平台 — 抖音 · B站 · YouTube · TikTok · 小红书 · Instagram · 微信视频号"
+)
 st.caption(f"🕐 {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
 # 刷新状态
 if st.button("🔄 刷新项目状态", type="primary"):
-    r = _api(f"/api/projects/{project_path}/status")
-    st.session_state["status"] = r
+    status_payload = _api(f"/api/projects/{project_path}/status")
+    st.session_state["status"] = status_payload
 
 status = st.session_state.get("status", {})
 project = status.get("project", {})
@@ -123,12 +132,18 @@ else:
     st.subheader("⏱️ 操作时间线")
     timeline = []
     for field, label in [
-        ("last_video_analysis_at", "🎬 视频分析"), ("last_comment_analysis_at", "💬 评论分析"),
-        ("last_media_analysis_at", "📹 媒体分析"), ("last_distillation_at", "🏭 账号提炼"),
-        ("last_report_at", "📄 报告"), ("last_metrics_at", "📈 指标"),
-        ("last_normalized_at", "📐 标准化"), ("last_sample_at", "🎯 抽样"),
-        ("last_scoring_at", "⭐ 评分"), ("last_prediction_at", "🔮 预测"),
-        ("last_publication_at", "📤 发布"), ("last_retro_at", "🔄 复盘"),
+        ("last_video_analysis_at", "🎬 视频分析"),
+        ("last_comment_analysis_at", "💬 评论分析"),
+        ("last_media_analysis_at", "📹 媒体分析"),
+        ("last_distillation_at", "🏭 账号提炼"),
+        ("last_report_at", "📄 报告"),
+        ("last_metrics_at", "📈 指标"),
+        ("last_normalized_at", "📐 标准化"),
+        ("last_sample_at", "🎯 抽样"),
+        ("last_scoring_at", "⭐ 评分"),
+        ("last_prediction_at", "🔮 预测"),
+        ("last_publication_at", "📤 发布"),
+        ("last_retro_at", "🔄 复盘"),
     ]:
         ts = status.get(field)
         if ts:

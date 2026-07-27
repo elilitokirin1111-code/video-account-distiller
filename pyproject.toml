@@ -32,7 +32,9 @@ distiller-web = "video_account_distiller.web.app:main"
 
 [dependency-groups]
 dev = [
+  "httpx2>=2.9,<3",
   "mypy>=1.16,<2",
+  "numpy>=2,<2.5",
   "pytest>=8.4,<9",
   "pytest-cov>=6.2,<8",
   "pytest-socket>=0.7,<1",
@@ -52,6 +54,7 @@ include = [
   "/skills/video-account-distiller",
   "/tools/release_acceptance.py",
   "/docs/production-release.md",
+  "/docs/product-direction.md",
   "/docs/phase8-account-url-analysis.md",
   "/docs/account-media-enrichment.md",
   "/docs/phase8-media-enrichment-acceptance-2026-07-23.md",

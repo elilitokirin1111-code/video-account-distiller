@@ -3,22 +3,22 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from video_account_distiller.api.tasks import TaskStore
 from video_account_distiller.errors import DistillerError
 from video_account_distiller.logging import configure_logging
 
-# In-memory task tracking: task_id -> TaskStatus dict
-_task_store: dict[str, dict[str, Any]] = {}
 
-
-def create_app() -> FastAPI:
+def create_app(task_db_path: Path | str | None = None) -> FastAPI:
     """Build the FastAPI app with all routers and middleware."""
     configure_logging()
+    task_store = TaskStore(task_db_path)
 
     app = FastAPI(
         title="Video Account Distiller API",
@@ -56,6 +56,8 @@ def create_app() -> FastAPI:
     from video_account_distiller.api.router_distillation import router as distillation_router
     from video_account_distiller.api.router_doctor import router as doctor_router
     from video_account_distiller.api.router_import import router as import_router
+    from video_account_distiller.api.router_insights import router as insights_router
+    from video_account_distiller.api.router_knowledge import router as knowledge_router
     from video_account_distiller.api.router_projects import router as projects_router
     from video_account_distiller.api.router_reports import router as reports_router
     from video_account_distiller.api.router_status import router as status_router
@@ -64,6 +66,8 @@ def create_app() -> FastAPI:
     app.include_router(projects_router, prefix="/api", tags=["Projects"])
     app.include_router(status_router, prefix="/api/projects", tags=["Status"])
     app.include_router(import_router, prefix="/api/projects", tags=["Import"])
+    app.include_router(insights_router, prefix="/api/projects", tags=["Insights"])
+    app.include_router(knowledge_router, prefix="/api/projects", tags=["Knowledge"])
     app.include_router(analysis_router, prefix="/api/projects", tags=["Analysis"])
     app.include_router(distillation_router, prefix="/api/projects", tags=["Distillation"])
     app.include_router(closed_loop_router, prefix="/api/projects", tags=["Closed Loop"])
@@ -71,24 +75,19 @@ def create_app() -> FastAPI:
     app.include_router(collection_router, prefix="/api/projects", tags=["Collection"])
 
     # Task status endpoint
+    @app.get("/api/tasks", tags=["Tasks"])
+    async def list_tasks(limit: int = 50, status: str | None = None) -> dict[str, Any]:
+        tasks = task_store.list(limit=limit, status=status)
+        return {"ok": True, "tasks": tasks, "count": len(tasks)}
+
     @app.get("/api/tasks/{task_id}", tags=["Tasks"])
     async def get_task(task_id: str) -> dict[str, Any]:
-        task = _task_store.get(task_id)
+        task = task_store.get(task_id)
         if task is None:
             raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
         return task
 
-    def _register_task(task_id: str, status: str = "pending", **extra: Any) -> None:
-        _task_store[task_id] = {"task_id": task_id, "status": status, "progress": 0, **extra}
-
-    def _update_task(task_id: str, **fields: Any) -> None:
-        if task_id in _task_store:
-            _task_store[task_id].update(fields)
-
-    # Attach helpers to app state so routers can use them
-    app.state.tasks = _task_store
-    app.state.register_task = _register_task
-    app.state.update_task = _update_task
+    app.state.tasks = task_store
 
     @app.get("/api/health", tags=["Health"])
     async def health() -> dict[str, str]:

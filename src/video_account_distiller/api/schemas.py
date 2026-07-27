@@ -12,6 +12,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from video_account_distiller.collection import CollectionProfile
 from video_account_distiller.models import (
     CollectionProviderKind,
     CollectionSort,
@@ -167,9 +168,34 @@ class RetroParams(BaseModel):
 
 class CollectionAnalyzeParams(BaseModel):
     url: str = Field(..., min_length=1, max_length=2048)
-    count: int = Field(default=10, ge=1, le=100)
+    profile: CollectionProfile = CollectionProfile.STANDARD
+    count: int | None = Field(default=None, ge=1, le=20_000)
+    all_videos: bool = False
     sort: CollectionSort = CollectionSort.LATEST
     provider: CollectionProviderKind = CollectionProviderKind.TIKHUB
-    comments_per_video: int = Field(default=0, ge=0, le=20)
+    comments_per_video: int | None = Field(default=None, ge=0, le=20)
     comment_video_limit: int = Field(default=3, ge=1, le=10)
+    max_provider_calls: int | None = Field(default=None, ge=1, le=50_000)
     confirm_provider_cost: bool = False
+
+
+# ---------------------------------------------------------------------------
+# Curated knowledge / OpenKB
+# ---------------------------------------------------------------------------
+
+
+class KnowledgeExportParams(BaseModel):
+    max_video_analyses: int = Field(default=10, ge=1, le=25)
+    max_export_bytes: int = Field(default=1_000_000, ge=10_000, le=5_000_000)
+
+
+class OpenKBSyncParams(KnowledgeExportParams):
+    confirm_model_processing: bool = False
+    create_kb: bool = True
+    force: bool = False
+
+
+class OpenKBQueryParams(BaseModel):
+    question: str = Field(min_length=1, max_length=8_000)
+    confirm_model_processing: bool = False
+    save: bool = False

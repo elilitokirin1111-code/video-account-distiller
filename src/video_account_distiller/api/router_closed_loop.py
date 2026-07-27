@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -15,46 +14,27 @@ from video_account_distiller.api.schemas import (
     RetroParams,
     ScoreParams,
 )
+from video_account_distiller.api.tasks import enqueue_task
 from video_account_distiller.closed_loop import (
     PredictionService,
     PublicationService,
     RetroService,
     ScoringService,
 )
-from video_account_distiller.utils.ids import new_run_id
 
 router = APIRouter()
-
-
-def _spawn(tasks: dict, fn: Any, *args: Any, **kwargs: Any) -> dict[str, Any]:
-    task_id = new_run_id()
-    tasks[task_id] = {"task_id": task_id, "status": "pending", "progress": 0}
-
-    async def _runner() -> None:
-        try:
-            tasks[task_id]["status"] = "running"
-            result = await asyncio.to_thread(fn, *args, **kwargs)
-            tasks[task_id].update(status="completed", result=result)
-        except Exception as exc:
-            tasks[task_id].update(
-                status="failed",
-                error={"code": getattr(exc, "code", "E_INTERNAL"), "message": str(exc)},
-            )
-
-    asyncio.ensure_future(_runner())
-    return {"ok": True, "task_id": task_id, "status": "pending"}
 
 
 @router.post("/{project_path:path}/score/{account_id}")
 async def score(
     project_path: str,
     account_id: str,
+    request: Request,
     body: ScoreParams,
     dry_run: bool = False,
-    request: Request = None,  # type: ignore[assignment]
 ) -> dict[str, Any]:
     layout = resolve_project(project_path)
-    return _spawn(
+    return enqueue_task(
         request.app.state.tasks,
         ScoringService(layout).score,
         account_id=account_id,
@@ -72,12 +52,12 @@ async def score(
 async def predict(
     project_path: str,
     account_id: str,
+    request: Request,
     body: PredictParams,
     dry_run: bool = False,
-    request: Request = None,  # type: ignore[assignment]
 ) -> dict[str, Any]:
     layout = resolve_project(project_path)
-    return _spawn(
+    return enqueue_task(
         request.app.state.tasks,
         PredictionService(layout).predict,
         account_id=account_id,
@@ -96,12 +76,12 @@ async def predict(
 async def publish(
     project_path: str,
     prediction_id: str,
+    request: Request,
     body: PublishParams,
     dry_run: bool = False,
-    request: Request = None,  # type: ignore[assignment]
 ) -> dict[str, Any]:
     layout = resolve_project(project_path)
-    return _spawn(
+    return enqueue_task(
         request.app.state.tasks,
         PublicationService(layout).register,
         prediction_id=prediction_id,
@@ -117,12 +97,12 @@ async def publish(
 async def retro(
     project_path: str,
     publication_id: str,
-    body: RetroParams = RetroParams(),
+    request: Request,
+    body: RetroParams = RetroParams(target_age_hours=None),
     dry_run: bool = False,
-    request: Request = None,  # type: ignore[assignment]
 ) -> dict[str, Any]:
     layout = resolve_project(project_path)
-    return _spawn(
+    return enqueue_task(
         request.app.state.tasks,
         RetroService(layout).run,
         publication_id=publication_id,
