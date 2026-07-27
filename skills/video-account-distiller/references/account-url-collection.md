@@ -2,96 +2,103 @@
 
 Use this workflow only for a user-approved public Douyin homepage.
 
-## Provider choice
+## Profiles and provider choice
 
-Use `mediacrawler` by default for the declared personal, non-commercial research workflow. It uses
-the repository-pinned submodule and a visible dedicated Chrome profile. The user performs login or
-platform verification manually. Never invoke MediaCrawler proxy, stealth, automatic-login,
-slider/CAPTCHA, or risk-control-evasion features.
+`standard` is the default: TikHub, 20 homepage videos, latest order, no comments. TikHub is a paid
+API, so keep `TIKHUB_API_KEY` in the environment, preview first, and require
+`--confirm-provider-cost` for execution.
 
-Use `tikhub` only when the user explicitly wants the API route and accepts its current billing.
-Keep `TIKHUB_API_KEY` in the local environment, always preview, and require
-`--confirm-provider-cost` for real TikHub calls.
+`comprehensive` means all Provider-exposed homepage videos up to the 1,000-page/20,000-video
+emergency guards, plus at most 20 top-level comments from each of three sampled videos. It does not
+mean every comment, replies, deleted content, fan profiles, private creator metrics, or unlimited
+media download.
 
-## Run
+`owned` keeps public collection bounded while signaling that authorized platform exports or
+official table/API connectors will be imported separately. The public Provider cannot supply
+completion, watch time, conversion, revenue, traffic-source, or fan-demographic data.
 
-Preview first. Dry-run performs no network access, browser launch, or project writes:
+Use `mediacrawler` only for the declared personal, non-commercial research workflow. It uses the
+repository-pinned sidecar and a visible dedicated browser profile. The user performs login or
+platform verification manually. Never invoke proxy, stealth, automatic-login, slider/CAPTCHA, or
+risk-control-evasion features.
+
+## Preview and run
+
+Dry-run performs no network access, browser launch, or project writes:
 
 ```bash
 uv run distiller account analyze --project <dir> --url <url> \
-  --sort latest --dry-run --json
+  --profile standard --max-provider-calls 10 --dry-run --json
 ```
 
-Run the default complete workflow:
+Review these fields:
+
+- `collection_scope`: requested video/comment limits and emergency termination.
+- `provider_calls`: maximum endpoint calls before execution.
+- `budget`: whether the explicit hard ceiling is sufficient.
+- `billing`: maximum potentially chargeable calls.
+- `capabilities`: available evidence and fields that are not guaranteed.
+
+Execute TikHub only after approval:
 
 ```bash
 uv run distiller account analyze --project <dir> --url <url> \
-  --sort latest --json
-
+  --profile standard --max-provider-calls 10 \
+  --confirm-provider-cost --json
 uv run distiller validate --project <dir> --json
 ```
 
-The first run may prepare the pinned sidecar environment and open Chrome. Keep the browser visible;
-the user must complete login or verification. The dedicated profile is outside the analysis
-project and repository.
-
-When the user requests local Microsoft Edge, set
-`MEDIACRAWLER_BROWSER_CHANNEL=msedge`; it uses a separate dedicated Edge profile and preserves the
-same manual-authentication boundary.
-For a slower first login, set `MEDIACRAWLER_LOGIN_TIMEOUT_SECONDS` to an integer from 30 through
-900. Page navigation during manual authentication is transient until that bounded timeout expires.
-Full-homepage collection allows up to 3,600 seconds by default. Set
-`MEDIACRAWLER_PROCESS_TIMEOUT_SECONDS` from 60 through 3,600 only to tighten that local process
-deadline; never use timeout changes to evade platform verification or limits.
-
-The CLI defaults to every Provider-exposed homepage video and stops when `has_more` is false.
-`--count <1-20000>` is an optional explicit limit. Full-homepage mode also detects repeated
-cursors and has a 1,000-page/20,000-video emergency guard; disclose a safety-limit warning as
-incomplete collection. Comments remain bounded at 10 comments per video from at most three
-high-comment collected videos. Use `--comments-per-video 0` when the user wants a smaller
-personal-data scope; allowed maxima are 20 comments for each of at most 10 sampled videos.
-
-For the optional paid API route:
+For comprehensive planning:
 
 ```bash
 uv run distiller account analyze --project <dir> --url <url> \
-  --provider tikhub --dry-run --json
-
-uv run distiller account analyze --project <dir> --url <url> \
-  --provider tikhub --confirm-provider-cost --json
+  --profile comprehensive --dry-run --json
 ```
 
-## Interpret
+The potentially large plan must be narrowed with `--count`, `--comments-per-video`, and
+`--comment-video-limit`, or explicitly bounded with `--max-provider-calls`, before execution.
 
-The command returns public account/profile rows, videos, visible interaction snapshots, bounded
-top-level comments, immutable Provider evidence, normalized Parquet, robust metrics, account-health
-artifacts, comment-demand analysis, account distillation, and a reusable `abp_*` benchmark profile.
-Later runs retain earlier raw batches and profiles, so new accounts or newer snapshots can be
-compared without re-entering old data.
+For the optional local research sidecar:
 
-Public homepage data usually lacks completion rate, average watch time, follower count at
-publication, full comment coverage/reply trees, traffic source, audience composition, and
-promotion truth. Preserve these as unknown. Describe the first output as quantitative homepage
-distillation until transcripts or local media analysis add semantic evidence.
+```bash
+uv run distiller account analyze --project <dir> --url <url> \
+  --provider mediacrawler --count 20 --dry-run --json
+```
 
-Popular sort covers the complete Provider-exposed homepage set in default full mode. When an
-explicit `--count` is supplied, popular sort is only within the bounded pool read for that request.
-Comments are biased samples, not the whole audience. Raw pages may contain public identifiers;
-canonical comments retain only author hashes and analysis uses direct-identifier redaction.
+The first run may prepare the sidecar and open Chrome. Keep it visible and let the user complete
+login. `MEDIACRAWLER_BROWSER_CHANNEL=msedge` selects a dedicated Edge profile.
+`MEDIACRAWLER_LOGIN_TIMEOUT_SECONDS` may be 30–900 and
+`MEDIACRAWLER_PROCESS_TIMEOUT_SECONDS` may be 60–3,600; never use timeout changes to evade controls.
 
-Homepage collection defaults to metadata-only. When the user separately approves actual public
-video processing, pass `--media-limit <1-10>` or use the existing account ID with
-`distiller account enrich-media`. Read `account-media-enrichment.md`; keep signed URLs inside the
-raw batch and all media/transcription local.
+## Interpret coverage
+
+The execution result includes `coverage`:
+
+- Video status states whether the requested limit was reached, the Provider was exhausted, or an
+  emergency guard stopped collection.
+- Comment status always says `bounded_top_level_sample_not_full_comment_universe`.
+- Account snapshot flags show whether follower, following, total-like, and video-count values were
+  observed.
+- Warnings expose degraded comment/detail calls and missing public fields.
+
+Repeated collection preserves earlier raw batches and normalized account snapshots. Use
+`distiller account growth` only after at least two time-separated snapshots. Missing metrics remain
+unknown; never substitute zero.
+
+Homepage collection is metadata-only by default. Actual media processing requires separate
+approval and a bounded `--media-limit <1-10>` with MediaCrawler retained detail evidence, or a later
+`distiller account enrich-media` run. Keep signed URLs inside raw evidence and all media/transcript
+processing local unless the user separately approves remote processing.
 
 ## Failure handling
 
 - `E_PROFILE_URL_INVALID`: request a valid public HTTPS Douyin homepage.
-- `E_MEDIACRAWLER_UNAVAILABLE`: initialize the submodule and inspect `distiller doctor --json`.
-- `E_BROWSER_LOGIN_REQUIRED`: rerun and let the user complete login in visible Chrome.
+- `E_COLLECTION_BUDGET_EXCEEDED`: reduce scope or approve a higher call ceiling.
+- `E_PROVIDER_COST_CONFIRMATION_REQUIRED`: review dry-run billing and obtain approval.
+- `E_MEDIACRAWLER_UNAVAILABLE`: initialize the sidecar and inspect `distiller doctor --json`.
+- `E_BROWSER_LOGIN_REQUIRED`: rerun and let the user complete visible login.
 - `E_COLLECTION_TIMEOUT`: reduce scope or inspect the visible browser; do not evade controls.
-- `E_PROVIDER_COST_CONFIRMATION_REQUIRED`: TikHub only; preview and obtain cost approval.
-- `E_ADAPTER_AUTH`: TikHub only; inspect key presence without exposing its value.
+- `E_ADAPTER_AUTH`: inspect token presence without printing its value.
 - `E_RATE_LIMIT`: stop and retry later; never bypass a limit.
 - `E_ADAPTER_RESPONSE`: preserve no invented data; repair only the Provider mapping.
 

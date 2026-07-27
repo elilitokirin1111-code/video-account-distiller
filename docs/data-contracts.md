@@ -238,14 +238,14 @@ do not claim that platform collection occurred.
 | `raw/account-collections/<provider>/<sha256>/comments.json` | optional `CollectedComment[]` | Provider comment ID |
 
 `AccountCollectionRequest` allows only HTTPS `douyin.com` hosts, no URL credentials, and no custom
-port. `count=null` is the default and means “continue until the Provider reports that the homepage
-is exhausted”; an explicit count from 1 through 20,000 is an optional limit. Full-homepage mode has
-a 1,000-page/20,000-video emergency guard, repeated-cursor detection, and a visible warning if the
-guard rather than Provider exhaustion stops collection. The default Provider is `mediacrawler`;
-`tikhub` is an explicit alternative. Comment sampling defaults to 10 top-level comments for each
-of at most three high-comment collected videos, is capped at 20 comments for each of at most 10
-videos, and can be disabled with `comments_per_video=0`. `Collected*` models contain only canonical
-fields accepted by the offline importer; Provider-specific execution remains in
+port. `count=null` means “continue until the Provider reports that the homepage is exhausted”.
+Full-homepage mode has a 1,000-page/20,000-video emergency guard, repeated-cursor detection, and a
+visible warning if the guard rather than Provider exhaustion stops collection. The CLI/API/Web
+entry points always supply their product defaults explicitly: `provider=tikhub`, `count=20`, and
+`comments_per_video=0`. They expose full-homepage mode only through explicit `--all`; comment
+sampling is capped at 20 comments for each of at most 10 videos. The model-level legacy defaults
+remain readable for schema `0.8.2`, so SDK callers should construct the full request explicitly.
+`Collected*` models contain only canonical fields accepted by the offline importer; Provider-specific execution remains in
 `collection/mediacrawler.py` or `collection/providers.py`, while canonical aliases stay
 centralized in the collection mapping helpers.
 
@@ -257,3 +257,23 @@ Pydantic, staging, deduplication, Parquet, and evidence pipeline.
 Raw Provider comment pages may contain public usernames and source identifiers. Canonical
 `CollectedComment` rows retain only an `author_hash`; the importer and Phase 4 redaction pipeline
 remain the privacy boundary for normalized and reported comment data.
+
+## Optional OpenKB knowledge artifacts
+
+| Path | Contract | Identity |
+|---|---|---|
+| `knowledge-outbox/openkb/accounts/account-<stable-id>.md` | curated, redacted account analysis document | account ID + schema + canonical payload SHA-256 |
+| `knowledge-outbox/openkb/manifest.json` | `KnowledgeExportIndex` | `document_key` → current export manifest |
+| `knowledge-outbox/openkb/sync-state.json` | `KnowledgeSyncIndex` | `document_key` → last successful OpenKB target/hash/remote ID |
+
+The export payload is derived from the bounded analysis-context contract. Volatile generation time
+is excluded from its content hash. Evidence backlinks may point only to `analyses/`,
+`knowledge-base/`, or `reports/`; raw and normalized records are never exported. When report
+username redaction is enabled, the account handle, display name, bio, and profile URL are removed.
+Comment content remains aggregate-only.
+
+An identical `document_key` and payload hash is not rewritten or uploaded again. If content changes,
+the integration removes the previous remote document only when it belongs to the same base URL and
+knowledge base, then stores the new sync record after a successful add. Project validation parses
+both indexes, confines documents to the OpenKB account outbox, verifies recorded byte sizes,
+rejects unsafe backlinks, and checks that sync records reference known exports.

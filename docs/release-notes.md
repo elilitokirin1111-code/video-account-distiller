@@ -49,17 +49,23 @@ changes.
   per-1,000-follower interactions, with per-account coverage and explicit view exclusion.
 - `distiller account benchmark-profile`, automatic profile generation after homepage analysis and
   retained-media enrichment, profile validation, status counts, report tables, and offline tests.
+- Optional OpenKB sidecar integration with curated account Markdown, privacy allowlisting,
+  content-hash idempotence, same-target document replacement, environment-only connection
+  settings, explicit model-processing confirmation, CLI/API routes, project validation, and
+  network-free contract tests.
 
 ### Changed
 
-- `distiller account analyze` now defaults to homepage exhaustion for both MediaCrawler and TikHub.
-  `--count` remains available only as an explicit 1～20,000 video limit; paid TikHub collection
-  still requires a dry-run and cost confirmation.
-- The default `account analyze` provider is now MediaCrawler and the command completes collection,
-  immutable import, Parquet/DuckDB normalization, metrics, comment analysis, reporting, and
-  distillation in one run. TikHub remains available through `--provider tikhub`.
-- Comment sampling defaults to 10 comments from each of at most three high-comment collected
-  videos; `--comments-per-video 0` disables it.
+- The standard CLI, API, and Web entry points now default to TikHub, a bounded 20-video scope, and
+  zero comments. Real paid calls still require explicit cost confirmation.
+- Full-homepage collection is now an explicit `--all` operation with the existing repeated-cursor,
+  1,000-page, and 20,000-video safety guards. `--count` remains an explicit 1～20,000 limit.
+- MediaCrawler is now an explicit optional local research adapter selected with
+  `--provider mediacrawler`; its source and browser runtime remain outside the installable wheel.
+- API background work now uses one typed task executor, stable error envelopes, completed progress,
+  and a task store isolated per app instance.
+- The Web report browser now resolves account/report IDs from canonical report paths and displays
+  retained Markdown. Transcript import now sends the entered video ID and language.
 - Only the controlled MediaCrawler bridge is approved: visible Chrome and manual authentication,
   with no proxy, stealth, automatic-login, CAPTCHA, or risk-control-evasion features.
 - Contradictory public `play_count = 0` values with positive interactions are normalized as missing,
@@ -86,6 +92,11 @@ changes.
 
 ### Acceptance
 
+- The 2026-07-27 integrated offline gate passed 203 tests with 85.41% statement coverage,
+  Ruff, Skill validation, and strict mypy across 174 source/test files.
+- A source-distribution-built wheel installed into a clean Python 3.11 environment and completed
+  22 subprocess steps, including curated OpenKB export, no-network sync preview, and final project
+  validation with zero errors and zero warnings. This does not claim a live OpenKB/model call.
 - A separately approved local run enriched two retained public videos (106.4 seconds and
   318.8 seconds) with local Whisper, yielding 53 and 208 transcript segments.
 - The refreshed media kernel produced 12 keyframes for the long single-shot clip and 151 detected

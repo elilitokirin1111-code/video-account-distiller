@@ -1,6 +1,6 @@
 ---
 name: video-account-distiller
-description: "Initialize, collect, locally download, transcribe, and visually analyze retained public videos, import, validate, normalize, distill, persist account benchmark profiles, compare, rank, score, predict, register, and retrospect on video accounts from user-approved Douyin homepage URLs, offline exports, authorized tables, local media, scripts, transcripts, comments, and public interaction metrics. Use for 抖音主页链接一键解析、MediaCrawler 本地非商业研究采集、账号公开视频下载与中文转写、Ollama/Qwen 本地视觉与OCR、账号拆解或蒸馏、点赞评论分享收藏画像、跨账号排序、正式环境验收、批量任务、对标迁移、脚本评分、发布预测或复盘，with immutable raw evidence, robust metrics, stable errors, manual-browser authentication boundaries, local-only media processing, and explicit paid-Provider controls."
+description: "Initialize, collect, locally download, transcribe, and visually analyze retained public videos, import, validate, normalize, distill, persist account benchmark profiles, compare, rank, score, predict, register, retrospect, and compile curated long-term knowledge through an optional OpenKB sidecar. Use for 抖音主页链接一键解析、MediaCrawler 本地非商业研究采集、账号公开视频下载与中文转写、Ollama/Qwen 本地视觉与OCR、账号拆解或蒸馏、点赞评论分享收藏画像、跨账号排序、OpenKB知识库接入、GPT跨报告分析、正式环境验收、批量任务、对标迁移、脚本评分、发布预测或复盘，with immutable raw evidence, robust metrics, stable errors, manual-browser authentication boundaries, local-only media processing, and explicit paid-Provider controls."
 ---
 
 # Video Account Distiller
@@ -43,6 +43,10 @@ homepage collection only through the controlled MediaCrawler or TikHub adapters.
   or editing team policy.
 - Read `references/account-url-collection.md` before accepting a Douyin homepage link, planning or
   running paid Provider calls, interpreting public-field gaps, or doing live collection acceptance.
+- Read `references/api-analysis-workflow.md` before starting the REST API, retrieving account
+  growth, exporting bounded GPT context, or sending evidence to any remote model.
+- Read `references/openkb-workflow.md` before exporting, syncing, querying, or diagnosing the
+  optional OpenKB knowledge sidecar.
 - Read `references/production-operation.md` before validating an installed release, running
   `doctor`, accepting a real work environment, or diagnosing deployment readiness.
 - Read `references/privacy.md` for comments, identifiers, credentials, raw exports, or any request
@@ -102,20 +106,26 @@ uv run distiller account analyze --project <dir> --url <douyin-homepage> \
 ```
 
 Require the user to approve the public account and retention scope. The CLI defaults to the pinned
-MediaCrawler research Provider, all Provider-exposed homepage videos, and a bounded 10-comment
-sample from at most three high-comment videos. Use `--count <n>` only when the user explicitly
-requests a video limit. Use `--comments-per-video 0` when the user requests a smaller personal-data
-scope. Then run:
+TikHub Provider, a bounded 20-video metadata pass, and no comments. Review `provider_calls`,
+`budget`, `capabilities`, and `collection_scope` in the preview. Use
+`--max-provider-calls <n>` as a hard pre-execution ceiling. Then run:
 
 ```bash
 uv run distiller account analyze --project <dir> --url <douyin-homepage> \
-  --sort latest --json
+  --sort latest --confirm-provider-cost --json
 ```
 
-On first use, allow the pinned sidecar environment to prepare and a visible Chrome window to open.
-The user must manually complete login or platform verification. For TikHub, require
-`--provider tikhub`, an environment-only `TIKHUB_API_KEY`, a dry-run billing preview, and
-`--confirm-provider-cost`.
+For a deliberately wider public-data pass, use `--profile comprehensive`; it defaults to every
+Provider-exposed homepage video up to emergency guards and at most 20 top-level comments from each
+of three sampled videos. This is not a complete comment universe or reply tree. Use
+`--profile owned` only when public evidence will be combined with separately authorized exports or
+official APIs. Keep private completion, watch-time, conversion, revenue, and fan-demographic fields
+unknown until those owned inputs are actually imported.
+
+Use `--provider mediacrawler` only for the pinned local research sidecar. On first use, allow its
+environment to prepare and a visible Chrome window to open; the user must manually complete login
+or platform verification. TikHub requires an environment-only `TIKHUB_API_KEY`, a dry-run billing
+preview, and `--confirm-provider-cost`.
 
 Return the internal account ID, accepted/rejected row counts, immutable Provider batch path,
 public-field warnings, optional redacted comment-analysis path, report path, distillation path, and
@@ -376,6 +386,35 @@ bounded and reports whether it was truncated.
 For custom SQL, use `video_account_distiller.storage.duckdb_store.DuckDBStore`. Allow only
 `SELECT`/`WITH` queries and return source IDs with analytical results.
 
+### Build growth and GPT analysis context
+
+Read `references/api-analysis-workflow.md`. Repeated account collection or authorized account
+imports create point-in-time snapshots; summarize observed changes with:
+
+```bash
+uv run distiller account growth --project <dir> --account <account-id> --json
+uv run distiller account context --project <dir> --account <account-id> --json
+```
+
+The context route is bounded and excludes raw comment text, signed media URLs, credentials, and
+browser state. It includes source paths, limitations, private-metric availability, and an analysis
+contract. Treat it as evidence input, not as permission to upload data. Obtain explicit approval
+before sending it to a remote model.
+
+### Compile long-term knowledge with OpenKB
+
+Read `references/openkb-workflow.md`. Export or preview one curated account document first:
+
+```bash
+uv run distiller knowledge openkb export --project <dir> --account <account-id> --dry-run --json
+uv run distiller knowledge openkb sync --project <dir> --account <account-id> --dry-run --json
+```
+
+Before a real sync or query, confirm the OpenKB target, its model/privacy policy, and possible
+cost, then require `--confirm-model-processing`. OpenKB remains a derivative query layer: never
+point it at the project root, `raw/`, or `normalized/`, and verify important answers against the
+Distiller evidence backlinks.
+
 ### Import or sync authorized collaboration data
 
 Read `references/collaboration-adapters.md` and require a recorded grant before proceeding. Prefer
@@ -423,15 +462,17 @@ uninstall this Skill.
 
 ## Current boundary
 
-Package `1.0.0` stabilizes the completed Phase 0–7 workflow. The main line adds Phase 8 collection
-schema `0.8.2` and a complete homepage-to-distillation workflow. The default provider is the pinned
-MediaCrawler source for declared personal non-commercial research; preserve its third-party notice
-and reassess authorization before commercial use. Only the controlled bridge is approved: visible
-Chrome, dedicated profile, manual authentication, Provider-terminated full-homepage pagination
-with emergency guards, bounded comments, and no proxy, stealth, automatic login, CAPTCHA, or
-risk-control-evasion features. TikHub remains an optional paid API provider. Media download is
-supported only as an explicit bounded step from retained MediaCrawler detail evidence, with HTTPS
-Douyin/CDN allowlisting, local Whisper, and content-addressed storage.
+Package `1.0.0` stabilizes the completed Phase 0–8 workflow. The default public collection is a
+bounded TikHub 20-video metadata pass with comments disabled and explicit paid-call confirmation.
+`comprehensive` remains safety-bounded and its comments remain sampled top-level evidence.
+MediaCrawler is an optional pinned source for declared personal non-commercial research; preserve
+its third-party notice and reassess authorization before commercial use. Only the controlled bridge
+is approved: visible Chrome, dedicated profile, manual authentication, Provider-terminated
+pagination with emergency guards, bounded comments, and no proxy, stealth, automatic login,
+CAPTCHA, or risk-control-evasion features. Media download is supported only as an explicit bounded
+step from retained MediaCrawler detail evidence, with HTTPS Douyin/CDN allowlisting, local Whisper,
+and content-addressed storage. API tasks persist in SQLite; restart-interrupted work is marked
+failed and retryable rather than silently resumed.
 The pinned MIT `claude-video` source is an attributed workflow reference; the account path does not
 execute upstream `/watch`. Replies remain unsupported. Phase 6 includes a loopback-only Ollama
 vision Provider and no cloud vision client. The system does not auto-approve Level 4 rules;

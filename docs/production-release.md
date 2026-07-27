@@ -35,10 +35,14 @@ the table-analysis core. `capabilities.mediacrawler_douyin` may be false in a wh
 because the third-party source is intentionally not relicensed into the wheel. Feishu and Google
 capabilities remain false until their token environment variables are configured.
 
-## Optional homepage collection runtime
+## Homepage collection runtime
 
-The default MediaCrawler homepage workflow requires a source checkout with its pinned Git submodule,
-or an explicit compatible checkout supplied through `MEDIACRAWLER_HOME`:
+The default TikHub workflow is available from the installed wheel. Set `TIKHUB_API_KEY` locally,
+run a dry-run first, then pass `--confirm-provider-cost` for the real bounded collection. The
+default scope is 20 videos and zero comments.
+
+The optional MediaCrawler workflow requires a source checkout with its pinned Git submodule, or an
+explicit compatible checkout supplied through `MEDIACRAWLER_HOME`:
 
 ```bash
 git clone --recurse-submodules \

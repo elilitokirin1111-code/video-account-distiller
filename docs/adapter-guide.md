@@ -107,14 +107,15 @@ CAPTCHA handling, stealth automation, scraping, or platform-control evasion rema
 return the same strict account/video/metric/comment batch and raw-page companions; downstream
 services must never parse provider-specific payloads.
 
-`MediaCrawlerAccountProvider` is the default personal non-commercial research adapter. It runs the
+`TikHubAccountProvider` is the default fixed-host paid API adapter. It keeps credentials in the
+environment, uses injectable HTTP, defaults to a bounded scope, and requires dry-run cost review
+plus explicit confirmation.
+
+`MediaCrawlerAccountProvider` is the optional personal non-commercial research adapter. It runs the
 pinned `third_party/MediaCrawler` source in its own locked `uv` environment and communicates through
 a JSON sidecar file. The controlled bridge uses a visible dedicated Chrome profile and manual
 authentication. Do not replace it with MediaCrawler's proxy, stealth, automatic-login,
 slider/CAPTCHA, or risk-control-evasion workflows.
-
-`TikHubAccountProvider` is the optional fixed-host paid API adapter. It keeps credentials in the
-environment, uses injectable HTTP, and requires dry-run cost review plus explicit confirmation.
 
 Both adapters preserve complete raw responses before calling the normal `ImportService`. Add or
 change source aliases only in the collection mapping layer, keep unknown public fields as `null`,

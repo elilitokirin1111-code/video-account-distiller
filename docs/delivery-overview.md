@@ -24,9 +24,10 @@ isolates Batch task results, exposes scheduled snapshot work, and validates cred
 policy without coupling the analysis kernel to either provider.
 
 After the `1.0.0` release, the main development line adds a Phase 8 pre-release route that accepts
-a user-approved Douyin homepage URL. Its default personal non-commercial research path uses a
-pinned MediaCrawler source and controlled visible-Chrome sidecar; TikHub remains an optional paid
-API. Both preserve complete responses and send canonical account/video/metric/comment rows through
+a user-approved Douyin homepage URL. Its default bounded route uses the documented TikHub API;
+the pinned MediaCrawler source and controlled visible-Chrome sidecar remain an explicit optional
+personal non-commercial research adapter. Both preserve complete responses and send canonical
+account/video/metric/comment rows through
 the same import, Parquet, robust-metric, comment-analysis, report, and distillation kernel.
 The same main line now adds opt-in retained-video enrichment: an allowlisted public media download,
 local Whisper Chinese transcript, existing scene/keyframe/audio analysis, blind single-video
@@ -78,9 +79,9 @@ strict hash and evidence links.
 - Handle authorization, rate-limit, and provider-response failures with stable machine errors.
 - Run auditable batches, emit due/future/available snapshot tasks, and keep team roles free of
   credential values.
-- Preview full-homepage pagination for one Douyin account and turn every Provider-exposed post plus
-  bounded top-level comments into a traceable distillation. Allow an explicit `--count` limit and
-  require cost confirmation only for the optional paid TikHub route.
+- Preview a bounded TikHub collection for one Douyin account and turn the selected posts plus
+  opt-in bounded top-level comments into a traceable distillation. Require explicit `--all` for
+  full-homepage pagination and cost confirmation for every real TikHub run.
 - Preview and process a bounded retained-video sample without manual per-video import, signed-URL
   disclosure, browser cookies, or cloud media upload.
 
@@ -89,6 +90,12 @@ strict hash and evidence links.
 The repository includes unit, contract, integration, and golden tests; seven offline fixture groups;
 a 100,000-row generator; Ruff, mypy, pytest, and Skill validation commands; and a GitHub Actions
 workflow for Python 3.11 and 3.14.
+
+The 2026-07-27 integrated branch gate passed 203 offline tests at 85.41% coverage, strict mypy
+across 174 source/test files, Ruff, and the official Skill validator. A clean Python 3.11 wheel
+installation then passed 22 subprocess steps, including curated OpenKB export and no-network sync
+preview, with zero final validation errors or warnings. A live OpenKB/model call remains a separate
+operator acceptance.
 
 Final production acceptance on 2026-07-23 produced the following evidence:
 
@@ -109,7 +116,8 @@ Final production acceptance on 2026-07-23 produced the following evidence:
   the normalized Parquet tables in about 4.4 seconds on the delivery workstation, with zero rejected
   rows and zero data-quality warnings. Timings are indicative, not a cross-machine performance SLA.
 
-The current Phase 8 main-line increment is accepted with 141 tests and 88.35% statement coverage.
+The current integrated main-line increment is accepted with 203 tests and 85.41% statement
+coverage.
 Provider contracts cover URL allowlisting, MediaCrawler sidecar pagination and manual
 login errors, public-field mapping, pinned-runtime absence, TikHub credentials and HTTP
 authorization/rate-limit errors, paid-call confirmation, secret non-disclosure, immutable response
@@ -122,11 +130,14 @@ public view counts remain explicit instead of being converted into fabricated pe
 
 The repository does not include credential/CAPTCHA automation, proxy or stealth evasion, comment
 reply trees, arbitrary video downloading, a cloud visual-model client, an installed background
-scheduler, or a Web console. Opt-in video download is limited to retained approved MediaCrawler
+scheduler. The current Web console is an operator UI over the same API, not a persistent job
+orchestration service. Opt-in video download is limited to retained approved MediaCrawler
 evidence and allowlisted Douyin/CDN hosts. Phase 7 online behavior is limited to explicitly authorized Feishu Bitable and
-Google Sheets official APIs. Phase 8's default MediaCrawler adapter is limited to personal
-non-commercial learning/research; TikHub is an optional paid route. Public view counts may be
+Google Sheets official APIs. Phase 8's default TikHub route is bounded and cost-confirmed;
+MediaCrawler is limited to personal non-commercial learning/research. Public view counts may be
 unavailable, and semantic video/transcript analysis still requires local media or transcripts.
+OpenKB is an optional independently deployed sidecar; it is not bundled, auto-started, or granted
+raw-project access, and no real OpenKB instance acceptance is claimed by the offline suite.
 Level 4 approval remains intentionally human-governed and requires repeated controlled evidence;
 Phase 5 produces only pending proposals.
 
@@ -139,5 +150,6 @@ Read `README.md` for Quick Start, `docs/data-contracts.md` for machine contracts
 `docs/account-media-enrichment.md` for the retained public-video workflow,
 `docs/authorized-collaboration-adapters.md` for Phase 7 authorization and synchronization,
 `docs/phase8-account-url-analysis.md` for Phase 8 homepage collection and live acceptance,
+`docs/openkb-integration.md` for the optional curated knowledge layer,
 `docs/adapter-guide.md` for field mappings, `docs/privacy-and-compliance.md` for boundaries, and
 `docs/release-notes.md` for current and future updates.

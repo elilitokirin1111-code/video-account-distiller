@@ -32,6 +32,8 @@
     add local media, transcript, single-video semantics, and a rebuilt account distillation.
 27. Run `uv run distiller validate` to verify the account media-enrichment bridge.
 28. Query with DuckDB only after normalization.
+29. After repeated snapshots, run `distiller account growth` for observed account changes.
+30. Build `distiller account context` or use the REST context endpoint before GPT analysis.
 
 ## Idempotence
 

@@ -1,4 +1,4 @@
 interface:
   display_name: "Video Account Distiller"
-  short_description: "从主页链接完成本地视觉分析、互动评论蒸馏与跨账号对比"
-  default_prompt: "Use $video-account-distiller to analyze an authorized account homepage with local vision, public interactions, comments, and reusable cross-account benchmarks."
+  short_description: "采集账号证据、分析视频，并将脱敏成果同步到可选 OpenKB"
+  default_prompt: "Use $video-account-distiller to preserve account evidence, build a privacy-aware analysis context, and safely export or sync curated long-term knowledge to OpenKB."

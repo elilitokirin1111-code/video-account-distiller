@@ -8,14 +8,16 @@ Instagram Reels 的账号导出数据、字幕和评论，并沉淀可复用的 
 账号蒸馏、发布复盘与本地多模态分析之上，增加带授权证明的导出导入、飞书多维表格与
 Google Sheets 官方 API、批量任务、快照计划接口和团队配置。离线分析不会上传媒体。
 
-当前主线同时提供 Phase 8 预发布能力：输入用户确认的抖音主页链接，默认通过仓库锁定的
-MediaCrawler 本地研究 Provider 读取公开账号资料、近期作品和有界一级评论，再复用已有的
-原始哈希、数据校验、Parquet、DuckDB、Robust 指标、评论分析、账号体检和蒸馏链路。
+当前主线同时提供 Phase 8 预发布能力：输入用户确认的抖音主页链接，默认通过 TikHub
+文档化 API 读取最多 20 条近期公开作品，默认不采集评论，再复用已有的原始哈希、数据
+校验、Parquet、DuckDB、Robust 指标、评论分析、账号体检和蒸馏链路。真实 API 调用必须
+先预演并显式确认可能发生的费用。
 可选的本地视频增强会从已留存、用户批准的 MediaCrawler 作品详情中解析公开视频源，
 在本机完成下载、Whisper 中文转写、场景/关键帧/音频分析；可通过本机 Ollama 与
 Qwen3-VL 增加画面、艺术字、品牌露出和 OCR，再重新蒸馏并保存可比较的账号画像。
-首次运行会打开专用的可见 Chrome，登录和平台验证由用户手动完成；项目不调用代理池、
-隐身脚本、自动登录、验证码处理或风控绕过。TikHub 保留为可选付费 API Provider。
+MediaCrawler 保留为显式可选的本地、个人非商业学习研究 Provider；它会打开专用的可见
+Chrome，登录和平台验证由用户手动完成。项目不调用代理池、隐身脚本、自动登录、验证码
+处理或风控绕过。
 
 ## 能做什么
 
@@ -54,9 +56,9 @@ Qwen3-VL 增加画面、艺术字、品牌露出和 OCR，再重新蒸馏并保�
 - 运行可审计批量任务，输出快照到期计划，并维护不含凭证的团队角色配置。
 - 输出 JSON/Markdown 数据质量报告、不可变运行清单和项目状态。
 - 通过稳定错误码和 JSON Envelope 被 Agent 或自动化脚本调用。
-- 从一个抖音主页链接遍历全部可获取作品，并一键生成账号报告和蒸馏结果。
-- 从公开评论数最高的少量作品有界采集一级评论，并自动进入脱敏评论需求分析。
-- 本地 MediaCrawler 默认链路不产生 Provider API 费用；可选 TikHub 调用先预演并显式确认费用。
+- 从一个抖音主页链接有界采集近期作品，并一键生成账号报告和蒸馏结果。
+- 显式启用后，从公开评论数最高的少量作品有界采集一级评论并进入脱敏需求分析。
+- 默认 TikHub 调用先预演并显式确认费用；MediaCrawler 作为可选本地研究链路。
 - 将完整 Provider 响应作为内容寻址的不可变原始证据。
 - 从留存 Provider 证据中自动选择未分析视频，在不上传媒体的前提下完成本地中文转写、
   关键帧、镜头节奏、音频活跃度、单视频语义和账号重蒸馏。
@@ -76,8 +78,9 @@ uv run distiller --version
 uv run distiller doctor --json
 ```
 
-已有工作副本先运行 `git submodule update --init --recursive`。默认主页采集还需要本机
-Node.js 与 Chrome；本地视频增强还需要 FFmpeg/FFprobe 和 OpenAI Whisper CLI。
+默认 TikHub 主页采集只需在本机配置 `TIKHUB_API_KEY`。如需可选 MediaCrawler，再运行
+`git submodule update --init --recursive`，并准备 Node.js 与 Chrome；本地视频增强还需要
+FFmpeg/FFprobe 和 OpenAI Whisper CLI。
 本地视觉还需要 Ollama 与一个视觉模型。`doctor` 会分别报告采集、本地媒体、转写、
 本地视觉和账号视频增强能力。
 
@@ -103,7 +106,7 @@ uv sync --no-editable
 
 正式工作环境优先从 [GitHub Releases](https://github.com/elilitokirin1111-code/video-account-distiller/releases)
 下载 wheel 和 `SHA256SUMS.txt`，校验后安装。完整步骤、环境自检和首次上线清单见
-[`docs/production-release.md`](docs/production-release.md)。默认 MediaCrawler 主页采集依赖
+[`docs/production-release.md`](docs/production-release.md)。可选 MediaCrawler 主页采集依赖
 带子模块的源码工作副本；第三方源码不会被根项目 wheel 重新打包。
 
 ## Quick Start
@@ -124,20 +127,50 @@ uv run distiller account analyze --project ./demo-project \
   --sort latest --dry-run --json
 ```
 
-确认采集范围后执行完整链路：
+在本机配置 TikHub 密钥，确认采集范围和费用后执行完整链路：
 
-```bash
-uv run distiller account analyze --project ./demo-project \
-  --url "https://www.douyin.com/user/<sec-user-id>" \
-  --sort latest --json
+```powershell
+$env:TIKHUB_API_KEY = "<在本机填写>"
 ```
 
-要在同一条命令中继续分析 3 条公开视频，显式增加 `--media-limit`。视频、帧和字幕留在
-本机；`base` 可换成已安装的其他本地 Whisper 模型：
+```bash
+uv run distiller account analyze --project ./demo-project \
+  --url "https://www.douyin.com/user/<sec-user-id>" \
+  --sort latest --confirm-provider-cost --json
+```
+
+默认最多采集 20 条近期作品，不采集评论。可用 `--count` 调整有限范围，用
+`--comments-per-video` 显式启用评论；只有明确需要全主页时才使用 `--all`。
+也可以用三个明确档位：
+
+- `--profile standard`：默认 20 条、0 评论。
+- `--profile comprehensive`：主页可用作品直到 Provider 耗尽/安全上限，并对 3 条作品各
+  采样最多 20 条顶层评论。
+- `--profile owned`：公开证据保持有界，后续另行导入已授权的私域指标。
+
+`--max-provider-calls <n>` 是执行前硬上限。预演结果会同时返回调用预算、计费上限、Provider
+能力和不能保证的数据范围。深度档也不代表完整评论、回复树、粉丝画像或私域经营数据。
+
+MediaCrawler 是显式可选的本地研究链路；它不包含在 wheel 中，需要源码子模块、Node.js
+和可见 Chrome：
 
 ```bash
 uv run distiller account analyze --project ./demo-project \
   --url "https://www.douyin.com/user/<sec-user-id>" \
+  --provider mediacrawler --count 20 --dry-run --json
+
+uv run distiller account analyze --project ./demo-project \
+  --url "https://www.douyin.com/user/<sec-user-id>" \
+  --provider mediacrawler --count 20 --json
+```
+
+要在同一条 MediaCrawler 命令中继续分析 3 条公开视频，显式增加 `--media-limit`。视频、
+帧和字幕留在本机；`base` 可换成已安装的其他本地 Whisper 模型：
+
+```bash
+uv run distiller account analyze --project ./demo-project \
+  --url "https://www.douyin.com/user/<sec-user-id>" \
+  --provider mediacrawler --count 20 \
   --sort latest --media-limit 3 --whisper-model base \
   --vision-provider ollama --vision-model qwen3-vl:8b --json
 ```
@@ -156,13 +189,9 @@ uv run distiller account enrich-media --project ./demo-project \
 预演只读取留存批次并报告候选域名、本地转写可用性和预计写入范围；正式执行仅允许留存
 批次中的 HTTPS 抖音/CDN 地址。默认优先选择尚未做单视频分析的作品，因此可分批扩充覆盖。
 
-首次运行会准备 MediaCrawler 的锁定环境并打开可见 Chrome。请在窗口内手动登录或完成
-平台验证；专用登录状态保存在用户目录，不写入项目。默认持续翻页到主页作品耗尽，
-`--count <1-20000>` 只用于显式限量。默认从最多 3 条高评论作品各采集 10 条一级评论；
-可用 `--comments-per-video 0` 关闭。
-
-如需无浏览器的可选 TikHub API 路径，请在本机设置 `TIKHUB_API_KEY`，追加
-`--provider tikhub`，先预演，再用 `--confirm-provider-cost` 执行。不要把密钥粘贴到
+MediaCrawler 首次运行会准备锁定环境并打开可见 Chrome。请在窗口内手动登录或完成平台
+验证；专用登录状态保存在用户目录，不写入项目。`--all` 会持续翻页到 Provider 耗尽，
+但仍受 1,000 页/20,000 条作品安全上限约束。不要把 TikHub 密钥或浏览器会话内容粘贴到
 聊天、项目配置或 Git。
 
 MediaCrawler 的锁定提交、第三方许可和商业化边界见
@@ -171,6 +200,53 @@ MediaCrawler 的锁定提交、第三方许可和商业化边界见
 [`docs/phase8-account-url-analysis.md`](docs/phase8-account-url-analysis.md)。
 本地视频增强的证据链、依赖、降级行为和隐私边界见
 [`docs/account-media-enrichment.md`](docs/account-media-enrichment.md)。
+
+重复采集或重复导入账号快照后，可查看观察期增长并生成供 GPT/外部工作流读取的受限上下文：
+
+```bash
+uv run distiller account growth --project ./demo-project \
+  --account <acc_id> --json
+uv run distiller account context --project ./demo-project \
+  --account <acc_id> --json
+```
+
+上下文包含账号数据、公开互动、增长、报告、评论聚合、视频内容分析、证据路径和缺失项，
+但不包含原始评论文本、Provider 原始页、签名视频地址、凭据或浏览器状态。启动
+`distiller-api` 后，也可读取：
+
+```text
+GET /api/projects/{url-encoded-project}/accounts/{account-id}/growth
+GET /api/projects/{url-encoded-project}/accounts/{account-id}/analysis-context
+GET /api/tasks?limit=50
+```
+
+API 任务默认持久化到用户目录的 SQLite；服务重启时遗留任务会标记为
+`E_TASK_INTERRUPTED`、`retryable: true`，不会被悄悄丢失或盲目续跑。
+
+如需把多个账号、多个周期的分析成果编译成长期可查询知识，可连接独立 OpenKB 服务。
+先离线预演导出和同步：
+
+```bash
+uv run distiller knowledge openkb export --project ./demo-project \
+  --account <acc_id> --dry-run --json
+uv run distiller knowledge openkb sync --project ./demo-project \
+  --account <acc_id> --dry-run --json
+```
+
+确认 OpenKB 的模型、隐私边界和潜在费用后，再执行：
+
+```bash
+uv run distiller knowledge openkb sync --project ./demo-project \
+  --account <acc_id> --confirm-model-processing --json
+uv run distiller knowledge openkb query \
+  "比较已有账号的内容模式、反例和数据缺口" \
+  --project ./demo-project --confirm-model-processing --json
+```
+
+同步只读取 `knowledge-outbox/openkb/` 的脱敏派生文档；不会上传原始评论、Provider
+响应、媒体、凭据或浏览器状态。OpenKB 不进入核心依赖，回答也不能替代 Distiller 的
+证据索引。完整配置和 API 见
+[`docs/openkb-integration.md`](docs/openkb-integration.md)。
 
 ### 2. 导入离线导出数据
 
@@ -417,10 +493,10 @@ uv run python skills/video-account-distiller/scripts/install-skill.py \
 支持离线项目、CSV/JSON/JSONL、SRT/VTT/TXT 字幕、七个平台字段映射、Parquet、DuckDB、
 稳健指标、代表性采样、账号体检、单视频文本/本地多模态拆解、评论需求分析、Pattern/反例、账号蒸馏、
 对标迁移矩阵、脚本评分、不可变区间预测、发布登记、快照复盘、授权导出、飞书多维表格、
-Google Sheets、批量任务、快照计划、团队策略，以及通过锁定版本 MediaCrawler 本地研究
-Provider 或可选 TikHub API 进行的抖音公开主页解析与限额公开评论采样。
+  Google Sheets、批量任务、快照计划、团队策略、FastAPI/Streamlit 工作台，以及通过默认
+TikHub API 或可选锁定版本 MediaCrawler 进行的抖音公开主页解析与限额评论采样。
 
-尚未实现：登录/验证码自动化、评论回复树、自动批准 Level 4 规则和 Web 控制台。
+尚未实现：登录/验证码自动化、评论回复树、自动批准 Level 4 规则和持久化后台任务队列。
 视觉/OCR 支持离线回放与回环 Ollama，不内置云模型客户端；平台数据仅允许用户导出、
 明确授权的官方 API，或用户批准的有界
 MediaCrawler/TikHub Provider。Phase 5 仍只生成待审批的规则升级建议；详见
@@ -457,6 +533,7 @@ uv run python tools/generate_large_fixture.py --output ./tmp/large-fixture --row
 
 ## 文档索引
 
+- [产品方向与开发路线](docs/product-direction.md)
 - [正式版安装与运行](docs/production-release.md)
 - [1.0.0 生产验收记录](docs/production-acceptance-v1.0.0.md)
 - [Phase 8 抖音主页链接一键解析](docs/phase8-account-url-analysis.md)
@@ -467,6 +544,7 @@ uv run python tools/generate_large_fixture.py --output ./tmp/large-fixture --row
 - [字幕与盲分析](docs/text-video-analysis.md)
 - [本地视频多模态分析](docs/local-media-analysis.md)
 - [本地 Ollama 视觉与账号画像验收](docs/local-vision-and-benchmark-acceptance-2026-07-23.md)
+- [OpenKB 可选知识层接入](docs/openkb-integration.md)
 - [授权平台与协作 Adapter](docs/authorized-collaboration-adapters.md)
 - [评论、Pattern 与账号蒸馏](docs/comment-and-account-distillation.md)
 - [评分、预测、发布与复盘](docs/scoring-prediction-retro.md)

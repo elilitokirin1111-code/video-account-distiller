@@ -84,11 +84,20 @@ not credentials.
 Phase 8 MediaCrawler collection may open a dedicated visible Chrome profile under the user's home
 directory. The user completes login and platform verification manually. The project does not copy
 Cookie values, local storage, passwords, or session material into analysis artifacts, logs, or Git.
-The CLI comment defaults remain bounded and can be disabled with `--comments-per-video 0`.
+MediaCrawler must be selected explicitly. CLI/API/Web comment collection defaults to zero and can
+only be enabled with an explicit bounded value.
 
-The optional TikHub route reads `TIKHUB_API_KEY` only from the process environment and allows only
+The default TikHub route reads `TIKHUB_API_KEY` only from the process environment and allows only
 `api.tikhub.dev`/`api.tikhub.io`. Dry-run makes no request. Real TikHub calls require explicit cost
 confirmation, and outputs never contain the token or authorization header.
+
+The optional OpenKB integration writes a separate `knowledge-outbox/openkb/` containing only
+curated Markdown and non-secret manifests. It never grants OpenKB access to `raw/`, `normalized/`,
+media, raw comments, Provider pages, browser state, or credentials. HTTP is accepted only for a
+loopback OpenKB service; remote targets require HTTPS and an environment-supplied token. A real
+sync or query requires explicit confirmation because OpenKB may invoke configured embedding or
+language models. OpenKB answers are marked derived and non-authoritative and cannot update
+Rule/Rubric artifacts.
 
 Opt-in account media enrichment reads signed public-video candidates only from the immutable
 MediaCrawler batch for the approved account. It permits HTTPS Douyin/CDN hosts only, validates the
@@ -108,7 +117,7 @@ workflow reference, not as a network service.
 The controlled MediaCrawler path reads public pages only for a user-approved URL and bounded sample.
 It does not invoke upstream proxy, stealth, automatic-login, slider/CAPTCHA, or risk-control-evasion
 features. Platform challenges remain manual user actions; unresolved challenges stop with a stable
-error. Other collection is limited to authorized official APIs, the optional fixed-host TikHub
+error. Other collection is limited to authorized official APIs, the default fixed-host TikHub
 Provider, or user-provided exports. HTTP 429 responses receive bounded backoff and then fail; the
 software never attempts to evade a provider limit.
 

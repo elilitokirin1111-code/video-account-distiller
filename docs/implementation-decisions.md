@@ -471,7 +471,7 @@ requirements from later phases.
   dependency isolation, stable errors, offline contract testing, and the existing provider-neutral
   analysis kernel.
 
-## ID-060 — Make MediaCrawler the default complete homepage-to-distillation workflow
+## ID-060 — Make MediaCrawler the default complete homepage-to-distillation workflow (superseded)
 
 - **Decision:** Default the CLI and request model to `mediacrawler`, sample up to 10 top-level
   comments from each of at most three high-comment collected videos, and keep TikHub as an explicit
@@ -601,7 +601,7 @@ requirements from later phases.
   thinking field even with thinking disabled. Supporting the actual Ollama response shape closes
   compatibility without weakening Schema or evidence checks.
 
-## ID-073 — Make homepage exhaustion the default video scope
+## ID-073 — Make homepage exhaustion the default video scope (superseded)
 
 - **Decision:** Interpret `AccountCollectionRequest.count = null` as all Provider-exposed homepage
   videos and make that the CLI default. Continue pagination until `has_more` is false. Retain
@@ -611,3 +611,35 @@ requirements from later phases.
   sensitive to a small recent slice. Full accessible history provides the requested account-level
   evidence, while Provider termination, cursor detection, explicit paid-provider confirmation,
   and emergency guards prevent accidental infinite or uncontrolled collection.
+
+## ID-074 — Make bounded TikHub collection the standard product entry point
+
+- **Decision:** Supersede ID-073 at the CLI/API/Web entry points: default to TikHub, 20 recent
+  videos, and zero comments. Preserve `AccountCollectionRequest.count = null` as the internal
+  full-homepage contract, but expose it only through explicit `--all`. Keep MediaCrawler available
+  only through `--provider mediacrawler`.
+- **Reason:** The standard product must behave the same from a source checkout and an installed
+  wheel. TikHub has a documented, browser-free boundary, while MediaCrawler has a separate
+  non-commercial license, source checkout, Node/browser runtime, and manual login. A bounded default
+  also makes time, cost, and evidence scope reviewable before users opt into comments or full history.
+
+## ID-075 — Centralize and isolate API task execution
+
+- **Decision:** Route blocking API services through one typed in-process executor with a stable task
+  envelope, normalized `DistillerError` payloads, terminal progress, and one task store per FastAPI
+  application instance.
+- **Reason:** Four copied task runners had already diverged in error serialization and progress
+  behavior, and the module-global task dictionary leaked state across application instances. One
+  executor gives the Web console and API clients a single contract and creates a clean seam for a
+  future persistent queue.
+
+## ID-076 — Integrate OpenKB as an optional one-way sidecar
+
+- **Decision:** Keep OpenKB out of the core dependency set. Export only bounded, privacy-aware
+  account analysis documents to `knowledge-outbox/openkb/`, synchronize them through the OpenKB
+  REST API with canonical payload hashes, and mark all query results non-authoritative. Require
+  explicit model-processing confirmation before real sync/query operations.
+- **Reason:** OpenKB adds cross-report compiled knowledge and long-term query value, but it does not
+  collect platform data, understand video files, replace Parquet/DuckDB, or preserve Distiller's
+  row-level evidence contract. A separate process isolates its Alpha dependency graph and lets an
+  OpenKB outage fail only the optional knowledge surface.

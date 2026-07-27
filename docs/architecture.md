@@ -7,12 +7,12 @@ Douyin homepage URL
         │
         ▼
 AccountCollectionService → bounded Provider adapter
-        │                   ├── MediaCrawler controlled sidecar
-        │                   │     └── visible Chrome + manual authentication
-        │                   └── optional fixed-host TikHub API
-        │                         ├── URL → sec_user_id
-        │                         ├── public account profile/posts
-        │                         └── bounded public comment samples
+        │                   ├── default fixed-host TikHub API
+        │                   │     ├── URL → sec_user_id
+        │                   │     ├── public account profile/posts
+        │                   │     └── bounded public comment samples
+        │                   └── optional MediaCrawler controlled sidecar
+        │                         └── visible Chrome + manual authentication
         ▼
 immutable raw Provider batch + canonical accounts/videos/metrics/comments JSON
         │
@@ -93,15 +93,20 @@ ReportService → report.json + report.md + evidence index + warnings
                     ├── Feishu/Google Adapter → immutable raw pages → ImportService
                     ├── normalized Parquet → content-addressed remote append
                     └── Batch/Team/Snapshot interfaces → collaboration artifacts
+        │
+        └── bounded AnalysisContext + curated artifacts
+                    └── KnowledgeExportService → knowledge-outbox/openkb/
+                              └── OpenKBIntegrationService → optional OpenKB REST sidecar
+                                        └── derived query answer + Distiller backlinks
 ```
 
 The Agent Skill orchestrates the CLI. Deterministic behavior lives in the Python package. Phase 3
 and Phase 4 use versioned prompts and a mockable text-provider boundary and ship no network model
 provider. Phase 7 network access is isolated behind mockable official-table adapters. Phase 8
-account access is isolated behind the `AccountCollectionProvider` protocol. Its default
-MediaCrawler implementation runs in the upstream pinned `uv` environment and returns one strict
-JSON envelope to the parent process; the optional TikHub implementation keeps its injectable HTTP
-boundary. Neither implementation enters the analysis packages. Only the controlled MediaCrawler
+account access is isolated behind the `AccountCollectionProvider` protocol. Its default TikHub
+implementation keeps an injectable, fixed-host HTTP boundary. The optional MediaCrawler
+implementation runs in the upstream pinned `uv` environment and returns one strict JSON envelope
+to the parent process. Neither implementation enters the analysis packages. Only the controlled MediaCrawler
 bridge may launch a browser: a visible dedicated Chrome profile with manual authentication and no
 proxy, stealth, automatic-login, CAPTCHA, or platform-control-evasion feature.
 
@@ -131,10 +136,13 @@ proxy, stealth, automatic-login, CAPTCHA, or platform-control-evasion feature.
   bounded retry, provider parsing, and table row contracts.
 - `collaboration/`: authorized export/import orchestration, normalized exports, idempotent Sync
   receipts, batch execution, snapshot planning, and credential-free team policy.
-- `collection/`: Douyin URL validation, provider selection, controlled MediaCrawler sidecar,
-  optional fixed-host TikHub access, Provider-terminated full-homepage pagination with emergency
-  guards, bounded comment sampling, public-field mapping, immutable response storage, and
+- `collection/`: Douyin URL validation, default fixed-host TikHub access, optional controlled
+  MediaCrawler sidecar, bounded default pagination, explicit full-homepage pagination with emergency
+  guards, opt-in bounded comment sampling, public-field mapping, immutable response storage, and
   orchestration into the existing import/analysis kernel.
+- `knowledge/`: privacy-aware account knowledge rendering, canonical content hashes, one-way
+  OpenKB synchronization, separate target validation, explicit model-call confirmation, and
+  derived query contracts.
 - `third_party/MediaCrawler`: Git submodule pinned to an audited commit and governed by its own
   non-commercial learning license; it is not relicensed by the root project.
 - `third_party/claude-video`: MIT Git submodule pinned to the audited workflow reference. The
@@ -209,6 +217,13 @@ and routes generated transcript segments through normal import and normalization
 `ame_*` artifacts link source batch hash, media IDs, transcript hashes, text-analysis IDs, and the
 resulting `dst_*` account distillation.
 
+OpenKB exports live under `knowledge-outbox/openkb/`, outside both raw evidence and the validated
+`knowledge-base/` Rule/Pattern store. The export manifest records a canonical payload hash, bounded
+source paths, redacted fields, and byte size. Identical payloads are not rewritten or re-synced.
+Changed payloads replace only the corresponding document on the same OpenKB target. Tokens remain
+environment-only. OpenKB output is explicitly non-authoritative and cannot update Rule/Rubric
+files automatically.
+
 Normalized Parquet is reproducible from staging. Project state is stored in
 `.distiller-state.json`; later rule and task workflows may introduce SQLite without changing the
 Phase 1 table contracts.
@@ -228,12 +243,15 @@ credential values or browser-session data.
 ## Current boundaries
 
 Phase 7 accesses only explicitly authorized user exports or the documented Feishu Bitable and Google
-Sheets APIs. Phase 8 accepts a user-provided Douyin homepage. The default MediaCrawler path is
-restricted to the declared personal non-commercial research scope and its controlled bridge;
-TikHub remains an optional paid API route with explicit cost confirmation. The project does not
+Sheets APIs. Phase 8 accepts a user-provided Douyin homepage. TikHub is the bounded default API route
+with explicit cost confirmation. MediaCrawler is an optional adapter restricted to the declared
+personal non-commercial research scope and its controlled bridge. The project does not
 automate credentials, CAPTCHA/slider handling, proxy rotation, stealth, risk-control evasion, or a
 background collector. Phase 6 media remains local; the bundled Ollama Provider is loopback-only,
 and no cloud vision Provider uploads media. Opt-in retained-source downloads and transcription stay
 local and bounded. The system still
 does not infer visual causality, audience representativeness, or
 automatically validated Level 4 rules.
+OpenKB is optional, runs in a separate environment, and receives only curated Markdown after an
+explicit model-processing confirmation. Its absence or failure does not affect collection,
+normalization, analysis, reports, or the closed loop.
