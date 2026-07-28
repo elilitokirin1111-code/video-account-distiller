@@ -77,11 +77,11 @@ def test_collection_request_bounds_optional_comment_sampling() -> None:
     request = AccountCollectionRequest(
         profile_url="https://www.douyin.com/user/demo",
         comments_per_video=20,
-        comment_video_limit=10,
+        comment_video_limit=200,
     )
 
     assert request.comments_per_video == 20
-    assert request.comment_video_limit == 10
+    assert request.comment_video_limit == 200
     with pytest.raises(ValidationError):
         AccountCollectionRequest(
             profile_url="https://www.douyin.com/user/demo",
@@ -90,7 +90,7 @@ def test_collection_request_bounds_optional_comment_sampling() -> None:
     with pytest.raises(ValidationError):
         AccountCollectionRequest(
             profile_url="https://www.douyin.com/user/demo",
-            comment_video_limit=11,
+            comment_video_limit=201,
         )
 
 

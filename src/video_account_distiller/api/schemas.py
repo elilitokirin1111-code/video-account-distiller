@@ -174,7 +174,7 @@ class CollectionAnalyzeParams(BaseModel):
     sort: CollectionSort = CollectionSort.LATEST
     provider: CollectionProviderKind = CollectionProviderKind.TIKHUB
     comments_per_video: int | None = Field(default=None, ge=0, le=20)
-    comment_video_limit: int = Field(default=3, ge=1, le=10)
+    comment_video_limit: int = Field(default=3, ge=1, le=200)
     max_provider_calls: int | None = Field(default=None, ge=1, le=50_000)
     confirm_provider_cost: bool = False
 

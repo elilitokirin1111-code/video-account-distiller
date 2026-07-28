@@ -273,7 +273,7 @@ def account_analyze_command(
         3,
         "--comment-video-limit",
         min=1,
-        max=10,
+        max=200,
         help="Maximum high-comment videos sampled when comment collection is enabled.",
     ),
     provider: CollectionProviderKind = typer.Option(

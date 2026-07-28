@@ -121,8 +121,8 @@ def test_self_service_workflow_dry_run_reports_local_readiness(
             json={
                 "url": "https://v.douyin.com/demo/",
                 "count": 20,
-                "comments_per_video": 20,
-                "comment_video_limit": 10,
+                "comments_per_video": 10,
+                "comment_video_limit": 20,
             },
         )
         assert submitted.status_code == 200
@@ -135,6 +135,7 @@ def test_self_service_workflow_dry_run_reports_local_readiness(
         assert task["stage"] == "completed"
         result = task["result"]
         assert result["request"]["provider"] == "mediacrawler"
+        assert result["request"]["comment_video_limit"] == 20
         assert result["workflow_plan"]["media_limit"] == 20
         assert result["workflow_plan"]["external_model_calls"] == 0
         assert result["workflow_plan"]["knowledge_export"] is True
@@ -149,6 +150,24 @@ def test_self_service_workflow_dry_run_reports_local_readiness(
             },
         )
         assert invalid.status_code == 422
+
+        all_videos = client.post(
+            f"/api/projects/{encoded}/workflows/account-distill",
+            params={"dry_run": "true"},
+            json={
+                "url": "https://v.douyin.com/demo/",
+                "all_videos": True,
+                "comments_per_video": 5,
+                "comment_video_limit": 200,
+                "max_provider_calls": 5_000,
+                "media_limit": 5,
+            },
+        )
+        assert all_videos.status_code == 200
+        all_task = _wait_for_task(client, str(_json(all_videos)["task_id"]))
+        assert all_task["status"] == "completed"
+        assert all_task["result"]["request"]["count"] is None
+        assert all_task["result"]["request"]["comment_video_limit"] == 200
 
 
 def test_task_failure_persists_and_separate_databases_are_isolated(

@@ -314,34 +314,62 @@ with st.form("self_service_distill_form"):
         "抖音主页链接",
         placeholder="https://v.douyin.com/.../ 或 https://www.douyin.com/user/...",
     )
+    collection_mode = st.radio(
+        "作品采集方式",
+        ["指定视频数量", "采集主页全部公开视频"],
+        horizontal=True,
+        help="全主页模式仍受 1,000 页/20,000 条作品安全上限与调用预算约束。",
+    )
+    all_videos = collection_mode == "采集主页全部公开视频"
+
     c1, c2, c3 = st.columns(3)
     with c1:
-        video_count = st.number_input("采集视频数", min_value=1, max_value=200, value=20)
+        video_count = st.number_input(
+            "采集视频数",
+            min_value=1,
+            max_value=20_000,
+            value=20,
+            disabled=all_videos,
+            help="选择全主页模式时不使用此上限。",
+        )
     with c2:
         comments_per_video = st.number_input(
-            "每条采样视频评论数",
+            "每个视频采集评论数",
             min_value=0,
             max_value=20,
-            value=20,
+            value=10,
+            help="选择 0 可完全关闭评论采集。",
         )
     with c3:
+        comment_video_max = 200 if all_videos else min(int(video_count), 200)
         comment_video_limit = st.number_input(
-            "采样评论的视频数",
+            "采集评论的视频数",
             min_value=1,
-            max_value=10,
-            value=10,
+            max_value=comment_video_max,
+            value=min(20, comment_video_max),
+            disabled=int(comments_per_video) == 0,
+            help="可覆盖所选作品，单次最多 200 个视频。",
         )
+    estimated_comments = (
+        int(comments_per_video) * int(comment_video_limit) if int(comments_per_video) > 0 else 0
+    )
+    st.caption(
+        f"本次评论采集上限：{int(comment_video_limit)} 个视频 × "
+        f"{int(comments_per_video)} 条 = {estimated_comments} 条一级评论。"
+    )
 
     st.subheader("2. 视频内容理解")
     analyze_media = st.toggle("下载并分析视频本身", value=True)
+    media_limit_max = 20 if all_videos else min(int(video_count), 20)
     m1, m2, m3 = st.columns(3)
     with m1:
         media_limit = st.number_input(
             "视频内容分析数",
             min_value=1,
-            max_value=20,
-            value=20,
+            max_value=media_limit_max,
+            value=media_limit_max,
             disabled=not analyze_media,
+            help="视频下载、Whisper 与视觉分析计算量较大，单次最多 20 条。",
         )
     with m2:
         whisper_model = st.selectbox(
@@ -359,6 +387,13 @@ with st.form("self_service_distill_form"):
 
     with st.expander("高级设置"):
         sort = st.selectbox("视频排序", ["latest", "popular"])
+        max_provider_calls = st.number_input(
+            "最大采集调用数",
+            min_value=1,
+            max_value=50_000,
+            value=5_000 if all_videos else max(100, int(comment_video_limit) + 10),
+            help="预检会估算调用量；超过该上限时不会开始真实采集。",
+        )
         vision_model = st.text_input("Ollama 视觉模型", value="qwen3-vl:8b")
         export_knowledge = st.checkbox("生成 GPT/OpenKB 本地知识包", value=True)
         strict_media = st.checkbox("任一视频失败即停止", value=False)
@@ -385,11 +420,12 @@ payload = {
     "url": profile_url,
     "profile": "standard",
     "provider": "mediacrawler",
-    "count": int(video_count),
+    "count": None if all_videos else int(video_count),
+    "all_videos": all_videos,
     "sort": sort,
     "comments_per_video": int(comments_per_video),
     "comment_video_limit": int(comment_video_limit),
-    "max_provider_calls": 100,
+    "max_provider_calls": int(max_provider_calls),
     "confirm_provider_cost": False,
     "media_limit": int(media_limit) if analyze_media else 0,
     "whisper_model": whisper_model,

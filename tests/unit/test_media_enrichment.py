@@ -3,14 +3,17 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from video_account_distiller.media.enrichment import (
     WhisperCliTranscriber,
     _validated_media_url,
 )
+from video_account_distiller.models import AccountMediaEnrichment
 
 
 @pytest.mark.parametrize(
@@ -37,6 +40,33 @@ def test_media_source_accepts_only_approved_https_douyin_hosts(url: str) -> None
 def test_media_source_rejects_unapproved_or_credentialed_urls(url: str) -> None:
     with pytest.raises(ValueError):
         _validated_media_url(url)
+
+
+def test_account_media_enrichment_accepts_twenty_video_workflow() -> None:
+    values = {
+        "enrichment_id": "ame_demo",
+        "account_id": "acc_demo",
+        "generated_at": datetime(2026, 7, 28, tzinfo=UTC),
+        "run_id": "run_demo",
+        "adapter_version": "test",
+        "upstream_commit": "test",
+        "source_provider": "mediacrawler",
+        "source_batch_hash": "a" * 64,
+        "source_batch_path": "raw/provider-batch.json",
+        "selection_policy": "provider_order_unanalyzed_first",
+        "requested_limit": 20,
+        "selected_count": 0,
+        "completed_count": 0,
+        "degraded_count": 0,
+        "failed_count": 0,
+        "videos": [],
+    }
+
+    enrichment = AccountMediaEnrichment.model_validate(values)
+    assert enrichment.requested_limit == 20
+
+    with pytest.raises(ValidationError):
+        AccountMediaEnrichment.model_validate({**values, "requested_limit": 21})
 
 
 def test_whisper_cli_forces_utf8_child_output(
