@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from video_account_distiller.api.app import create_app
-from video_account_distiller.api.tasks import TaskStore
+from video_account_distiller.api.tasks import TaskQueueSettings, TaskStore
 from video_account_distiller.storage.project import ProjectLayout
 from video_account_distiller.utils.ids import stable_id
 
@@ -47,6 +47,7 @@ def test_health_openapi_and_missing_task_contract(tmp_path: Path) -> None:
         openapi = client.get("/openapi.json")
         assert openapi.status_code == 200
         assert "/api/tasks" in _json(openapi)["paths"]
+        assert "/api/task-queue" in _json(openapi)["paths"]
         assert "/api/tasks/{task_id}" in _json(openapi)["paths"]
         assert "/api/tasks/{task_id}/cancel" in _json(openapi)["paths"]
         assert "/api/tasks/{task_id}/retry" in _json(openapi)["paths"]
@@ -134,6 +135,9 @@ def test_self_service_workflow_dry_run_reports_local_readiness(
         assert task["status"] == "completed"
         assert task["progress"] == 1.0
         assert task["task_type"] == "account_distill"
+        assert task["resource_class"] == "workflow"
+        assert task["durable"] is True
+        assert task["executed_by"]
         assert task["stage"] == "completed"
         result = task["result"]
         assert result["request"]["provider"] == "mediacrawler"
@@ -246,6 +250,19 @@ def test_interrupted_task_is_recovered_with_stable_retryable_error(tmp_path: Pat
         "message": "Task was interrupted by an API restart",
         "details": {"retryable": True},
     }
+
+
+def test_task_queue_status_contract(tmp_path: Path) -> None:
+    settings = TaskQueueSettings()
+    with TestClient(create_app(tmp_path / "tasks.sqlite3", task_queue_settings=settings)) as client:
+        response = client.get("/api/task-queue")
+
+    assert response.status_code == 200
+    payload = _json(response)
+    assert payload["ok"] is True
+    assert payload["limits"]["max_concurrent"] == settings.max_concurrent
+    assert payload["limits"]["workflow_concurrency"] == settings.workflow_concurrency
+    assert payload["by_status"] == {}
 
 
 def test_cancelling_task_is_finalized_as_cancelled_after_restart(tmp_path: Path) -> None:

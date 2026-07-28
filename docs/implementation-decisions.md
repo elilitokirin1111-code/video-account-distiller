@@ -643,3 +643,17 @@ requirements from later phases.
   collect platform data, understand video files, replace Parquet/DuckDB, or preserve Distiller's
   row-level evidence contract. A separate process isolates its Alpha dependency graph and lets an
   OpenKB outage fail only the optional knowledge surface.
+
+## ID-077 — Queue the self-service workflow with SQLite claims and bounded leases
+
+- **Decision:** Persist the serializable self-service account-distillation job before execution and
+  let any API process sharing the same SQLite database atomically claim it. Enforce a bounded global
+  concurrency limit, a stricter workflow resource limit, and a pending-task ceiling. Renew active
+  claims with leases; when a lease expires, fail the task as explicitly retryable instead of
+  automatically replaying it. Keep existing one-step API jobs in-process until each has a validated
+  serializable job contract.
+- **Reason:** Durable pending work must survive an API restart and multiple workbench processes must
+  not duplicate expensive collection or media work. Automatic replay after an uncertain process
+  failure could duplicate Provider charges or partially repeat immutable writes, so checkpoint-based
+  user retry remains the safer boundary. Migrating the primary workbench workflow first closes the
+  main M2 path without coupling every legacy service call to one oversized dispatcher change.

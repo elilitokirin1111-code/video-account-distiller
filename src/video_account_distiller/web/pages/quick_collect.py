@@ -341,6 +341,11 @@ def _task_monitor() -> None:
     message = str(task.get("message") or STAGE_LABELS.get(stage, stage))
     st.progress(progress, text=f"{STAGE_LABELS.get(stage, stage)} · {message}")
     st.caption(f"任务 {task_id} · 状态 {status} · {progress:.0%}")
+    queue_position = task.get("queue_position")
+    if status == "pending" and isinstance(queue_position, int):
+        st.caption(
+            f"持久队列第 {queue_position} 位 · 资源组 {task.get('resource_class', 'default')}"
+        )
 
     if status in {"pending", "running"}:
         if st.button("安全取消任务", key=f"monitor_cancel_{task_id}", use_container_width=True):

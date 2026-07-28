@@ -38,8 +38,12 @@ class ApiResponse(BaseModel):
 
 class TaskStatus(BaseModel):
     task_id: str
-    status: str  # pending | running | completed | failed
+    status: Literal["pending", "running", "cancelling", "completed", "failed", "cancelled"]
     progress: float = 0.0
+    task_type: str = "task"
+    resource_class: str = "default"
+    durable: bool = False
+    queue_position: int | None = None
     result: Any | None = None
     error: ApiError | None = None
 

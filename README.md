@@ -235,11 +235,17 @@ uv run distiller account context --project ./demo-project \
 GET /api/projects/{url-encoded-project}/accounts/{account-id}/growth
 GET /api/projects/{url-encoded-project}/accounts/{account-id}/analysis-context
 GET /api/tasks?limit=50
+GET /api/task-queue
 ```
 
-API 任务默认持久化到用户目录的 SQLite；服务重启时遗留任务会标记为
-`E_TASK_INTERRUPTED`、`retryable: true`，不会被悄悄丢失或盲目续跑。
-自助蒸馏任务还会保存最近的安全阶段检查点；可通过工作台或
+API 任务默认持久化到用户目录的 SQLite。自助蒸馏任务进入可跨进程原子认领的持久队列；
+尚未开始的任务在 API 进程重启后继续排队，多个共享同一任务数据库的进程不会重复认领。
+默认全局最多同时运行 2 个持久任务，其中自助工作流最多 1 个，最多等待 100 个任务；
+可通过 `.env.example` 中的 `DISTILLER_TASK_*` 环境变量收紧配额。
+
+已认领任务使用有限租约和心跳；工作进程退出或租约失效后会保守标记为
+`E_TASK_INTERRUPTED`、`retryable: true`，不会自动重复执行可能已经写入产物的步骤。
+自助蒸馏任务保存最近的安全阶段检查点；可通过工作台或
 `POST /api/tasks/{task-id}/retry` 创建续跑任务，通过
 `POST /api/tasks/{task-id}/cancel` 请求安全取消。取消不会强制终止正在写入不可变产物的
 本地步骤，而会在下一个安全边界生效。
@@ -517,7 +523,8 @@ uv run python skills/video-account-distiller/scripts/install-skill.py \
   Google Sheets、批量任务、快照计划、团队策略、FastAPI/Streamlit 工作台，以及通过默认
 TikHub API 或可选锁定版本 MediaCrawler 进行的抖音公开主页解析与限额评论采样。
 
-尚未实现：登录/验证码自动化、评论回复树、自动批准 Level 4 规则和持久化后台任务队列。
+尚未实现：登录/验证码自动化、评论回复树、自动批准 Level 4 规则，以及把所有一次性
+API 短任务迁移到持久队列；当前跨进程队列覆盖工作台的自助蒸馏主链路。
 视觉/OCR 支持离线回放与回环 Ollama，不内置云模型客户端；平台数据仅允许用户导出、
 明确授权的官方 API，或用户批准的有界
 MediaCrawler/TikHub Provider。Phase 5 仍只生成待审批的规则升级建议；详见

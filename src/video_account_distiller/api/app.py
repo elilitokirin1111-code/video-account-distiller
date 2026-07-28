@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -10,20 +12,39 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from video_account_distiller.api.tasks import TaskStore
+from video_account_distiller.api.task_jobs import TASK_HANDLERS
+from video_account_distiller.api.tasks import (
+    TaskQueueSettings,
+    TaskStore,
+    TaskWorkerPool,
+)
 from video_account_distiller.errors import DistillerError
 from video_account_distiller.logging import configure_logging
 
 
-def create_app(task_db_path: Path | str | None = None) -> FastAPI:
+def create_app(
+    task_db_path: Path | str | None = None,
+    *,
+    task_queue_settings: TaskQueueSettings | None = None,
+) -> FastAPI:
     """Build the FastAPI app with all routers and middleware."""
     configure_logging()
-    task_store = TaskStore(task_db_path)
+    task_store = TaskStore(task_db_path, queue_settings=task_queue_settings)
+    task_workers = TaskWorkerPool(task_store, TASK_HANDLERS)
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        await task_workers.start()
+        try:
+            yield
+        finally:
+            await task_workers.stop()
 
     app = FastAPI(
         title="Video Account Distiller API",
         description="REST API for evidence-based video account analysis and reporting.",
         version="1.0.0",
+        lifespan=lifespan,
     )
 
     # CORS — allow Streamlit dev server
@@ -82,6 +103,10 @@ def create_app(task_db_path: Path | str | None = None) -> FastAPI:
         tasks = task_store.list(limit=limit, status=status)
         return {"ok": True, "tasks": tasks, "count": len(tasks)}
 
+    @app.get("/api/task-queue", tags=["Tasks"])
+    async def task_queue_status() -> dict[str, Any]:
+        return task_store.queue_status()
+
     @app.get("/api/tasks/{task_id}", tags=["Tasks"])
     async def get_task(task_id: str) -> dict[str, Any]:
         task = task_store.get(task_id)
@@ -118,6 +143,7 @@ def create_app(task_db_path: Path | str | None = None) -> FastAPI:
         return retry_account_distill_task(task_store, task)
 
     app.state.tasks = task_store
+    app.state.task_workers = task_workers
 
     @app.get("/api/health", tags=["Health"])
     async def health() -> dict[str, str]:
