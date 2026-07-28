@@ -5,7 +5,7 @@ It operates only on a retained MediaCrawler batch for a user-approved Douyin acc
 
 ## What it does
 
-For a bounded sample of 1–10 videos, `AccountMediaEnrichmentService`:
+For a bounded sample of 1–20 videos, `AccountMediaEnrichmentService`:
 
 1. Finds the latest immutable MediaCrawler batch for the internal account ID.
 2. Resolves the corresponding normalized videos and prioritizes videos without a usable

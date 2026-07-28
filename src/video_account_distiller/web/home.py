@@ -24,7 +24,17 @@ api_url = st.sidebar.text_input(
 st.session_state["api_url"] = api_url
 
 project_path = st.sidebar.text_input(
-    "📁 项目路径", value=str(Path.home() / "distiller-demo"), help="Distiller 项目目录的绝对路径"
+    "📁 项目路径",
+    value=str(
+        st.session_state.get(
+            "project_path",
+            os.environ.get(
+                "DISTILLER_DEFAULT_PROJECT",
+                str(Path.home() / "video-account-distiller-projects" / "workspace"),
+            ),
+        )
+    ),
+    help="Distiller 项目目录的绝对路径",
 )
 st.session_state["project_path"] = project_path
 
@@ -64,7 +74,9 @@ st.caption(f"🕐 {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
 # 刷新状态
 if st.button("🔄 刷新项目状态", type="primary"):
-    status_payload = _api(f"/api/projects/{project_path}/status")
+    from urllib.parse import quote
+
+    status_payload = _api(f"/api/projects/{quote(project_path, safe='')}/status")
     st.session_state["status"] = status_payload
 
 status = st.session_state.get("status", {})
@@ -98,8 +110,8 @@ else:
     st.subheader("📋 功能导航")
     nav1, nav2, nav3, nav4 = st.columns(4)
     with nav1:
-        st.page_link("pages/quick_collect.py", label="🎯 主页采集分析", icon="🎯")
-        st.caption("粘贴抖音链接，一键采集+分析")
+        st.page_link("pages/quick_collect.py", label="🧪 蒸馏工作台", icon="🧪")
+        st.caption("20 条视频的一键采集、理解与蒸馏")
     with nav2:
         st.page_link("pages/import_data.py", label="📥 数据导入", icon="📥")
         st.caption("上传 CSV/JSON 文件导入数据")

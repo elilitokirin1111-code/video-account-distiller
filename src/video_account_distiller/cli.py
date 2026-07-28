@@ -297,7 +297,7 @@ def account_analyze_command(
         0,
         "--media-limit",
         min=0,
-        max=10,
+        max=20,
         help=(
             "Also download, transcribe, and analyze this many retained public videos. "
             "0 keeps collection metadata-only."
@@ -454,7 +454,7 @@ def account_enrich_media_command(
         3,
         "--limit",
         min=1,
-        max=10,
+        max=20,
         help="Maximum retained public videos to enrich in this run.",
     ),
     whisper_model: str = typer.Option("base", "--whisper-model"),

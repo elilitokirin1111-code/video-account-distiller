@@ -77,7 +77,9 @@ if st.button("刷新任务历史"):
                 [
                     {
                         "任务": item.get("task_id"),
+                        "类型": item.get("task_type", "通用任务"),
                         "状态": item.get("status"),
+                        "阶段": item.get("stage"),
                         "进度": item.get("progress"),
                         "更新时间": item.get("updated_at"),
                         "错误码": (item.get("error") or {}).get("code"),

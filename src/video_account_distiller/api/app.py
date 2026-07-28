@@ -61,6 +61,7 @@ def create_app(task_db_path: Path | str | None = None) -> FastAPI:
     from video_account_distiller.api.router_projects import router as projects_router
     from video_account_distiller.api.router_reports import router as reports_router
     from video_account_distiller.api.router_status import router as status_router
+    from video_account_distiller.api.router_workflows import router as workflows_router
 
     app.include_router(doctor_router, prefix="/api", tags=["Doctor"])
     app.include_router(projects_router, prefix="/api", tags=["Projects"])
@@ -73,6 +74,7 @@ def create_app(task_db_path: Path | str | None = None) -> FastAPI:
     app.include_router(closed_loop_router, prefix="/api/projects", tags=["Closed Loop"])
     app.include_router(reports_router, prefix="/api/projects", tags=["Reports"])
     app.include_router(collection_router, prefix="/api/projects", tags=["Collection"])
+    app.include_router(workflows_router, prefix="/api/projects", tags=["Workflows"])
 
     # Task status endpoint
     @app.get("/api/tasks", tags=["Tasks"])

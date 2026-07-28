@@ -8,7 +8,7 @@ lives in the existing ``video_account_distiller.models`` layer.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -177,6 +177,23 @@ class CollectionAnalyzeParams(BaseModel):
     comment_video_limit: int = Field(default=3, ge=1, le=10)
     max_provider_calls: int | None = Field(default=None, ge=1, le=50_000)
     confirm_provider_cost: bool = False
+
+
+class AccountDistillWorkflowParams(CollectionAnalyzeParams):
+    """Inputs for the self-service collect-to-knowledge workflow."""
+
+    provider: CollectionProviderKind = CollectionProviderKind.MEDIACRAWLER
+    media_limit: int = Field(default=20, ge=0, le=20)
+    whisper_model: str = Field(default="base", min_length=1, max_length=64)
+    whisper_command: str | None = Field(default=None, max_length=2048)
+    vision_provider: Literal["ollama"] | None = "ollama"
+    vision_model: str = Field(default="qwen3-vl:8b", min_length=1, max_length=128)
+    ollama_base_url: str = Field(default="http://127.0.0.1:11434", max_length=2048)
+    vision_batch_size: int = Field(default=4, ge=1, le=8)
+    vision_timeout_seconds: int = Field(default=180, ge=1, le=1800)
+    strict_media_enrichment: bool = False
+    strict_vision: bool = False
+    export_knowledge: bool = True
 
 
 # ---------------------------------------------------------------------------

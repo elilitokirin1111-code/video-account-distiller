@@ -108,6 +108,49 @@ def test_collection_dry_run_uses_bounded_default_and_completes_task(
         assert result["provider_calls"]["total_max"] == 3
 
 
+def test_self_service_workflow_dry_run_reports_local_readiness(
+    project: ProjectLayout,
+    tmp_path: Path,
+) -> None:
+    encoded = _project_path(project.root)
+
+    with TestClient(create_app(tmp_path / "tasks.sqlite3")) as client:
+        submitted = client.post(
+            f"/api/projects/{encoded}/workflows/account-distill",
+            params={"dry_run": "true"},
+            json={
+                "url": "https://v.douyin.com/demo/",
+                "count": 20,
+                "comments_per_video": 20,
+                "comment_video_limit": 10,
+            },
+        )
+        assert submitted.status_code == 200
+        submission = _json(submitted)
+        task = _wait_for_task(client, str(submission["task_id"]))
+
+        assert task["status"] == "completed"
+        assert task["progress"] == 1.0
+        assert task["task_type"] == "account_distill"
+        assert task["stage"] == "completed"
+        result = task["result"]
+        assert result["request"]["provider"] == "mediacrawler"
+        assert result["workflow_plan"]["media_limit"] == 20
+        assert result["workflow_plan"]["external_model_calls"] == 0
+        assert result["workflow_plan"]["knowledge_export"] is True
+        assert result["diagnostics"]["project"]["initialized"] is True
+
+        invalid = client.post(
+            f"/api/projects/{encoded}/workflows/account-distill",
+            params={"dry_run": "true"},
+            json={
+                "url": "https://v.douyin.com/demo/",
+                "media_limit": 21,
+            },
+        )
+        assert invalid.status_code == 422
+
+
 def test_task_failure_persists_and_separate_databases_are_isolated(
     project: ProjectLayout,
     tmp_path: Path,

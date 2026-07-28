@@ -603,10 +603,10 @@ class AccountMediaEnrichmentService:
     ) -> dict[str, Any]:
         """Enrich a bounded sample using only retained, approved Provider evidence."""
 
-        if limit < 1 or limit > 10:
+        if limit < 1 or limit > 20:
             raise DistillerError(
                 ErrorCode.SCHEMA_INVALID,
-                "media enrichment limit must be between 1 and 10",
+                "media enrichment limit must be between 1 and 20",
             )
         batch, batch_path, batch_hash = _load_matching_batch(self.project, account_id)
         sources = _provider_sources(self.project, account_id, batch)

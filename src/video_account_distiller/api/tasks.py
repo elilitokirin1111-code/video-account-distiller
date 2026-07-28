@@ -19,6 +19,7 @@ from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.utils.ids import new_run_id
 
 TaskData: TypeAlias = dict[str, Any]
+ProgressCallback: TypeAlias = Callable[[float, str, str], None]
 
 
 def default_task_db_path() -> Path:
@@ -235,3 +236,71 @@ def enqueue_task(
 
     asyncio.create_task(_runner())
     return {"ok": True, "task_id": task_id, "status": "pending"}
+
+
+def enqueue_progress_task(
+    tasks: TaskStore,
+    fn: Callable[..., Any],
+    *args: Any,
+    task_type: str = "workflow",
+    **kwargs: Any,
+) -> TaskData:
+    """Run a blocking workflow while persisting its current stage and progress."""
+
+    task_id = new_run_id()
+    tasks.create(task_id)
+
+    def _progress(value: float, stage: str, message: str) -> None:
+        bounded = min(max(float(value), 0.0), 1.0)
+        tasks.update(
+            task_id,
+            status="running",
+            progress=bounded,
+            stage=stage,
+            message=message,
+        )
+
+    async def _runner() -> None:
+        try:
+            tasks.update(
+                task_id,
+                status="running",
+                task_type=task_type,
+                stage="starting",
+                message="正在启动工作流",
+            )
+            result = await asyncio.to_thread(fn, *args, progress=_progress, **kwargs)
+            tasks.update(
+                task_id,
+                status="completed",
+                progress=1.0,
+                stage="completed",
+                message="工作流已完成",
+                result=result,
+            )
+        except DistillerError as exc:
+            tasks.update(
+                task_id,
+                status="failed",
+                progress=1.0,
+                stage="failed",
+                message=exc.message,
+                error=exc.as_dict()["error"],
+            )
+        except Exception as exc:
+            tasks.update(
+                task_id,
+                status="failed",
+                progress=1.0,
+                stage="failed",
+                message=str(exc),
+                error={"code": "E_INTERNAL", "message": str(exc), "details": {}},
+            )
+
+    asyncio.create_task(_runner())
+    return {
+        "ok": True,
+        "task_id": task_id,
+        "task_type": task_type,
+        "status": "pending",
+    }

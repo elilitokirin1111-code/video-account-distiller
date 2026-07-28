@@ -9,6 +9,7 @@ import os
 import sys
 import threading
 import time
+import webbrowser
 from pathlib import Path
 
 import uvicorn
@@ -21,6 +22,21 @@ def _start_api(host: str, port: int) -> None:
     app = create_app()
     config = uvicorn.Config(app, host=host, port=port, log_level="warning")
     uvicorn.Server(config).run()
+
+
+def _open_browser_when_ready(url: str) -> None:
+    """Open the local workspace after Streamlit starts accepting requests."""
+
+    import urllib.request
+
+    health_url = f"{url}/_stcore/health"
+    for _ in range(60):
+        try:
+            urllib.request.urlopen(health_url, timeout=1)
+            webbrowser.open(url)
+            return
+        except Exception:
+            time.sleep(0.5)
 
 
 def main() -> None:
@@ -52,6 +68,14 @@ def main() -> None:
     web_dir = Path(__file__).resolve().parent
     env = {**os.environ, "DISTILLER_API_URL": api_url}
     import subprocess
+
+    web_url = f"http://localhost:{web_port}"
+    if os.environ.get("DISTILLER_OPEN_BROWSER", "1") != "0":
+        threading.Thread(
+            target=_open_browser_when_ready,
+            args=(web_url,),
+            daemon=True,
+        ).start()
 
     subprocess.run(
         [

@@ -111,6 +111,23 @@ uv sync --no-editable
 
 ## Quick Start
 
+### 可视化自助应用（Windows）
+
+完成 `uv sync` 和 MediaCrawler 子模块准备后，双击仓库根目录的
+[`启动蒸馏应用.cmd`](启动蒸馏应用.cmd)。应用会自动启动本机 FastAPI 与 Streamlit，并在
+服务就绪后打开浏览器。进入“蒸馏工作台”后可以自行：
+
+1. 初始化或选择分析项目。
+2. 粘贴抖音主页链接并先做不联网预检。
+3. 默认采集 20 条作品，对 10 条作品各采样最多 20 条一级评论。
+4. 对最多 20 条视频执行本地下载、关键帧/镜头/音频、Whisper 转写和可选 Ollama 视觉分析。
+5. 查看持久化任务进度、账号报告和蒸馏结果，并下载 GPT 分析上下文。
+6. 生成本地 OpenKB 知识包；远端同步必须再次确认模型处理。
+
+MediaCrawler 首次运行可能打开可见 Chrome，登录与平台验证由用户在浏览器中完成。应用
+默认不调用外部模型，也不会保存模型密钥。关闭启动窗口即可停止本机应用；已经开始的
+任务状态会保存在本机 SQLite 中。
+
 ### 1. 初始化项目
 
 ```bash
@@ -164,14 +181,14 @@ uv run distiller account analyze --project ./demo-project \
   --provider mediacrawler --count 20 --json
 ```
 
-要在同一条 MediaCrawler 命令中继续分析 3 条公开视频，显式增加 `--media-limit`。视频、
+要在同一条 MediaCrawler 命令中继续分析最多 20 条公开视频，显式增加 `--media-limit`。视频、
 帧和字幕留在本机；`base` 可换成已安装的其他本地 Whisper 模型：
 
 ```bash
 uv run distiller account analyze --project ./demo-project \
   --url "https://www.douyin.com/user/<sec-user-id>" \
   --provider mediacrawler --count 20 \
-  --sort latest --media-limit 3 --whisper-model base \
+  --sort latest --media-limit 20 --whisper-model base \
   --vision-provider ollama --vision-model qwen3-vl:8b --json
 ```
 

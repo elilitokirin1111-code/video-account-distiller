@@ -5,7 +5,7 @@ Phase 8 把“用户提供抖音主页链接”接入已有的不可变导入、
 MediaCrawler 保留为显式可选的本地、个人非商业学习研究 Provider。
 
 主页元数据采集默认不下载视频。需要分析作品内容时，显式使用
-`--media-limit <1-10>`，或在已有账号上运行 `distiller account enrich-media`。该路径只从
+`--media-limit <1-20>`，或在已有账号上运行 `distiller account enrich-media`。该路径只从
 当前账号最新留存的 MediaCrawler 详情证据中解析公开视频源，在本机完成 Whisper 中文
 转写、关键帧/镜头/音频分析，可选回环 Ollama/Qwen3-VL 视觉与 OCR、单视频语义分析、
 账号重蒸馏和可比较画像保存；不会再次打开浏览器。
