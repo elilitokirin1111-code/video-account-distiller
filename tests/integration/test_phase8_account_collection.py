@@ -137,6 +137,10 @@ def test_account_url_runs_existing_normalized_report_and_distillation_pipeline(
     account_id = stable_id("acc_", "douyin", "MS4wLjABAAAAphase8-hotel")
     assert provider.calls == 1
     assert result["account"]["account_id"] == account_id
+    assert result["account"]["follower_count_current"] == 24000
+    assert result["account"]["following_count_current"] == 58
+    assert result["account"]["total_likes_current"] == 320000
+    assert result["account"]["video_count_current"] == 86
     assert result["collection"]["videos"] == 10
     assert result["collection"]["comments"] == 4
     assert result["collection"]["comment_videos"] == 2

@@ -105,15 +105,29 @@ def _result_metrics(result: dict[str, Any]) -> None:
     account = result.get("account") or {}
     collection = result.get("collection") or {}
     enrichment = (result.get("media_enrichment") or {}).get("enrichment") or {}
-    columns = st.columns(5)
+    columns = st.columns(6)
     columns[0].metric("账号", account.get("display_name") or account.get("handle") or "-")
-    columns[1].metric("视频", collection.get("videos", 0))
-    columns[2].metric("评论", collection.get("comments", 0))
-    columns[3].metric("已理解视频", enrichment.get("completed_count", 0))
-    columns[4].metric(
+    columns[1].metric("当前粉丝", account.get("follower_count_current") or "-")
+    columns[2].metric("采集视频", collection.get("videos", 0))
+    columns[3].metric("采集评论", collection.get("comments", 0))
+    columns[4].metric("已理解视频", enrichment.get("completed_count", 0))
+    columns[5].metric(
         "降级/失败",
         f"{enrichment.get('degraded_count', 0)}/{enrichment.get('failed_count', 0)}",
     )
+
+    with st.expander("账号公开快照"):
+        st.json(
+            {
+                "当前粉丝数": account.get("follower_count_current"),
+                "当前关注数": account.get("following_count_current"),
+                "当前获赞总数": account.get("total_likes_current"),
+                "当前作品数": account.get("video_count_current"),
+                "认证状态": account.get("verified"),
+                "简介": account.get("bio"),
+                "快照时间": account.get("snapshot_at"),
+            }
+        )
 
 
 def _render_result(result: dict[str, Any]) -> None:

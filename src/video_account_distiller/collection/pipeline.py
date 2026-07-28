@@ -172,6 +172,13 @@ class AccountCollectionService:
                 "display_name": batch.account.display_name,
                 "handle": batch.account.handle,
                 "profile_url": batch.profile_url,
+                "bio": batch.account.bio,
+                "verified": batch.account.verified,
+                "follower_count_current": batch.account.follower_count_current,
+                "following_count_current": batch.account.following_count_current,
+                "total_likes_current": batch.account.total_likes_current,
+                "video_count_current": batch.account.video_count_current,
+                "snapshot_at": batch.account.snapshot_at.isoformat(),
             },
             "collection": {
                 "fingerprint": fingerprint,
