@@ -27,10 +27,136 @@ from video_account_distiller.reports import ReportService
 from video_account_distiller.storage.project import ProjectLayout
 
 WorkflowProgress = Callable[[float, str, str], None]
+WorkflowCheckpoint = Callable[[str, dict[str, Any]], None]
 
 
 def _ignore_progress(progress: float, stage: str, message: str) -> None:
     del progress, stage, message
+
+
+def _ignore_checkpoint(stage: str, state: dict[str, Any]) -> None:
+    del stage, state
+
+
+def _ratio(completed: int, requested: int) -> float | None:
+    if requested <= 0:
+        return None
+    return round(min(max(completed / requested, 0.0), 1.0), 4)
+
+
+def _workflow_coverage(
+    result: dict[str, Any],
+    *,
+    request: AccountCollectionRequest,
+    media_limit: int,
+    vision_requested: bool,
+) -> dict[str, Any]:
+    """Summarize declared-scope coverage without implying platform completeness."""
+    account = result.get("account") or {}
+    collection = result.get("collection") or {}
+    provider_coverage = result.get("coverage") or {}
+    collected_videos = int(collection.get("videos") or 0)
+    collected_metrics = int(collection.get("metrics") or 0)
+    collected_comments = int(collection.get("comments") or 0)
+    requested_videos = request.count
+    video_target = collected_videos if requested_videos is None else requested_videos
+
+    snapshot_fields = {
+        "followers": account.get("follower_count_current") is not None,
+        "following": account.get("following_count_current") is not None,
+        "total_likes": account.get("total_likes_current") is not None,
+        "video_count": account.get("video_count_current") is not None,
+    }
+    snapshot_available = sum(snapshot_fields.values())
+
+    comment_video_target = min(request.comment_video_limit, collected_videos)
+    comment_target = request.comments_per_video * comment_video_target
+    comments_provider = provider_coverage.get("comments") or {}
+
+    enrichment = (result.get("media_enrichment") or {}).get("enrichment") or {}
+    media_items = enrichment.get("videos") or []
+    valid_media_items = [item for item in media_items if isinstance(item, dict)]
+    media_selected = int(enrichment.get("selected_count") or 0)
+    media_analyzed = sum(bool(item.get("media_analysis_id")) for item in valid_media_items)
+    transcript_ready = sum(
+        (item.get("transcription") or {}).get("status") in {"complete", "reused"}
+        for item in valid_media_items
+    )
+    text_analyzed = sum(bool(item.get("text_analysis_id")) for item in valid_media_items)
+    vision_success = sum(item.get("vision_status") == "success" for item in valid_media_items)
+    vision_degraded = sum(item.get("vision_status") == "degraded" for item in valid_media_items)
+
+    partial = (
+        collected_videos < video_target
+        or collected_metrics < collected_videos
+        or (
+            request.comments_per_video > 0
+            and str(comments_provider.get("status"))
+            in {"partial_degraded", "no_usable_public_comments"}
+        )
+        or (media_limit > 0 and media_analyzed < media_selected)
+        or int(enrichment.get("failed_count") or 0) > 0
+    )
+    return {
+        "status": "partial" if partial else "complete_for_declared_scope",
+        "scope_note": (
+            "覆盖率仅针对本次明确选择的范围；公开评论是有限一级评论样本，不代表平台全部评论。"
+        ),
+        "account_snapshot": {
+            "available_fields": snapshot_available,
+            "total_fields": len(snapshot_fields),
+            "ratio": _ratio(snapshot_available, len(snapshot_fields)),
+            "fields": snapshot_fields,
+        },
+        "videos": {
+            "requested": requested_videos if requested_videos is not None else "all_available",
+            "collected": collected_videos,
+            "ratio": _ratio(collected_videos, video_target),
+            "status": (provider_coverage.get("videos") or {}).get("status"),
+        },
+        "metrics": {
+            "expected_videos": collected_videos,
+            "covered_videos": min(collected_metrics, collected_videos),
+            "records": collected_metrics,
+            "ratio": _ratio(min(collected_metrics, collected_videos), collected_videos),
+        },
+        "comments": {
+            "requested_per_video": request.comments_per_video,
+            "requested_video_limit": request.comment_video_limit,
+            "sampled_videos": int(collection.get("comment_videos") or 0),
+            "bounded_target": comment_target,
+            "collected": collected_comments,
+            "ratio": _ratio(collected_comments, comment_target),
+            "status": comments_provider.get("status"),
+        },
+        "media": {
+            "requested": media_limit,
+            "selected": media_selected,
+            "analyzed": media_analyzed,
+            "ratio": _ratio(media_analyzed, media_limit),
+            "completed": int(enrichment.get("completed_count") or 0),
+            "degraded": int(enrichment.get("degraded_count") or 0),
+            "failed": int(enrichment.get("failed_count") or 0),
+        },
+        "transcripts": {
+            "requested": media_selected,
+            "ready": transcript_ready,
+            "ratio": _ratio(transcript_ready, media_selected),
+        },
+        "text_analysis": {
+            "requested": media_selected,
+            "ready": text_analyzed,
+            "ratio": _ratio(text_analyzed, media_selected),
+        },
+        "vision": {
+            "requested": media_selected if vision_requested else 0,
+            "success": vision_success,
+            "degraded": vision_degraded,
+            "ratio": _ratio(vision_success, media_selected) if vision_requested else None,
+            "status": "not_requested" if not vision_requested else "requested",
+        },
+        "warnings": list(collection.get("warnings") or []) + list(enrichment.get("warnings") or []),
+    }
 
 
 def _vision_provider(
@@ -87,6 +213,8 @@ class AccountDistillWorkflow:
         export_knowledge: bool = True,
         dry_run: bool = False,
         progress: WorkflowProgress = _ignore_progress,
+        checkpoint: WorkflowCheckpoint = _ignore_checkpoint,
+        resume_state: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Run the bounded local-first workflow and report durable stage progress."""
 
@@ -151,19 +279,59 @@ class AccountDistillWorkflow:
             progress(1.0, "ready", "预检完成，可以开始蒸馏")
             return result
 
-        progress(0.08, "collect", "正在采集账号、作品、互动指标与公开评论")
-        result = collection_service.analyze_url(
-            request=request,
-            confirm_provider_cost=confirm_provider_cost,
-            dry_run=False,
-            collection_profile=collection_profile,
-            max_provider_calls=max_provider_calls,
-        )
-        account_id = str(result["account"]["account_id"])
-        progress(0.34, "collection_complete", "采集与基础数据分析完成")
+        request_payload = request.model_dump(mode="json")
+        resumed_result: dict[str, Any] | None = None
+        resume_stage = ""
+        if (
+            isinstance(resume_state, dict)
+            and resume_state.get("request") == request_payload
+            and resume_state.get("collection_profile") == collection_profile.value
+            and isinstance(resume_state.get("result"), dict)
+        ):
+            resumed_result = dict(resume_state["result"])
+            resume_stage = str(resume_state.get("stage") or "")
 
-        if media_limit > 0:
+        if resumed_result is None:
+            progress(0.08, "collect", "正在采集账号、作品、互动指标与公开评论")
+            result = collection_service.analyze_url(
+                request=request,
+                confirm_provider_cost=confirm_provider_cost,
+                dry_run=False,
+                collection_profile=collection_profile,
+                max_provider_calls=max_provider_calls,
+            )
+            account_id = str(result["account"]["account_id"])
+            checkpoint(
+                "collection_complete",
+                {
+                    "version": "1.0.0",
+                    "stage": "collection_complete",
+                    "request": request_payload,
+                    "collection_profile": collection_profile.value,
+                    "account_id": account_id,
+                    "result": result,
+                },
+            )
+            progress(0.34, "collection_complete", "采集与基础数据分析完成")
+        else:
+            assert isinstance(resume_state, dict)
+            result = resumed_result
+            account_id = str(
+                resume_state.get("account_id") or (result.get("account") or {}).get("account_id")
+            )
+            progress(0.34, "resuming", f"已从 {resume_stage or '安全检查点'} 恢复任务")
+
+        media_already_complete = (
+            media_limit > 0
+            and isinstance(result.get("media_enrichment"), dict)
+            and resume_stage in {"media_complete", "report_complete", "knowledge_export_complete"}
+        )
+        if media_limit > 0 and not media_already_complete:
             progress(0.38, "media", f"正在处理 {media_limit} 条视频的画面、音频与字幕")
+
+            def _media_progress(value: float, message: str) -> None:
+                progress(0.38 + (min(max(value, 0.0), 1.0) * 0.4), "media", message)
+
             result["media_enrichment"] = AccountMediaEnrichmentService(
                 self.project,
                 transcriber=transcriber,
@@ -173,8 +341,22 @@ class AccountDistillWorkflow:
                 limit=media_limit,
                 strict=strict_media_enrichment,
                 strict_vision=strict_vision,
+                progress=_media_progress,
+            )
+            checkpoint(
+                "media_complete",
+                {
+                    "version": "1.0.0",
+                    "stage": "media_complete",
+                    "request": request_payload,
+                    "collection_profile": collection_profile.value,
+                    "account_id": account_id,
+                    "result": result,
+                },
             )
             progress(0.78, "media_complete", "视频内容分析与转写完成")
+        elif media_already_complete:
+            progress(0.78, "resuming", "已复用检查点中的视频内容分析")
 
         progress(0.82, "report", "正在重建账号画像、报告与分析上下文")
         result["report"] = ReportService(self.project).generate_account_health(
@@ -188,6 +370,17 @@ class AccountDistillWorkflow:
             account_id=account_id,
             max_video_analyses=context_limit,
         )
+        checkpoint(
+            "report_complete",
+            {
+                "version": "1.0.0",
+                "stage": "report_complete",
+                "request": request_payload,
+                "collection_profile": collection_profile.value,
+                "account_id": account_id,
+                "result": result,
+            },
+        )
 
         if export_knowledge:
             progress(0.93, "knowledge_export", "正在生成 GPT/OpenKB 可用的本地知识包")
@@ -195,6 +388,17 @@ class AccountDistillWorkflow:
                 account_id=account_id,
                 max_video_analyses=context_limit,
                 max_export_bytes=1_000_000,
+            )
+            checkpoint(
+                "knowledge_export_complete",
+                {
+                    "version": "1.0.0",
+                    "stage": "knowledge_export_complete",
+                    "request": request_payload,
+                    "collection_profile": collection_profile.value,
+                    "account_id": account_id,
+                    "result": result,
+                },
             )
 
         result["workflow"] = {
@@ -204,5 +408,11 @@ class AccountDistillWorkflow:
             "external_model_calls": 0,
             "knowledge_exported": export_knowledge,
         }
+        result["workflow_coverage"] = _workflow_coverage(
+            result,
+            request=request,
+            media_limit=media_limit,
+            vision_requested=local_vision is not None,
+        )
         progress(1.0, "completed", "账号蒸馏完成")
         return result

@@ -19,12 +19,15 @@ STAGE_LABELS = {
     "ready": "预检完成",
     "collect": "采集账号、视频、指标和评论",
     "collection_complete": "基础数据分析完成",
+    "resuming": "从安全检查点恢复",
     "media": "下载并理解视频内容",
     "media_complete": "视频内容分析完成",
     "report": "生成画像、报告和分析上下文",
     "knowledge_export": "生成 GPT/OpenKB 知识包",
     "completed": "全部完成",
     "failed": "执行失败",
+    "cancelling": "正在安全取消",
+    "cancelled": "已取消",
 }
 
 
@@ -67,6 +70,8 @@ def _request(
             error = payload.get("error")
             if isinstance(error, dict):
                 message = str(error.get("message") or response.reason)
+            elif isinstance(detail, dict):
+                message = str(detail.get("message") or response.reason)
             else:
                 message = str(detail or response.reason)
             return {"ok": False, "error": {"message": message}, "status_code": response.status_code}
@@ -99,6 +104,139 @@ def _submit_workflow(payload: dict[str, Any], *, dry_run: bool) -> None:
     st.session_state.pop("last_workflow_result", None)
     st.session_state.pop("last_account_id", None)
     st.toast("预检任务已提交" if dry_run else "蒸馏任务已提交", icon="✅")
+
+
+def _cancel_task(task_id: str) -> None:
+    result = _request(f"/api/tasks/{task_id}/cancel", "POST", timeout=10)
+    if result.get("task_id"):
+        st.toast("已提交安全取消请求", icon="⏹️")
+        return
+    st.error(f"取消失败：{(result.get('error') or {}).get('message', '未知错误')}")
+
+
+def _retry_task(task_id: str) -> None:
+    result = _request(f"/api/tasks/{task_id}/retry", "POST", timeout=30)
+    new_task_id = result.get("task_id")
+    if not isinstance(new_task_id, str):
+        st.error(f"重试失败：{(result.get('error') or {}).get('message', '未知错误')}")
+        return
+    st.session_state["active_task_id"] = new_task_id
+    st.session_state["active_task_kind"] = result.get("task_type", "account_distill")
+    st.session_state.pop("last_workflow_result", None)
+    st.toast("已从最近的安全检查点创建重试任务", icon="🔁")
+
+
+def _coverage_text(completed: Any, requested: Any, ratio: Any) -> str:
+    if requested in {None, 0, "0"}:
+        return "未请求"
+    if isinstance(ratio, (int, float)):
+        return f"{completed}/{requested}（{float(ratio):.0%}）"
+    return f"{completed}/{requested}"
+
+
+def _render_coverage(result: dict[str, Any]) -> None:
+    coverage = result.get("workflow_coverage")
+    if not isinstance(coverage, dict):
+        return
+
+    st.subheader("采集与分析完整度")
+    st.caption(str(coverage.get("scope_note") or "覆盖率按本次声明范围计算。"))
+    account = coverage.get("account_snapshot") or {}
+    videos = coverage.get("videos") or {}
+    metrics = coverage.get("metrics") or {}
+    comments = coverage.get("comments") or {}
+    media = coverage.get("media") or {}
+    transcripts = coverage.get("transcripts") or {}
+    text_analysis = coverage.get("text_analysis") or {}
+    vision = coverage.get("vision") or {}
+
+    rows = [
+        {
+            "环节": "账号公开字段",
+            "完成情况": _coverage_text(
+                account.get("available_fields"),
+                account.get("total_fields"),
+                account.get("ratio"),
+            ),
+            "状态": "已采集" if account.get("available_fields") else "缺失",
+        },
+        {
+            "环节": "公开视频",
+            "完成情况": _coverage_text(
+                videos.get("collected"),
+                videos.get("requested"),
+                videos.get("ratio"),
+            ),
+            "状态": videos.get("status") or "-",
+        },
+        {
+            "环节": "视频互动指标",
+            "完成情况": _coverage_text(
+                metrics.get("covered_videos"),
+                metrics.get("expected_videos"),
+                metrics.get("ratio"),
+            ),
+            "状态": f"{metrics.get('records', 0)} 条快照",
+        },
+        {
+            "环节": "公开一级评论样本",
+            "完成情况": _coverage_text(
+                comments.get("collected"),
+                comments.get("bounded_target"),
+                comments.get("ratio"),
+            ),
+            "状态": comments.get("status") or "-",
+        },
+        {
+            "环节": "视频画面/声音",
+            "完成情况": _coverage_text(
+                media.get("analyzed"),
+                media.get("requested"),
+                media.get("ratio"),
+            ),
+            "状态": (
+                f"完成 {media.get('completed', 0)} / 降级 {media.get('degraded', 0)} / "
+                f"失败 {media.get('failed', 0)}"
+            ),
+        },
+        {
+            "环节": "语音转写",
+            "完成情况": _coverage_text(
+                transcripts.get("ready"),
+                transcripts.get("requested"),
+                transcripts.get("ratio"),
+            ),
+            "状态": "Whisper/已有字幕",
+        },
+        {
+            "环节": "文本内容分析",
+            "完成情况": _coverage_text(
+                text_analysis.get("ready"),
+                text_analysis.get("requested"),
+                text_analysis.get("ratio"),
+            ),
+            "状态": "结构化分析",
+        },
+        {
+            "环节": "画面语义分析",
+            "完成情况": _coverage_text(
+                vision.get("success"),
+                vision.get("requested"),
+                vision.get("ratio"),
+            ),
+            "状态": (
+                "未请求"
+                if vision.get("status") == "not_requested"
+                else f"成功 {vision.get('success', 0)} / 降级 {vision.get('degraded', 0)}"
+            ),
+        },
+    ]
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+    warnings = coverage.get("warnings")
+    if isinstance(warnings, list) and warnings:
+        with st.expander(f"覆盖率警告（{len(warnings)}）"):
+            for warning in warnings:
+                st.write(f"- {warning}")
 
 
 def _result_metrics(result: dict[str, Any]) -> None:
@@ -147,6 +285,7 @@ def _render_result(result: dict[str, Any]) -> None:
 
     st.success("账号蒸馏已完成，数据、视频内容、报告和知识包均已写入项目。")
     _result_metrics(result)
+    _render_coverage(result)
     account = result.get("account") or {}
     account_id = account.get("account_id")
 
@@ -203,6 +342,13 @@ def _task_monitor() -> None:
     st.progress(progress, text=f"{STAGE_LABELS.get(stage, stage)} · {message}")
     st.caption(f"任务 {task_id} · 状态 {status} · {progress:.0%}")
 
+    if status in {"pending", "running"}:
+        if st.button("安全取消任务", key=f"monitor_cancel_{task_id}", use_container_width=True):
+            _cancel_task(task_id)
+            st.rerun()
+    elif status == "cancelling":
+        st.warning("已收到取消请求，正在等待当前不可中断的本地步骤安全结束。")
+
     if status == "completed":
         result = task.get("result")
         if isinstance(result, dict):
@@ -216,9 +362,43 @@ def _task_monitor() -> None:
         st.rerun()
     elif status == "failed":
         error = task.get("error") or {}
-        st.session_state.pop("active_task_id", None)
-        st.session_state.pop("active_task_kind", None)
         st.error(f"任务失败 [{error.get('code', 'E_UNKNOWN')}]：{error.get('message', '未知错误')}")
+        retry_column, dismiss_column = st.columns(2)
+        if retry_column.button(
+            "从安全检查点重试",
+            key=f"monitor_retry_{task_id}",
+            disabled=not bool(task.get("retryable")),
+            use_container_width=True,
+        ):
+            _retry_task(task_id)
+            st.rerun()
+        if dismiss_column.button(
+            "关闭提示",
+            key=f"monitor_dismiss_{task_id}",
+            use_container_width=True,
+        ):
+            st.session_state.pop("active_task_id", None)
+            st.session_state.pop("active_task_kind", None)
+            st.rerun()
+    elif status == "cancelled":
+        st.info("任务已安全取消；已完成的不可变数据和分析产物仍保留在项目中。")
+        retry_column, dismiss_column = st.columns(2)
+        if retry_column.button(
+            "从安全检查点继续",
+            key=f"monitor_resume_{task_id}",
+            disabled=not bool(task.get("retryable")),
+            use_container_width=True,
+        ):
+            _retry_task(task_id)
+            st.rerun()
+        if dismiss_column.button(
+            "关闭提示",
+            key=f"monitor_cancel_dismiss_{task_id}",
+            use_container_width=True,
+        ):
+            st.session_state.pop("active_task_id", None)
+            st.session_state.pop("active_task_kind", None)
+            st.rerun()
 
 
 st.title("🧪 账号蒸馏工作台")
@@ -281,16 +461,22 @@ with st.expander("最近任务与恢复"):
             if isinstance(item, dict) and isinstance(item.get("task_id"), str)
         ]
         selected_task = st.selectbox("选择任务", task_ids)
-        if st.button("恢复/查看所选任务", use_container_width=True):
-            selected = next(
-                (
-                    item
-                    for item in tasks
-                    if isinstance(item, dict) and item.get("task_id") == selected_task
-                ),
-                None,
-            )
-            if isinstance(selected, dict) and selected.get("status") in {"pending", "running"}:
+        selected = next(
+            (
+                item
+                for item in tasks
+                if isinstance(item, dict) and item.get("task_id") == selected_task
+            ),
+            None,
+        )
+        selected_status = str(selected.get("status")) if isinstance(selected, dict) else ""
+        view_column, retry_column, cancel_column = st.columns(3)
+        if view_column.button("恢复/查看", use_container_width=True):
+            if isinstance(selected, dict) and selected.get("status") in {
+                "pending",
+                "running",
+                "cancelling",
+            }:
                 st.session_state["active_task_id"] = selected_task
                 st.session_state["active_task_kind"] = selected.get("task_type", "account_distill")
             elif isinstance(selected, dict) and isinstance(selected.get("result"), dict):
@@ -304,6 +490,27 @@ with st.expander("最近任务与恢复"):
             elif isinstance(selected, dict):
                 error = selected.get("error") or {}
                 st.error(f"任务失败：{error.get('message', '没有可恢复的结果')}")
+            st.rerun()
+        if retry_column.button(
+            "重试/继续",
+            disabled=not (
+                isinstance(selected, dict)
+                and selected_status in {"failed", "cancelled"}
+                and bool(selected.get("retryable"))
+            ),
+            use_container_width=True,
+        ):
+            _retry_task(selected_task)
+            st.rerun()
+        if cancel_column.button(
+            "安全取消",
+            disabled=selected_status not in {"pending", "running"},
+            use_container_width=True,
+        ):
+            _cancel_task(selected_task)
+            if isinstance(selected, dict):
+                st.session_state["active_task_id"] = selected_task
+                st.session_state["active_task_kind"] = selected.get("task_type", "account_distill")
             st.rerun()
     else:
         st.caption("暂无任务")

@@ -20,6 +20,11 @@ from video_account_distiller.utils.ids import new_run_id
 
 TaskData: TypeAlias = dict[str, Any]
 ProgressCallback: TypeAlias = Callable[[float, str, str], None]
+CheckpointCallback: TypeAlias = Callable[[str, dict[str, Any]], None]
+
+
+class TaskCancellationRequested(Exception):
+    """Internal cooperative-cancellation signal for background workers."""
 
 
 def default_task_db_path() -> Path:
@@ -87,7 +92,12 @@ class TaskStore:
                 """
             )
 
-    def create(self, task_id: str) -> TaskData:
+    def create(
+        self,
+        task_id: str,
+        *,
+        initial: TaskData | None = None,
+    ) -> TaskData:
         created_at = _now()
         payload: TaskData = {
             "task_id": task_id,
@@ -96,6 +106,15 @@ class TaskStore:
             "created_at": created_at,
             "updated_at": created_at,
         }
+        if initial:
+            payload.update(initial)
+        payload.update(
+            task_id=task_id,
+            status="pending",
+            progress=0.0,
+            created_at=created_at,
+            updated_at=created_at,
+        )
         with self._lock, self._connection() as connection:
             connection.execute(
                 """
@@ -169,9 +188,89 @@ class TaskStore:
                 tasks.append(payload)
         return tasks
 
+    def request_cancel(self, task_id: str) -> TaskData:
+        """Request cooperative cancellation without terminating worker threads."""
+        with self._lock, self._connection() as connection:
+            row = connection.execute(
+                "SELECT payload_json FROM api_tasks WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(task_id)
+            payload = json.loads(str(row["payload_json"]))
+            if not isinstance(payload, dict):
+                raise ValueError(f"Invalid task payload: {task_id}")
+
+            status = str(payload.get("status", "pending"))
+            if status in {"completed", "failed", "cancelled"}:
+                return payload
+            if status == "pending":
+                payload.update(
+                    status="cancelled",
+                    stage="cancelled",
+                    message="任务已在启动前取消",
+                    cancel_requested=True,
+                )
+            else:
+                payload.update(
+                    status="cancelling",
+                    message="正在安全取消；当前不可中断步骤结束后生效",
+                    cancel_requested=True,
+                )
+            payload["updated_at"] = _now()
+            connection.execute(
+                """
+                UPDATE api_tasks
+                SET status = ?, progress = ?, payload_json = ?, updated_at = ?
+                WHERE task_id = ?
+                """,
+                (
+                    str(payload["status"]),
+                    float(payload.get("progress", 0.0)),
+                    _json(payload),
+                    payload["updated_at"],
+                    task_id,
+                ),
+            )
+        return payload
+
+    def cancellation_requested(self, task_id: str) -> bool:
+        """Return whether a task has received a cancellation request."""
+        task = self.get(task_id)
+        return bool(
+            task
+            and (task.get("cancel_requested") or task.get("status") in {"cancelling", "cancelled"})
+        )
+
     def recover_interrupted(self) -> int:
         """Mark work abandoned by a previous process as explicitly failed."""
         with self._lock, self._connection() as connection:
+            cancelling_rows = connection.execute(
+                """
+                SELECT task_id, payload_json FROM api_tasks
+                WHERE status = 'cancelling'
+                """
+            ).fetchall()
+            for row in cancelling_rows:
+                payload = json.loads(str(row["payload_json"]))
+                if not isinstance(payload, dict):
+                    payload = {"task_id": str(row["task_id"])}
+                payload.update(
+                    status="cancelled",
+                    stage="cancelled",
+                    message="任务已在应用重启时完成取消",
+                    cancel_requested=True,
+                    updated_at=_now(),
+                )
+                connection.execute(
+                    """
+                    UPDATE api_tasks
+                    SET status = 'cancelled', payload_json = ?, updated_at = ?
+                    WHERE task_id = ?
+                    """,
+                    (_json(payload), payload["updated_at"], str(row["task_id"])),
+                )
+
             rows = connection.execute(
                 """
                 SELECT task_id, payload_json FROM api_tasks
@@ -201,7 +300,19 @@ class TaskStore:
                     """,
                     (_json(payload), payload["updated_at"], str(row["task_id"])),
                 )
-        return len(rows)
+        return len(rows) + len(cancelling_rows)
+
+
+def _mark_cancelled(tasks: TaskStore, task_id: str) -> TaskData:
+    current = tasks.get(task_id) or {}
+    return tasks.update(
+        task_id,
+        status="cancelled",
+        progress=float(current.get("progress", 0.0)),
+        stage="cancelled",
+        message="任务已安全取消",
+        cancel_requested=True,
+    )
 
 
 def enqueue_task(
@@ -216,8 +327,14 @@ def enqueue_task(
 
     async def _runner() -> None:
         try:
+            if tasks.cancellation_requested(task_id):
+                _mark_cancelled(tasks, task_id)
+                return
             tasks.update(task_id, status="running")
             result = await asyncio.to_thread(fn, *args, **kwargs)
+            if tasks.cancellation_requested(task_id):
+                _mark_cancelled(tasks, task_id)
+                return
             tasks.update(task_id, status="completed", progress=1.0, result=result)
         except DistillerError as exc:
             tasks.update(
@@ -243,14 +360,34 @@ def enqueue_progress_task(
     fn: Callable[..., Any],
     *args: Any,
     task_type: str = "workflow",
+    task_metadata: TaskData | None = None,
+    resume_state: dict[str, Any] | None = None,
+    retried_from: str | None = None,
     **kwargs: Any,
 ) -> TaskData:
     """Run a blocking workflow while persisting its current stage and progress."""
 
     task_id = new_run_id()
-    tasks.create(task_id)
+    initial: TaskData = {
+        "task_type": task_type,
+        "stage": "pending",
+        "message": "任务已进入本地队列",
+        "retryable": task_metadata is not None,
+    }
+    if task_metadata is not None:
+        initial["task_metadata"] = task_metadata
+    if resume_state is not None:
+        initial["checkpoint"] = resume_state
+    if retried_from is not None:
+        initial["retried_from"] = retried_from
+    tasks.create(task_id, initial=initial)
+
+    def _raise_if_cancelled() -> None:
+        if tasks.cancellation_requested(task_id):
+            raise TaskCancellationRequested
 
     def _progress(value: float, stage: str, message: str) -> None:
+        _raise_if_cancelled()
         bounded = min(max(float(value), 0.0), 1.0)
         tasks.update(
             task_id,
@@ -260,8 +397,17 @@ def enqueue_progress_task(
             message=message,
         )
 
+    def _checkpoint(stage: str, state: dict[str, Any]) -> None:
+        tasks.update(
+            task_id,
+            checkpoint_stage=stage,
+            checkpoint=state,
+        )
+        _raise_if_cancelled()
+
     async def _runner() -> None:
         try:
+            _raise_if_cancelled()
             tasks.update(
                 task_id,
                 status="running",
@@ -269,7 +415,16 @@ def enqueue_progress_task(
                 stage="starting",
                 message="正在启动工作流",
             )
-            result = await asyncio.to_thread(fn, *args, progress=_progress, **kwargs)
+            _raise_if_cancelled()
+            result = await asyncio.to_thread(
+                fn,
+                *args,
+                progress=_progress,
+                checkpoint=_checkpoint,
+                resume_state=resume_state,
+                **kwargs,
+            )
+            _raise_if_cancelled()
             tasks.update(
                 task_id,
                 status="completed",
@@ -278,7 +433,12 @@ def enqueue_progress_task(
                 message="工作流已完成",
                 result=result,
             )
+        except TaskCancellationRequested:
+            _mark_cancelled(tasks, task_id)
         except DistillerError as exc:
+            if tasks.cancellation_requested(task_id):
+                _mark_cancelled(tasks, task_id)
+                return
             tasks.update(
                 task_id,
                 status="failed",
@@ -288,6 +448,9 @@ def enqueue_progress_task(
                 error=exc.as_dict()["error"],
             )
         except Exception as exc:
+            if tasks.cancellation_requested(task_id):
+                _mark_cancelled(tasks, task_id)
+                return
             tasks.update(
                 task_id,
                 status="failed",
@@ -298,9 +461,12 @@ def enqueue_progress_task(
             )
 
     asyncio.create_task(_runner())
-    return {
+    submission: TaskData = {
         "ok": True,
         "task_id": task_id,
         "task_type": task_type,
         "status": "pending",
     }
+    if retried_from is not None:
+        submission["retried_from"] = retried_from
+    return submission

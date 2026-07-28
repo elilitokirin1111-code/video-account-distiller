@@ -32,7 +32,7 @@ def _wait_for_task(client: TestClient, task_id: str) -> dict[str, Any]:
         response = client.get(f"/api/tasks/{task_id}")
         assert response.status_code == 200
         payload = _json(response)
-        if payload.get("status") in {"completed", "failed"}:
+        if payload.get("status") in {"completed", "failed", "cancelled"}:
             return payload
         time.sleep(0.01)
     raise AssertionError(f"Task did not finish: {task_id}")
@@ -48,6 +48,8 @@ def test_health_openapi_and_missing_task_contract(tmp_path: Path) -> None:
         assert openapi.status_code == 200
         assert "/api/tasks" in _json(openapi)["paths"]
         assert "/api/tasks/{task_id}" in _json(openapi)["paths"]
+        assert "/api/tasks/{task_id}/cancel" in _json(openapi)["paths"]
+        assert "/api/tasks/{task_id}/retry" in _json(openapi)["paths"]
 
         missing = client.get("/api/tasks/missing")
         assert missing.status_code == 404
@@ -244,6 +246,85 @@ def test_interrupted_task_is_recovered_with_stable_retryable_error(tmp_path: Pat
         "message": "Task was interrupted by an API restart",
         "details": {"retryable": True},
     }
+
+
+def test_cancelling_task_is_finalized_as_cancelled_after_restart(tmp_path: Path) -> None:
+    path = tmp_path / "tasks.sqlite3"
+    first = TaskStore(path)
+    first.create("task_cancelling")
+    first.update("task_cancelling", status="running", progress=0.4)
+
+    cancelling = first.request_cancel("task_cancelling")
+    assert cancelling["status"] == "cancelling"
+    assert cancelling["cancel_requested"] is True
+
+    recovered = TaskStore(path).get("task_cancelling")
+    assert recovered is not None
+    assert recovered["status"] == "cancelled"
+    assert recovered["progress"] == 0.4
+
+
+def test_account_distill_task_can_retry_from_persisted_inputs(
+    project: ProjectLayout,
+    tmp_path: Path,
+) -> None:
+    task_db = tmp_path / "tasks.sqlite3"
+    app = create_app(task_db)
+    with TestClient(app) as client:
+        store: TaskStore = app.state.tasks
+        store.create(
+            "task_retryable",
+            initial={
+                "task_type": "account_distill",
+                "retryable": True,
+                "task_metadata": {
+                    "project_path": str(project.root),
+                    "body": {
+                        "url": "https://v.douyin.com/demo/",
+                        "count": 20,
+                        "comments_per_video": 10,
+                        "comment_video_limit": 20,
+                    },
+                    "dry_run": True,
+                },
+            },
+        )
+        store.update(
+            "task_retryable",
+            status="failed",
+            error={
+                "code": "E_TASK_INTERRUPTED",
+                "message": "interrupted",
+                "details": {"retryable": True},
+            },
+        )
+
+        retried = client.post("/api/tasks/task_retryable/retry")
+        assert retried.status_code == 200
+        submission = _json(retried)
+        assert submission["retried_from"] == "task_retryable"
+
+        task = _wait_for_task(client, str(submission["task_id"]))
+        assert task["status"] == "completed"
+        assert task["retried_from"] == "task_retryable"
+        assert task["result"]["dry_run"] is True
+        assert task["result"]["request"]["count"] == 20
+
+
+def test_task_cancel_endpoint_is_idempotent(tmp_path: Path) -> None:
+    app = create_app(tmp_path / "tasks.sqlite3")
+    with TestClient(app) as client:
+        store: TaskStore = app.state.tasks
+        store.create("task_running")
+        store.update("task_running", status="running", progress=0.25)
+
+        first = client.post("/api/tasks/task_running/cancel")
+        assert first.status_code == 200
+        assert _json(first)["status"] == "cancelling"
+
+        second = client.post("/api/tasks/task_running/cancel")
+        assert second.status_code == 200
+        assert _json(second)["status"] == "cancelling"
 
 
 def test_growth_and_analysis_context_endpoints(

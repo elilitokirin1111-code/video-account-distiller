@@ -36,6 +36,7 @@ class VideoMediaEnrichment(StrictModel):
     media_hash: str | None = None
     media_analysis_id: str | None = None
     media_analysis_path: str | None = None
+    vision_status: Literal["success", "degraded", "skipped"] | None = None
     transcription: TranscriptionSummary
     text_analysis_id: str | None = None
     text_analysis_path: str | None = None

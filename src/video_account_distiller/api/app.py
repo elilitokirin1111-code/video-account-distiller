@@ -89,6 +89,34 @@ def create_app(task_db_path: Path | str | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
         return task
 
+    @app.post("/api/tasks/{task_id}/cancel", tags=["Tasks"])
+    async def cancel_task(task_id: str) -> dict[str, Any]:
+        task = task_store.get(task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+        return task_store.request_cancel(task_id)
+
+    @app.post("/api/tasks/{task_id}/retry", tags=["Tasks"])
+    async def retry_task(task_id: str) -> dict[str, Any]:
+        task = task_store.get(task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+        if task.get("status") not in {"failed", "cancelled"}:
+            raise HTTPException(
+                status_code=409,
+                detail="Only failed or cancelled tasks can be retried",
+            )
+        if task.get("task_type") != "account_distill" or not task.get("retryable"):
+            raise HTTPException(
+                status_code=409,
+                detail="This task type does not support persisted retry",
+            )
+        from video_account_distiller.api.router_workflows import (
+            retry_account_distill_task,
+        )
+
+        return retry_account_distill_task(task_store, task)
+
     app.state.tasks = task_store
 
     @app.get("/api/health", tags=["Health"])

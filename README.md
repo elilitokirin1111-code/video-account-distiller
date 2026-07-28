@@ -239,6 +239,10 @@ GET /api/tasks?limit=50
 
 API 任务默认持久化到用户目录的 SQLite；服务重启时遗留任务会标记为
 `E_TASK_INTERRUPTED`、`retryable: true`，不会被悄悄丢失或盲目续跑。
+自助蒸馏任务还会保存最近的安全阶段检查点；可通过工作台或
+`POST /api/tasks/{task-id}/retry` 创建续跑任务，通过
+`POST /api/tasks/{task-id}/cancel` 请求安全取消。取消不会强制终止正在写入不可变产物的
+本地步骤，而会在下一个安全边界生效。
 
 如需把多个账号、多个周期的分析成果编译成长期可查询知识，可连接独立 OpenKB 服务。
 先离线预演导出和同步：

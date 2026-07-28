@@ -7,7 +7,7 @@ import os
 import re
 import shutil
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -53,6 +53,13 @@ SELECTION_POLICY = "provider_order_unanalyzed_first"
 ALLOWED_MEDIA_HOST_SUFFIXES = (".douyinvod.com", ".douyin.com")
 MAX_MEDIA_BYTES = 512 * 1024 * 1024
 DEFAULT_DOWNLOAD_TIMEOUT_SECONDS = 120
+EnrichmentProgress = Callable[[float, str], None]
+
+
+def _ignore_enrichment_progress(value: float, message: str) -> None:
+    del value, message
+
+
 DEFAULT_TRANSCRIPTION_TIMEOUT_SECONDS = 3600
 MODEL_NAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
@@ -600,6 +607,7 @@ class AccountMediaEnrichmentService:
         scene_threshold: float | None = None,
         max_keyframes: int | None = None,
         dry_run: bool = False,
+        progress: EnrichmentProgress = _ignore_enrichment_progress,
     ) -> dict[str, Any]:
         """Enrich a bounded sample using only retained, approved Provider evidence."""
 
@@ -674,7 +682,15 @@ class AccountMediaEnrichmentService:
         try:
             with TemporaryDirectory(prefix="distiller-account-media-") as temp_name:
                 temp_root = Path(temp_name)
-                for source in selected:
+                selected_total = max(len(selected), 1)
+                for source_index, source in enumerate(selected):
+                    progress(
+                        source_index / selected_total * 0.68,
+                        (
+                            f"正在处理视频 {source_index + 1}/{len(selected)}："
+                            "下载、画面、声音与字幕"
+                        ),
+                    )
                     item_warnings: list[str] = []
                     source_host: str | None = None
                     media_result: dict[str, Any] | None = None
@@ -841,6 +857,11 @@ class AccountMediaEnrichmentService:
                                 media_analysis_path=(
                                     media_result["outputs"][0] if media_result is not None else None
                                 ),
+                                vision_status=(
+                                    media_analysis.vision_trace.status
+                                    if media_analysis is not None
+                                    else None
+                                ),
                                 transcription=transcription,
                                 warnings=item_warnings,
                             )
@@ -857,14 +878,21 @@ class AccountMediaEnrichmentService:
                             media_hash=media_analysis.metadata.media_hash,
                             media_analysis_id=media_analysis.analysis_id,
                             media_analysis_path=media_result["outputs"][0],
+                            vision_status=media_analysis.vision_trace.status,
                             transcription=transcription,
                             warnings=item_warnings,
                         )
                     )
 
+            progress(0.7, "视频下载、画面、声音与字幕处理完成")
             if transcript_normalization_required:
+                progress(0.72, "正在标准化新生成的字幕")
                 NormalizationService(self.project).normalize()
             for index, item in enumerate(items):
+                progress(
+                    0.75 + (index / max(len(items), 1) * 0.17),
+                    f"正在生成视频文本分析 {index + 1}/{len(items)}",
+                )
                 if item.status == "failed" or item.transcription.status == "failed":
                     continue
                 try:
@@ -894,6 +922,7 @@ class AccountMediaEnrichmentService:
                         }
                     )
 
+            progress(0.94, "正在用新增视频证据重建账号蒸馏")
             distillation = AccountDistillationService(self.project).distill(account_id=account_id)
             distillation_payload = distillation["distillation"]
             seed = {
@@ -983,6 +1012,7 @@ class AccountMediaEnrichmentService:
                 output_files=outputs,
                 warnings=warnings,
             )
+            progress(1.0, "视频内容增强完成")
             return {
                 "ok": failed_count == 0,
                 "dry_run": False,
