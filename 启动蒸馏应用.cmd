@@ -1,6 +1,7 @@
 @echo off
-chcp 65001 >nul
+setlocal
 cd /d "%~dp0"
+if errorlevel 1 goto launch_error
 
 if not defined DISTILLER_DEFAULT_PROJECT (
   set "DISTILLER_DEFAULT_PROJECT=%~dp0..\video-account-distiller-projects\workspace"
@@ -8,18 +9,27 @@ if not defined DISTILLER_DEFAULT_PROJECT (
 
 where uv >nul 2>&1
 if errorlevel 1 (
-  echo 未找到 uv。请先安装 uv：https://docs.astral.sh/uv/
-  pause
-  exit /b 1
+  echo ERROR: uv was not found.
+  echo Install uv from https://docs.astral.sh/uv/ and try again.
+  goto launch_error
 )
 
-echo 正在启动 Video Account Distiller...
-echo 浏览器会在服务就绪后自动打开。
-echo 关闭此窗口即可停止应用。
+echo Starting Video Account Distiller...
+echo The browser will open when the local application is ready.
+echo If a default port is busy, another free port will be selected automatically.
+echo.
+
 uv run distiller-web
+if errorlevel 1 goto launch_error
 
-if errorlevel 1 (
-  echo.
-  echo 应用启动失败，请保留此窗口中的错误信息。
-  pause
-)
+echo.
+echo Video Account Distiller has stopped.
+pause
+exit /b 0
+
+:launch_error
+echo.
+echo The application could not start. This window will stay open.
+echo Copy the error shown above if you need help.
+pause
+exit /b 1
