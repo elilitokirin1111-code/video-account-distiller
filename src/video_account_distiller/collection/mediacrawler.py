@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import tomllib
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -29,6 +30,7 @@ from video_account_distiller.models import (
     CollectedMetricSnapshot,
     CollectedVideo,
     CollectionProviderKind,
+    MediaCrawlerDiagnostic,
     ProviderRawPage,
 )
 from video_account_distiller.models.core import StrictModel
@@ -132,35 +134,182 @@ def default_browser_profile(browser_channel: str = "chrome") -> Path:
     return (Path.home() / ".video-account-distiller" / "browser-profiles" / profile_name).resolve()
 
 
-def chrome_executable() -> str | None:
-    """Locate the Chrome channel used by the controlled Playwright context."""
+def browser_executable(browser_channel: str = "chrome") -> str | None:
+    """Locate the requested Chromium channel used by the controlled context."""
 
-    for name in ("google-chrome", "google-chrome-stable", "chrome"):
+    if browser_channel not in {"chrome", "msedge"}:
+        return None
+    executable_names = (
+        ("microsoft-edge", "msedge")
+        if browser_channel == "msedge"
+        else ("google-chrome", "google-chrome-stable", "chrome")
+    )
+    for name in executable_names:
         discovered = shutil.which(name)
         if discovered:
             return discovered
-    candidates = [Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")]
+    candidates = (
+        [Path("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge")]
+        if browser_channel == "msedge"
+        else [Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")]
+    )
     for variable in ("LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)"):
         root = os.environ.get(variable)
         if root:
-            candidates.append(Path(root) / "Google" / "Chrome" / "Application" / "chrome.exe")
+            candidates.append(
+                Path(root)
+                / (
+                    Path("Microsoft/Edge/Application/msedge.exe")
+                    if browser_channel == "msedge"
+                    else Path("Google/Chrome/Application/chrome.exe")
+                )
+            )
     for candidate in candidates:
         if candidate.is_file():
             return str(candidate.resolve())
     return None
 
 
+def chrome_executable() -> str | None:
+    """Backward-compatible Chrome executable lookup."""
+
+    return browser_executable("chrome")
+
+
+def _resolved_executable(command: str) -> str | None:
+    discovered = shutil.which(command)
+    if discovered:
+        return discovered
+    candidate = Path(command).expanduser()
+    return str(candidate.resolve()) if candidate.is_file() else None
+
+
+def _git_commit(home: Path) -> str | None:
+    git = shutil.which("git")
+    if git is None or not home.is_dir():
+        return None
+    try:
+        result = subprocess.run(
+            [git, "-C", str(home), "rev-parse", "HEAD"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    commit = result.stdout.strip()
+    return commit if result.returncode == 0 and commit else None
+
+
+def _python_constraint(pyproject_path: Path) -> str | None:
+    try:
+        payload = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+    project = payload.get("project")
+    if not isinstance(project, dict):
+        return None
+    value = project.get("requires-python")
+    return str(value) if isinstance(value, str) and value.strip() else None
+
+
+def mediacrawler_diagnostic(
+    *,
+    home: Path | None = None,
+    browser_profile: Path | None = None,
+    browser_channel: str | None = None,
+    uv_executable: str | None = None,
+    bridge_script: Path | None = None,
+) -> MediaCrawlerDiagnostic:
+    """Build a secret-free compatibility matrix without launching or inspecting a browser."""
+
+    selected_channel = browser_channel or os.environ.get(
+        "MEDIACRAWLER_BROWSER_CHANNEL",
+        "chrome",
+    )
+    selected_home = (home or default_mediacrawler_home()).expanduser().resolve()
+    selected_profile = (
+        (browser_profile or default_browser_profile(selected_channel)).expanduser().resolve()
+    )
+    selected_bridge = (
+        (bridge_script or Path(__file__).with_name("_mediacrawler_bridge.py"))
+        .expanduser()
+        .resolve()
+    )
+    required_files = (
+        Path("pyproject.toml"),
+        Path("uv.lock"),
+        Path("LICENSE"),
+        Path("media_platform/douyin/client.py"),
+    )
+    missing_files = [
+        item.as_posix() for item in required_files if not (selected_home / item).is_file()
+    ]
+    actual_commit = _git_commit(selected_home)
+    commit_matches = actual_commit == MEDIACRAWLER_PINNED_COMMIT
+    selected_uv = _resolved_executable(uv_executable or os.environ.get("MEDIACRAWLER_UV", "uv"))
+    selected_browser = browser_executable(selected_channel)
+    profile_exists = selected_profile.is_dir()
+    bridge_present = selected_bridge.is_file()
+    lock_present = (selected_home / "uv.lock").is_file()
+    license_present = (selected_home / "LICENSE").is_file()
+    warnings: list[str] = []
+    if not selected_home.is_dir():
+        warnings.append("runtime_home_missing")
+    warnings.extend(f"runtime_file_missing:{item}" for item in missing_files)
+    if actual_commit is None:
+        warnings.append("git_commit_unavailable")
+    elif not commit_matches:
+        warnings.append("pinned_commit_mismatch")
+    if selected_uv is None:
+        warnings.append("uv_missing")
+    if not bridge_present:
+        warnings.append("bridge_missing")
+    if selected_browser is None:
+        warnings.append(f"browser_missing:{selected_channel}")
+    if profile_exists:
+        warnings.append("browser_profile_present_login_unverified")
+    else:
+        warnings.append("browser_profile_missing")
+    project_requires_python = _python_constraint(selected_home / "pyproject.toml")
+    if project_requires_python is None:
+        warnings.append("requires_python_unavailable")
+    runtime_ready = (
+        not missing_files
+        and commit_matches
+        and selected_uv is not None
+        and selected_browser is not None
+        and bridge_present
+    )
+    return MediaCrawlerDiagnostic(
+        home=str(selected_home),
+        expected_commit=MEDIACRAWLER_PINNED_COMMIT,
+        actual_commit=actual_commit,
+        commit_matches=commit_matches,
+        runtime_files_present=not missing_files,
+        missing_files=missing_files,
+        uv_executable=selected_uv,
+        bridge_script=str(selected_bridge),
+        bridge_present=bridge_present,
+        browser_channel=selected_channel,
+        browser_executable=selected_browser,
+        browser_profile=str(selected_profile),
+        browser_profile_exists=profile_exists,
+        login_status=("profile_present_unverified" if profile_exists else "profile_missing"),
+        project_requires_python=project_requires_python,
+        lock_present=lock_present,
+        license_present=license_present,
+        runtime_ready=runtime_ready,
+        ready=runtime_ready and profile_exists,
+        warnings=warnings,
+    )
+
+
 def mediacrawler_runtime_available() -> bool:
     """Check whether the pinned source and uv runtime are locally available."""
 
-    home = default_mediacrawler_home()
-    return (
-        shutil.which(os.environ.get("MEDIACRAWLER_UV", "uv")) is not None
-        and (home / "pyproject.toml").is_file()
-        and (home / "uv.lock").is_file()
-        and (home / "LICENSE").is_file()
-        and (home / "media_platform" / "douyin" / "client.py").is_file()
-    )
+    return mediacrawler_diagnostic().runtime_ready
 
 
 def _read_bridge_payload(path: Path) -> dict[str, Any]:
@@ -450,8 +599,10 @@ __all__ = [
     "MediaCrawlerAccountProvider",
     "ProcessExecutor",
     "ProcessResult",
+    "browser_executable",
     "chrome_executable",
     "default_browser_profile",
     "default_mediacrawler_home",
+    "mediacrawler_diagnostic",
     "mediacrawler_runtime_available",
 ]

@@ -54,6 +54,8 @@ include = [
   "/skills/video-account-distiller",
   "/tools/release_acceptance.py",
   "/docs/production-release.md",
+  "/docs/release-candidate-operations.md",
+  "/docs/gpt-evaluation.md",
   "/docs/product-direction.md",
   "/docs/phase8-account-url-analysis.md",
   "/docs/account-media-enrichment.md",
@@ -62,6 +64,7 @@ include = [
   "/.gitmodules",
   "/LICENSE",
   "/README.md",
+  "/examples/gpt-evaluation-suite.example.json",
   "/pyproject.toml",
 ]
 
@@ -75,6 +78,9 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/video_account_distiller/cli.py" = ["B008"]
+"src/video_account_distiller/cli_backup.py" = ["B008"]
+"src/video_account_distiller/cli_gpt_evaluation.py" = ["B008"]
+"src/video_account_distiller/cli_release.py" = ["B008"]
 "src/video_account_distiller/api/router_analysis.py" = ["B008"]
 "src/video_account_distiller/api/router_closed_loop.py" = ["B008"]
 "src/video_account_distiller/api/router_reports.py" = ["B008"]

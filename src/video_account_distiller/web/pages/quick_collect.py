@@ -11,7 +11,19 @@ from urllib.parse import quote
 import requests
 import streamlit as st
 
-st.set_page_config(page_title="蒸馏工作台", page_icon="🧪", layout="wide")
+from video_account_distiller.web.ui import (
+    badge,
+    section_header,
+    setup_page,
+    stepper,
+)
+
+st.set_page_config(
+    page_title="采集任务 · Video Account Distiller",
+    page_icon=":material/add_task:",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
 STAGE_LABELS = {
     "starting": "启动工作流",
@@ -24,6 +36,7 @@ STAGE_LABELS = {
     "media_complete": "视频内容分析完成",
     "report": "生成画像、报告和分析上下文",
     "knowledge_export": "生成 GPT/OpenKB 知识包",
+    "model_request": "生成 GPT 分析",
     "completed": "全部完成",
     "failed": "执行失败",
     "cancelling": "正在安全取消",
@@ -104,6 +117,22 @@ def _submit_workflow(payload: dict[str, Any], *, dry_run: bool) -> None:
     st.session_state.pop("last_workflow_result", None)
     st.session_state.pop("last_account_id", None)
     st.toast("预检任务已提交" if dry_run else "蒸馏任务已提交", icon="✅")
+
+
+def _submit_gpt_analysis(account_id: str, payload: dict[str, Any]) -> None:
+    result = _request(
+        f"/api/projects/{_encoded_project()}/accounts/{account_id}/gpt-analysis",
+        "POST",
+        json=payload,
+    )
+    task_id = result.get("task_id")
+    if not isinstance(task_id, str):
+        st.error(f"GPT 分析提交失败：{(result.get('error') or {}).get('message', '未知错误')}")
+        return
+    st.session_state["active_task_id"] = task_id
+    st.session_state["active_task_kind"] = "gpt_analysis"
+    st.session_state.pop("last_gpt_analysis", None)
+    st.toast("GPT 分析任务已提交；临时密钥未写入任务记录", icon="🤖")
 
 
 def _cancel_task(task_id: str) -> None:
@@ -325,6 +354,171 @@ def _render_result(result: dict[str, Any]) -> None:
         st.json(result)
 
 
+def _render_gpt_analysis(account_id: str) -> None:
+    settings = _request(
+        f"/api/projects/{_encoded_project()}/settings/cloud-model",
+        timeout=10,
+    )
+    permission_enabled = bool(settings.get("allow_cloud_model_upload"))
+    if not permission_enabled:
+        st.warning(
+            "该项目仍保持离线默认值。开启权限只允许后续显式提交；不会上传数据，也不会保存密钥。"
+        )
+        if st.button("为此项目开启云端模型权限", use_container_width=True):
+            updated = _request(
+                f"/api/projects/{_encoded_project()}/settings/cloud-model",
+                "PUT",
+                json={"allow_cloud_model_upload": True},
+                timeout=10,
+            )
+            if updated.get("ok"):
+                st.success("项目权限已开启；每次调用仍需单独确认。")
+                st.rerun()
+            st.error(f"权限更新失败：{(updated.get('error') or {}).get('message', '未知错误')}")
+        return
+
+    model_labels = {
+        "均衡（GPT-5.6 Terra）": "gpt-5.6-terra",
+        "高质量（GPT-5.6 Sol）": "gpt-5.6-sol",
+        "高效率（GPT-5.6 Luna）": "gpt-5.6-luna",
+    }
+    template_labels = {
+        "账号体检": "account_health",
+        "内容策略": "content_strategy",
+        "30 天增长计划": "growth_plan",
+    }
+    reasoning_labels = {
+        "低（推荐起点）": "low",
+        "无": "none",
+        "中": "medium",
+        "高": "high",
+    }
+    left, middle, right = st.columns(3)
+    with left:
+        model_label = st.selectbox("OpenAI 模型", list(model_labels))
+    with middle:
+        template_label = st.selectbox("分析模板", list(template_labels))
+    with right:
+        reasoning_label = st.selectbox("推理强度", list(reasoning_labels))
+    max_video_analyses = st.slider("纳入最近视频分析数", 1, 25, 10)
+    preview_request = {
+        "model": model_labels[model_label],
+        "template": template_labels[template_label],
+        "reasoning_effort": reasoning_labels[reasoning_label],
+        "max_video_analyses": max_video_analyses,
+        "confirm_cloud_upload": False,
+        "confirm_cost": False,
+    }
+    preview = _request(
+        f"/api/projects/{_encoded_project()}/accounts/{account_id}/gpt-analysis/preview",
+        "POST",
+        json=preview_request,
+        timeout=30,
+    )
+    preview_ok = bool(preview.get("ok"))
+    if preview_ok:
+        data_scope = preview.get("data_scope") or {}
+        cost_preview = preview.get("cost_preview") or {}
+        pricing = cost_preview.get("pricing") or {}
+        context_bytes = data_scope.get("context_bytes")
+        context_size = (
+            f"{context_bytes / 1024:.1f} KB" if isinstance(context_bytes, int) else "未知"
+        )
+        maximum_cost = cost_preview.get("conservative_maximum_usd")
+        maximum_cost_label = (
+            f"${maximum_cost:.4f}" if isinstance(maximum_cost, int | float) else "未知"
+        )
+        st.info(
+            f"调用前预览：{preview.get('model')} / {preview.get('template')}；"
+            f"上下文 {context_size}；"
+            f"最多纳入 {data_scope.get('max_video_analyses')} 条视频分析；"
+            f"保守费用上限约 {maximum_cost_label}。"
+        )
+        st.caption(
+            f"当前费率快照 {pricing.get('snapshot')}：输入 ${pricing.get('input')}/百万 token，"
+            f"缓存输入 ${pricing.get('cached_input')}/百万 token，"
+            f"输出 ${pricing.get('output')}/百万 token。"
+            "该上限按 UTF-8 字节和全量未缓存输入保守估算；最终以 OpenAI 账单为准。"
+        )
+        with st.expander("查看数据范围、脱敏项与请求指纹"):
+            st.json(
+                {
+                    "data_scope": data_scope,
+                    "request_fingerprints": preview.get("request_fingerprints"),
+                    "cost_preview": cost_preview,
+                }
+            )
+    else:
+        st.error(f"无法生成调用预览：{(preview.get('error') or {}).get('message', '未知错误')}")
+
+    credential_configured = bool(settings.get("api_key_configured"))
+    if not credential_configured:
+        st.error(
+            f"API 服务尚未配置 {settings.get('api_key_env', 'OPENAI_API_KEY')}。"
+            "请在启动 API 的环境中设置后重启服务；密钥不会从网页或请求体接收。"
+        )
+
+    with st.form("gpt_account_analysis_form", clear_on_submit=False):
+        confirm_cloud_upload = st.checkbox("我确认将上方预览所代表的受限、脱敏上下文发送给 OpenAI")
+        confirm_cost = st.checkbox(
+            "我理解本次 Responses API 调用可能产生费用，实际费用以 OpenAI 账户为准"
+        )
+        submitted = st.form_submit_button(
+            "生成可审计的 GPT 分析",
+            type="primary",
+            use_container_width=True,
+            disabled=not preview_ok or not credential_configured,
+        )
+
+    if submitted:
+        if not confirm_cloud_upload or not confirm_cost:
+            st.error("请同时确认数据外发与潜在费用。")
+        else:
+            _submit_gpt_analysis(
+                account_id,
+                {
+                    "model": model_labels[model_label],
+                    "template": template_labels[template_label],
+                    "reasoning_effort": reasoning_labels[reasoning_label],
+                    "max_video_analyses": max_video_analyses,
+                    "confirm_cloud_upload": True,
+                    "confirm_cost": True,
+                },
+            )
+            st.rerun()
+
+    latest = st.session_state.get("last_gpt_analysis")
+    if isinstance(latest, dict):
+        analysis = latest.get("analysis")
+        st.success(
+            "GPT 分析已完成并写入本地审计工件。"
+            if not latest.get("already_generated")
+            else "已复用同一上下文与设置的现有分析，未重复调用 API。"
+        )
+        if isinstance(analysis, dict):
+            result = analysis.get("result")
+            if isinstance(result, dict):
+                st.markdown(f"**摘要：** {result.get('executive_summary', '')}")
+                with st.expander("查看结构化分析", expanded=True):
+                    st.json(result)
+            st.download_button(
+                "下载 GPT 分析 JSON",
+                data=json.dumps(analysis, ensure_ascii=False, indent=2),
+                file_name=f"{account_id}-gpt-analysis.json",
+                mime="application/json",
+                use_container_width=True,
+            )
+        st.caption("审计产物：" + "、".join(str(item) for item in latest.get("outputs", [])))
+        audit = latest.get("audit")
+        if isinstance(audit, dict):
+            with st.expander("查看调用审计（不含密钥与原始响应）"):
+                st.json(audit)
+        evaluation = latest.get("evaluation")
+        if isinstance(evaluation, dict):
+            with st.expander("查看固定问题集评估"):
+                st.json(evaluation)
+
+
 @st.fragment(run_every=2.0)
 def _task_monitor() -> None:
     task_id = st.session_state.get("active_task_id")
@@ -357,8 +551,11 @@ def _task_monitor() -> None:
     if status == "completed":
         result = task.get("result")
         if isinstance(result, dict):
-            if st.session_state.get("active_task_kind") == "openkb_sync":
+            task_kind = st.session_state.get("active_task_kind")
+            if task_kind == "openkb_sync":
                 st.session_state["last_openkb_result"] = result
+            elif task_kind == "gpt_analysis":
+                st.session_state["last_gpt_analysis"] = result
             else:
                 st.session_state["last_workflow_result"] = result
         st.session_state.pop("active_task_id", None)
@@ -406,39 +603,26 @@ def _task_monitor() -> None:
             st.rerun()
 
 
-st.title("🧪 账号蒸馏工作台")
-st.caption("粘贴抖音主页链接，自己完成采集、视频理解、评论分析、账号蒸馏和知识包导出。")
-
-api_url = st.sidebar.text_input("后端 API", value=_api_url())
-st.session_state["api_url"] = api_url.rstrip("/")
-project_path = st.sidebar.text_input("项目目录", value=_project_path())
-st.session_state["project_path"] = project_path
-
-if st.sidebar.button("初始化/检查项目", use_container_width=True):
-    initialized = _request(
-        "/api/projects/init",
-        "POST",
-        json={"path": project_path, "name": Path(project_path).name},
-    )
-    if initialized.get("ok"):
-        st.sidebar.success("项目已就绪")
-    else:
-        st.sidebar.error((initialized.get("error") or {}).get("message", "初始化失败"))
+context = setup_page(
+    "collect",
+    "新建采集任务",
+    "用一个清晰的四步流程完成来源配置、采集范围、内容理解与执行预检。",
+    eyebrow="COLLECTION WORKFLOW",
+)
+st.session_state["api_url"] = context.api_url
+st.session_state["project_path"] = context.project_path
+project_path = context.project_path
 
 doctor = _request(f"/api/doctor/{_encoded_project()}", timeout=20) if project_path else {}
 doctor_value = doctor.get("data")
 doctor_data: dict[str, Any] = doctor_value if isinstance(doctor_value, dict) else {}
 capabilities = doctor_data.get("capabilities") or {}
-with st.sidebar.expander("本机能力"):
-    st.write(f"MediaCrawler：{'✅' if capabilities.get('mediacrawler_douyin') else '⚠️'}")
-    st.write(f"视频处理：{'✅' if capabilities.get('local_media') else '⚠️'}")
-    st.write(f"Whisper：{'✅' if capabilities.get('video_transcription') else '⚠️'}")
-    st.write(f"Ollama：{'✅' if capabilities.get('local_vision') else '可选'}")
 
 if st.session_state.get("active_task_id"):
-    st.subheader("运行进度")
-    _task_monitor()
-    st.info("任务在本地后台运行。即使刷新页面，也可以在“设置 → 最近任务”中继续查看。")
+    section_header("运行进度", "任务会在本地后台持续执行，刷新页面不会中断。")
+    with st.container(border=True):
+        _task_monitor()
+        st.caption("也可以在“系统设置 → 最近任务”中继续查看。")
 
 with st.expander("最近任务与恢复"):
     task_history = _request("/api/tasks", params={"limit": 20}, timeout=10)
@@ -520,118 +704,228 @@ with st.expander("最近任务与恢复"):
     else:
         st.caption("暂无任务")
 
+stepper(["采集来源", "采集范围", "内容理解", "预检与执行"], active=1)
+
 with st.form("self_service_distill_form"):
-    st.subheader("1. 采集范围")
-    profile_url = st.text_input(
-        "抖音主页链接",
-        placeholder="https://v.douyin.com/.../ 或 https://www.douyin.com/user/...",
-    )
-    collection_mode = st.radio(
-        "作品采集方式",
-        ["指定视频数量", "采集主页全部公开视频"],
-        horizontal=True,
-        help="全主页模式仍受 1,000 页/20,000 条作品安全上限与调用预算约束。",
-    )
-    all_videos = collection_mode == "采集主页全部公开视频"
+    with st.container(border=True):
+        st.markdown("#### 01 · 采集来源")
+        st.caption("选择合规的数据来源，并确认浏览器或 API 的可用状态。")
+        provider = st.radio(
+            "采集源",
+            [
+                "MediaCrawler（本地浏览器，需手动登录抖音）",
+                "TikHub API（付费，需要环境变量 TIKHUB_API_TOKEN）",
+            ],
+            index=0,
+            horizontal=True,
+            help="MediaCrawler 打开本机 Chrome 手动登录，不收费；TikHub 调用付费 API。",
+        )
+        profile_url = st.text_input(
+            "账号主页链接",
+            placeholder="https://v.douyin.com/.../ 或 https://www.douyin.com/user/...",
+            help="当前自动采集链路支持抖音主页链接。",
+        )
+        source_status, browser_status = st.columns(2)
+        with source_status:
+            source_ready = (
+                bool(os.environ.get("TIKHUB_API_TOKEN"))
+                if "TikHub" in provider
+                else bool(capabilities.get("mediacrawler_douyin"))
+            )
+            st.markdown("**采集源状态**")
+            st.markdown(
+                badge(
+                    "已就绪" if source_ready else "运行时检查",
+                    "success" if source_ready else "warning",
+                ),
+                unsafe_allow_html=True,
+            )
+        with browser_status:
+            st.markdown("**浏览器登录**")
+            st.markdown(
+                badge(
+                    "任务启动后检查" if "MediaCrawler" in provider else "无需浏览器",
+                    "neutral",
+                ),
+                unsafe_allow_html=True,
+            )
 
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        video_count = st.number_input(
-            "采集视频数",
-            min_value=1,
-            max_value=20_000,
-            value=20,
-            disabled=all_videos,
-            help="选择全主页模式时不使用此上限。",
+    with st.container(border=True):
+        st.markdown("#### 02 · 采集范围")
+        st.caption("控制视频、评论与调用预算，预检会再次核对安全上限。")
+        collection_mode = st.radio(
+            "作品采集方式",
+            ["指定视频数量", "采集主页全部公开视频"],
+            horizontal=True,
+            help="全主页模式仍受 1,000 页/20,000 条作品安全上限与调用预算约束。",
         )
-    with c2:
-        comments_per_video = st.number_input(
-            "每个视频采集评论数",
-            min_value=0,
-            max_value=20,
-            value=10,
-            help="选择 0 可完全关闭评论采集。",
-        )
-    with c3:
-        comment_video_max = 200 if all_videos else min(int(video_count), 200)
-        comment_video_limit = st.number_input(
-            "采集评论的视频数",
-            min_value=1,
-            max_value=comment_video_max,
-            value=min(20, comment_video_max),
-            disabled=int(comments_per_video) == 0,
-            help="可覆盖所选作品，单次最多 200 个视频。",
-        )
-    estimated_comments = (
-        int(comments_per_video) * int(comment_video_limit) if int(comments_per_video) > 0 else 0
-    )
-    st.caption(
-        f"本次评论采集上限：{int(comment_video_limit)} 个视频 × "
-        f"{int(comments_per_video)} 条 = {estimated_comments} 条一级评论。"
-    )
+        all_videos = collection_mode == "采集主页全部公开视频"
 
-    st.subheader("2. 视频内容理解")
-    analyze_media = st.toggle("下载并分析视频本身", value=True)
-    media_limit_max = 20 if all_videos else min(int(video_count), 20)
-    m1, m2, m3 = st.columns(3)
-    with m1:
-        media_limit = st.number_input(
-            "视频内容分析数",
-            min_value=1,
-            max_value=media_limit_max,
-            value=media_limit_max,
-            disabled=not analyze_media,
-            help="视频下载、Whisper 与视觉分析计算量较大，单次最多 20 条。",
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            video_count = st.number_input(
+                "采集视频数",
+                min_value=1,
+                max_value=20_000,
+                value=20,
+                disabled=all_videos,
+                help="选择全主页模式时不使用此上限。",
+            )
+        with c2:
+            comments_per_video = st.number_input(
+                "每个视频采集评论数",
+                min_value=0,
+                max_value=20,
+                value=10,
+                help="选择 0 可完全关闭评论采集。",
+            )
+        with c3:
+            comment_video_max = 200 if all_videos else min(int(video_count), 200)
+            comment_video_limit = st.number_input(
+                "采集评论的视频数",
+                min_value=1,
+                max_value=comment_video_max,
+                value=min(20, comment_video_max),
+                disabled=int(comments_per_video) == 0,
+                help="可覆盖所选作品，单次最多 200 个视频。",
+            )
+        estimated_comments = (
+            int(comments_per_video) * int(comment_video_limit) if int(comments_per_video) > 0 else 0
         )
-    with m2:
-        whisper_model = st.selectbox(
-            "Whisper 转写模型",
-            ["tiny", "base", "small", "medium"],
-            index=1,
-            disabled=not analyze_media,
-        )
-    with m3:
-        vision_choice = st.selectbox(
-            "画面语义分析",
-            ["本地 Ollama（推荐）", "仅提取关键帧/镜头"],
-            disabled=not analyze_media,
+        st.markdown(
+            f"""
+            <div class="ds-callout">
+              预计规模：{"全部公开视频" if all_videos else f"{int(video_count)} 个视频"}，
+              最多采集 {estimated_comments} 条一级评论。
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
 
-    with st.expander("高级设置"):
-        sort = st.selectbox("视频排序", ["latest", "popular"])
-        max_provider_calls = st.number_input(
-            "最大采集调用数",
-            min_value=1,
-            max_value=50_000,
-            value=5_000 if all_videos else max(100, int(comment_video_limit) + 10),
-            help="预检会估算调用量；超过该上限时不会开始真实采集。",
-        )
-        vision_model = st.text_input("Ollama 视觉模型", value="qwen3-vl:8b")
-        export_knowledge = st.checkbox("生成 GPT/OpenKB 本地知识包", value=True)
-        strict_media = st.checkbox("任一视频失败即停止", value=False)
-        strict_vision = st.checkbox("视觉模型输出异常即停止", value=False)
+    with st.container(border=True):
+        st.markdown("#### 03 · 内容理解")
+        st.caption("配置语音转写、画面语义和本地知识包生成。")
+        analyze_media = st.toggle("下载并分析视频本身", value=True)
+        media_limit_max = 20 if all_videos else min(int(video_count), 20)
+        m1, m2, m3 = st.columns(3)
+        with m1:
+            media_limit = st.number_input(
+                "视频内容分析数",
+                min_value=1,
+                max_value=media_limit_max,
+                value=media_limit_max,
+                disabled=not analyze_media,
+                help="视频下载、Whisper 与视觉分析计算量较大，单次最多 20 条。",
+            )
+        with m2:
+            whisper_model = st.selectbox(
+                "Whisper 转写模型",
+                ["tiny", "base", "small", "medium"],
+                index=1,
+                disabled=not analyze_media,
+            )
+        with m3:
+            vision_choice = st.selectbox(
+                "画面语义分析",
+                ["本地 Ollama（推荐）", "仅提取关键帧/镜头"],
+                disabled=not analyze_media,
+            )
 
-    st.caption(
-        "MediaCrawler 首次运行可能打开 Chrome 登录页；请在浏览器中完成抖音登录。"
-        "默认工作流只调用本机 Whisper/Ollama，不产生外部模型费用。"
-    )
-    public_content_confirmed = st.checkbox(
-        "我确认只分析有权处理的公开内容，并理解平台登录与访问规则",
-        value=False,
-    )
-    preview, run = st.columns(2)
-    preview_clicked = preview.form_submit_button("先做预检", use_container_width=True)
-    run_clicked = run.form_submit_button(
-        "开始完整蒸馏",
-        type="primary",
-        use_container_width=True,
-        disabled=not public_content_confirmed,
-    )
+        with st.expander("高级设置", icon=":material/tune:"):
+            sort = st.selectbox(
+                "视频排序",
+                ["latest", "popular"],
+                format_func=lambda value: "最新发布" if value == "latest" else "热度优先",
+            )
+            max_provider_calls = st.number_input(
+                "最大采集调用数",
+                min_value=1,
+                max_value=50_000,
+                value=5_000 if all_videos else max(100, int(comment_video_limit) + 10),
+                help="预检会估算调用量；超过该上限时不会开始真实采集。",
+            )
+            vision_model = st.text_input("Ollama 视觉模型", value="qwen3-vl:8b")
+            export_knowledge = st.checkbox("生成 GPT/OpenKB 本地知识包", value=True)
+            strict_media = st.checkbox("任一视频失败即停止", value=False)
+            strict_vision = st.checkbox("视觉模型输出异常即停止", value=False)
+
+    with st.container(border=True):
+        st.markdown("#### 04 · 预检与执行")
+        st.caption("核对任务摘要、依赖与风险后，再启动完整蒸馏。")
+        summary_columns = st.columns(4)
+        summary_columns[0].metric(
+            "视频范围",
+            "全部" if all_videos else str(int(video_count)),
+        )
+        summary_columns[1].metric("评论上限", f"{estimated_comments:,}")
+        summary_columns[2].metric(
+            "内容理解",
+            str(int(media_limit)) if analyze_media else "关闭",
+        )
+        summary_columns[3].metric(
+            "预计耗时",
+            "10–30 分钟" if analyze_media else "3–10 分钟",
+        )
+
+        dependency_columns = st.columns(4)
+        dependency_values = (
+            ("采集源", source_ready),
+            ("视频处理", bool(capabilities.get("local_media")) or not analyze_media),
+            ("Whisper", bool(capabilities.get("video_transcription")) or not analyze_media),
+            (
+                "视觉模型",
+                bool(capabilities.get("local_vision")) or not vision_choice.startswith("本地"),
+            ),
+        )
+        for column, (label, ready) in zip(
+            dependency_columns,
+            dependency_values,
+            strict=True,
+        ):
+            with column:
+                st.markdown(f"**{label}**")
+                st.markdown(
+                    badge("可用" if ready else "预检确认", "success" if ready else "warning"),
+                    unsafe_allow_html=True,
+                )
+
+        if "TikHub" in provider:
+            st.warning(
+                "TikHub 是付费 API。首次运行前会预演并显式确认费用，"
+                "且需要在环境变量中设置 TIKHUB_API_TOKEN。"
+            )
+        else:
+            st.info(
+                "MediaCrawler 首次运行可能打开 Chrome 登录页；默认内容理解只调用本机 "
+                "Whisper/Ollama，不产生外部模型费用。"
+            )
+        public_content_confirmed = st.checkbox(
+            "我确认只分析有权处理的公开内容，并理解平台登录与访问规则",
+            value=False,
+        )
+        save_column, preview_column, run_column = st.columns([0.85, 1, 1.2])
+        save_clicked = save_column.form_submit_button(
+            "保存为模板",
+            icon=":material/bookmark_add:",
+            use_container_width=True,
+        )
+        preview_clicked = preview_column.form_submit_button(
+            "运行预检",
+            icon=":material/fact_check:",
+            use_container_width=True,
+        )
+        run_clicked = run_column.form_submit_button(
+            "开始蒸馏",
+            type="primary",
+            icon=":material/play_arrow:",
+            use_container_width=True,
+            disabled=not public_content_confirmed,
+        )
 
 payload = {
     "url": profile_url,
     "profile": "standard",
-    "provider": "mediacrawler",
+    "provider": "tikhub" if "TikHub" in provider else "mediacrawler",
     "count": None if all_videos else int(video_count),
     "all_videos": all_videos,
     "sort": sort,
@@ -648,7 +942,10 @@ payload = {
     "export_knowledge": export_knowledge,
 }
 
-if preview_clicked or run_clicked:
+if save_clicked:
+    st.session_state["last_collection_template"] = payload
+    st.toast("任务模板已保存在当前会话")
+elif preview_clicked or run_clicked:
     if not profile_url.strip():
         st.error("请输入抖音主页链接")
     elif not project_path.strip():
@@ -667,37 +964,41 @@ if preview_clicked or run_clicked:
 
 last_result = st.session_state.get("last_workflow_result")
 if isinstance(last_result, dict):
-    st.divider()
-    st.subheader("3. 分析结果")
-    _render_result(last_result)
+    section_header("执行结果", "查看采集覆盖率、分析产出与可下载工件。")
+    with st.container(border=True):
+        _render_result(last_result)
 
 account_id = st.session_state.get("last_account_id")
 if isinstance(account_id, str):
-    st.divider()
-    st.subheader("可选：同步到 OpenKB")
-    st.caption("此步骤可能调用你配置的外部模型。应用不会显示或保存模型密钥。")
-    confirm_model = st.checkbox("我确认将知识包交给已配置的 OpenKB/模型处理")
-    if st.button(
-        "同步当前账号到 OpenKB",
-        disabled=not confirm_model,
-        use_container_width=True,
-    ):
-        sync = _request(
-            f"/api/projects/{_encoded_project()}/knowledge/openkb/accounts/{account_id}/sync",
-            "POST",
-            json={
-                "confirm_model_processing": True,
-                "create_kb": True,
-                "force": False,
-                "max_video_analyses": 20,
-            },
-        )
-        if sync.get("task_id"):
-            st.session_state["active_task_id"] = sync["task_id"]
-            st.session_state["active_task_kind"] = "openkb_sync"
-            st.rerun()
-        else:
-            st.error(f"OpenKB 同步提交失败：{(sync.get('error') or {}).get('message')}")
+    section_header("后续分析", "在已有蒸馏结果上生成可审计的 GPT 分析或同步知识库。")
+    gpt_tab, openkb_tab = st.tabs(["GPT 分析", "OpenKB 同步"])
+    with gpt_tab:
+        _render_gpt_analysis(account_id)
+
+    with openkb_tab:
+        st.caption("此步骤可能调用你配置的外部模型。应用不会显示或保存模型密钥。")
+        confirm_model = st.checkbox("我确认将知识包交给已配置的 OpenKB/模型处理")
+        if st.button(
+            "同步当前账号到 OpenKB",
+            disabled=not confirm_model,
+            use_container_width=True,
+        ):
+            sync = _request(
+                f"/api/projects/{_encoded_project()}/knowledge/openkb/accounts/{account_id}/sync",
+                "POST",
+                json={
+                    "confirm_model_processing": True,
+                    "create_kb": True,
+                    "force": False,
+                    "max_video_analyses": 20,
+                },
+            )
+            if sync.get("task_id"):
+                st.session_state["active_task_id"] = sync["task_id"]
+                st.session_state["active_task_kind"] = "openkb_sync"
+                st.rerun()
+            else:
+                st.error(f"OpenKB 同步提交失败：{(sync.get('error') or {}).get('message')}")
 
 openkb_result = st.session_state.get("last_openkb_result")
 if isinstance(openkb_result, dict):

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -13,10 +12,12 @@ from video_account_distiller.api.schemas import (
     MediaAnalysisParams,
     VideoAnalysisParams,
 )
-from video_account_distiller.api.tasks import enqueue_task
-from video_account_distiller.comments import CommentAnalysisService
-from video_account_distiller.features import VideoAnalysisService
-from video_account_distiller.media import LocalMediaAnalysisService
+from video_account_distiller.api.task_jobs import (
+    AnalyzeCommentsJob,
+    AnalyzeMediaJob,
+    AnalyzeVideoJob,
+    enqueue_api_job,
+)
 
 router = APIRouter()
 
@@ -33,14 +34,14 @@ async def analyze_video(
     dry_run: bool = False,
 ) -> dict[str, Any]:
     layout = resolve_project(project_path)
-    return enqueue_task(
+    return enqueue_api_job(
         request.app.state.tasks,
-        VideoAnalysisService(layout).analyze,
-        video_id=video_id,
-        model_output=Path(body.model_output) if body.model_output else None,
-        max_attempts=body.max_attempts,
-        strict_model=body.strict_model,
-        dry_run=dry_run,
+        AnalyzeVideoJob(
+            project_path=str(layout.root),
+            video_id=video_id,
+            body=body,
+            dry_run=dry_run,
+        ),
     )
 
 
@@ -56,14 +57,14 @@ async def analyze_comments(
     dry_run: bool = False,
 ) -> dict[str, Any]:
     layout = resolve_project(project_path)
-    return enqueue_task(
+    return enqueue_api_job(
         request.app.state.tasks,
-        CommentAnalysisService(layout).analyze,
-        account_id=account_id,
-        model_output=Path(body.model_output) if body.model_output else None,
-        max_attempts=body.max_attempts,
-        strict_model=body.strict_model,
-        dry_run=dry_run,
+        AnalyzeCommentsJob(
+            project_path=str(layout.root),
+            account_id=account_id,
+            body=body,
+            dry_run=dry_run,
+        ),
     )
 
 
@@ -84,15 +85,12 @@ async def analyze_media(
     dry_run: bool = False,
 ) -> dict[str, Any]:
     layout = resolve_project(project_path)
-    return enqueue_task(
+    return enqueue_api_job(
         request.app.state.tasks,
-        LocalMediaAnalysisService(layout).analyze,
-        video_id=video_id,
-        file=Path(body.file) if body.file else None,
-        vision_output=Path(body.vision_output) if body.vision_output else None,
-        strict_media=body.strict_media,
-        strict_vision=body.strict_vision,
-        scene_threshold=body.scene_threshold,
-        max_keyframes=body.max_keyframes,
-        dry_run=dry_run,
+        AnalyzeMediaJob(
+            project_path=str(layout.root),
+            video_id=video_id,
+            body=body,
+            dry_run=dry_run,
+        ),
     )

@@ -30,7 +30,7 @@ Chrome，登录和平台验证由用户手动完成。项目不调用代理池�
 - 计算互动率、完播效率、Median、MAD、Robust Z-score、账号相对表现和 S/A/B/C/D 分层。
 - 按表现、近期、内容类型、时长、投流和异常值选择可解释的代表性样本。
 - 输出账号基础统计、高中低表现对照和内容寻址的样本清单。
-- 同时生成账号体检 JSON、Markdown、证据索引和警告文件。
+- 同时生成账号体检 JSON、Markdown、证据索引、警告文件和机器可读数据缺口表。
 - 导入 SRT、VTT、TXT、JSON/JSONL 字幕并输出标准化 `transcripts.parquet`。
 - 在隐藏表现数据的前提下抽取事实和语义标签，再后置合并账号内表现背景。
 - 模型结果严格校验、自动重试；不可用时输出可见的低置信度降级结果。
@@ -51,6 +51,7 @@ Chrome，登录和平台验证由用户手动完成。项目不调用代理池�
 - 将预测与已导入的视频发布记录关联，规划 T+1h/T+24h/T+3d/T+7d 数据快照。
 - 对实际快照计算预测误差，保留规则支持和反例，并生成待审批变更与下一轮实验。
 - 验证授权导出清单、文件 SHA-256 和读写范围，再进入已有不可变导入链路。
+- 识别版本化创作者指标映射，保留授权来源与授权证明，并标准化粉丝画像分段。
 - 通过可 Mock 的飞书多维表格和 Google Sheets 官方 API Adapter 双向同步表格数据。
 - 对 429/5xx 有界退避，并将权限、限流和异常响应映射为稳定错误码。
 - 运行可审计批量任务，输出快照到期计划，并维护不含凭证的团队角色配置。
@@ -109,6 +110,23 @@ uv sync --no-editable
 [`docs/production-release.md`](docs/production-release.md)。可选 MediaCrawler 主页采集依赖
 带子模块的源码工作副本；第三方源码不会被根项目 wheel 重新打包。
 
+发布候选版可执行审计：
+
+```bash
+distiller release audit --repository . --artifacts dist --json
+```
+
+生产项目升级前可创建逐文件 SHA-256 备份，并只恢复到新目录：
+
+```powershell
+distiller backup create --project C:\data\project --output D:\backups\project.zip --json
+distiller backup verify --archive D:\backups\project.zip --json
+distiller backup restore --archive D:\backups\project.zip --destination C:\data\restored --json
+```
+
+完整冻结、隐私、许可证和回滚清单见
+[`docs/release-candidate-operations.md`](docs/release-candidate-operations.md)。
+
 ## Quick Start
 
 ### 可视化自助应用（Windows）
@@ -122,11 +140,14 @@ uv sync --no-editable
 3. 自选作品数量或全主页，自选评论覆盖视频数、每个视频评论数和调用预算。
 4. 对最多 20 条视频执行本地下载、关键帧/镜头/音频、Whisper 转写和可选 Ollama 视觉分析。
 5. 查看持久化任务进度、账号报告和蒸馏结果，并下载 GPT 分析上下文。
-6. 生成本地 OpenKB 知识包；远端同步必须再次确认模型处理。
+6. 可选开启项目云端模型权限，临时输入 OpenAI API 密钥，选择 GPT-5.6
+   Sol/Terra/Luna 与分析模板，并分别确认数据外发和潜在费用。
+7. 生成本地 OpenKB 知识包；远端同步必须再次确认模型处理。
 
 MediaCrawler 首次运行可能打开可见 Chrome，登录与平台验证由用户在浏览器中完成。应用
-默认不调用外部模型，也不会保存模型密钥。关闭启动窗口即可停止本机应用；已经开始的
-任务状态会保存在本机 SQLite 中。
+默认不调用外部模型，也不会保存模型密钥。GPT 分析密钥只存在于当前进程内任务，
+不进入项目、SQLite 任务库或 Git；模型结果会写成结构化分析、审计记录和 Markdown
+报告。关闭启动窗口即可停止本机应用；持久任务状态会保存在本机 SQLite 中。
 
 ### 1. 初始化项目
 
@@ -234,9 +255,19 @@ uv run distiller account context --project ./demo-project \
 ```text
 GET /api/projects/{url-encoded-project}/accounts/{account-id}/growth
 GET /api/projects/{url-encoded-project}/accounts/{account-id}/analysis-context
+GET|PUT /api/projects/{url-encoded-project}/settings/cloud-model
+POST /api/projects/{url-encoded-project}/accounts/{account-id}/gpt-analysis
 GET /api/tasks?limit=50
 GET /api/task-queue
 ```
+
+GPT 分析使用 OpenAI Responses API 的严格 JSON Schema，设置 `store: false`，并在本地
+再次校验证据引用。每个结果写入
+`analyses/gpt/<account-id>/<analysis-id>/{analysis.json,audit.json,evaluation.json,report.md}`。
+相同上下文、模型、模板和提示词版本会复用已有工件，避免重复产生费用。
+API Key 仅从 API 服务进程的 `OPENAI_API_KEY` 环境变量读取，不通过网页或 HTTP 请求体
+传输。调用前工作台展示脱敏数据范围、请求指纹、模型费率快照和保守费用上限；完成后
+审计文件记录实际 token 用量、输出哈希和基于版本化费率的费用估算。
 
 API 任务默认持久化到用户目录的 SQLite。自助蒸馏任务进入可跨进程原子认领的持久队列；
 尚未开始的任务在 API 进程重启后继续排队，多个共享同一任务数据库的进程不会重复认领。
@@ -438,6 +469,17 @@ uv run distiller team init --project ./demo-project --owner owner-id --json
 
 授权导出、飞书/Google 配置、拉取、批处理和错误码详见
 [`docs/authorized-collaboration-adapters.md`](docs/authorized-collaboration-adapters.md)。
+
+授权指标导入会在收据中标记 `authorized_private` 和授权证明 ID。抖音创作者导出映射覆盖
+展现、平均观看时长、完播、主页访问、涨粉、点击、线索、订单和收入；未提供字段继续保持
+`null`。粉丝画像使用 `AudienceProfileSegment` 1.0.0 契约，标准化为
+`normalized/audience_profiles.parquet`。账号体检报告中的 `data-gaps.json` 会分别标记
+`public`、`authorized_private`、`model_inferred` 和无法追溯的 `unknown`。
+
+Web「数据导入」支持同时上传授权 manifest 与创作者后台数据文件，并在导入前校验
+read 授权和 SHA-256。已声明版本的抖音粉丝画像宽表会转换为分段长表；未知版本或未知
+画像列会显式失败，不会猜测映射。Web「数据浏览」可查看粉丝画像，并按上述来源分级筛选
+标准化记录和导入收据。字段别名和单位仍须以明确授权的真实后台样本完成最终验收。
 
 ### 10. 使用 DuckDB 查询
 

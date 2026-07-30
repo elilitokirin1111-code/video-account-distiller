@@ -234,7 +234,14 @@ class DataQualityIssue(StrictModel):
 
 class FieldMapping(StrictModel):
     schema_version: str = SCHEMA_VERSION
-    entity: Literal["accounts", "videos", "metrics", "comments", "transcripts"]
+    entity: Literal[
+        "accounts",
+        "videos",
+        "metrics",
+        "comments",
+        "transcripts",
+        "audience_profiles",
+    ]
     platform: Platform
     fields: dict[str, str]
     timezone: str = "UTC"
@@ -243,10 +250,21 @@ class FieldMapping(StrictModel):
 
 class ImportReceipt(StrictModel):
     schema_version: str = SCHEMA_VERSION
-    entity: Literal["accounts", "videos", "metrics", "comments", "transcripts"]
+    entity: Literal[
+        "accounts",
+        "videos",
+        "metrics",
+        "comments",
+        "transcripts",
+        "audience_profiles",
+    ]
     platform: Platform
     source_name: str
     target_id: str | None = None
+    data_source_tier: Literal["public", "authorized_private", "model_inferred", "unknown"] = (
+        "unknown"
+    )
+    authorization_grant_id: str | None = None
     raw_hash: str
     raw_path: str
     staging_path: str | None = None

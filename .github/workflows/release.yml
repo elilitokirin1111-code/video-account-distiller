@@ -35,7 +35,9 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           (cd skills && zip -r "../dist/video-account-distiller-skill-${version}.zip" video-account-distiller)
-          sha256sum dist/video_account_distiller-* dist/video-account-distiller-skill-* > dist/SHA256SUMS.txt
+          (cd dist && sha256sum video_account_distiller-* video-account-distiller-skill-* > SHA256SUMS.txt)
+      - name: Audit release candidate
+        run: uv run distiller release audit --repository . --artifacts dist --json
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

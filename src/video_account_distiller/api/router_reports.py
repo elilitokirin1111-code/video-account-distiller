@@ -8,9 +8,11 @@ from fastapi import APIRouter, HTTPException, Request
 
 from video_account_distiller.api.deps import resolve_project
 from video_account_distiller.api.schemas import ReportParams, SampleParams
-from video_account_distiller.api.tasks import enqueue_task
-from video_account_distiller.reports import ReportService
-from video_account_distiller.sampling import SamplingService
+from video_account_distiller.api.task_jobs import (
+    ReportJob,
+    SampleJob,
+    enqueue_api_job,
+)
 
 router = APIRouter()
 
@@ -24,12 +26,14 @@ async def sample(
     dry_run: bool = False,
 ) -> dict[str, Any]:
     layout = resolve_project(project_path)
-    return enqueue_task(
+    return enqueue_api_job(
         request.app.state.tasks,
-        SamplingService(layout).select,
-        account_id=account_id,
-        size=body.size,
-        dry_run=dry_run,
+        SampleJob(
+            project_path=str(layout.root),
+            account_id=account_id,
+            body=body,
+            dry_run=dry_run,
+        ),
     )
 
 
@@ -42,12 +46,14 @@ async def generate_report(
     dry_run: bool = False,
 ) -> dict[str, Any]:
     layout = resolve_project(project_path)
-    return enqueue_task(
+    return enqueue_api_job(
         request.app.state.tasks,
-        ReportService(layout).generate_account_health,
-        account_id=account_id,
-        sample_size=body.sample_size,
-        dry_run=dry_run,
+        ReportJob(
+            project_path=str(layout.root),
+            account_id=account_id,
+            body=body,
+            dry_run=dry_run,
+        ),
     )
 
 
@@ -79,8 +85,13 @@ async def get_report(project_path: str, account_id: str, report_id: str) -> dict
         raise HTTPException(status_code=404, detail=f"Report not found: {report_id}")
     markdown_path = path.with_name("report.md")
     markdown = markdown_path.read_text(encoding="utf-8") if markdown_path.is_file() else None
+    data_gaps_path = path.with_name("data-gaps.json")
+    data_gaps = (
+        json.loads(data_gaps_path.read_text(encoding="utf-8")) if data_gaps_path.is_file() else None
+    )
     return {
         "ok": True,
         "data": json.loads(path.read_text(encoding="utf-8")),
         "markdown": markdown,
+        "data_gaps": data_gaps,
     }

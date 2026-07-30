@@ -125,6 +125,19 @@ MediaCrawler keeps its upstream non-commercial learning license. Preserve
 `THIRD_PARTY_NOTICES.md` and the submodule license, and complete a separate licensing review before
 commercial use, hosted service, or paid delivery.
 
+## Project backup privacy
+
+`distiller backup create` archives the complete project tree, including raw exports, comments,
+media, normalized data and derived reports. The ZIP is integrity-protected but not encrypted.
+Store both the ZIP and its `.zip.manifest.json` sidecar on access-controlled encrypted storage,
+apply the same retention and deletion policy as the source project, and never upload it to a public
+issue or model prompt. The manifest contains hashes rather than file contents, but relative paths,
+project IDs and sizes remain sensitive operational metadata.
+
+Credentials, browser profiles and cookies must remain outside the project. The backup tool rejects
+symbolic links and does not follow paths outside the project, but it cannot recognize a credential
+that a user manually copied into an ordinary project file.
+
 ## User responsibilities
 
 Confirm that exported data may be processed, minimize personal data, restrict project access, honor

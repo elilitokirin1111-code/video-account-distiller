@@ -53,6 +53,7 @@ def distiller_error_to_http(exc: DistillerError) -> HTTPException:
         "E_PROFILE_URL_INVALID": 400,
         "E_PROVIDER_COST_CONFIRMATION_REQUIRED": 402,
         "E_COLLECTION_BUDGET_EXCEEDED": 422,
+        "E_GPT_EVALUATION_BUDGET_EXCEEDED": 422,
         "E_TASK_INTERRUPTED": 409,
         "E_TASK_QUEUE_FULL": 429,
         "E_INTERNAL": 500,

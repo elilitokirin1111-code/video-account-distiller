@@ -83,7 +83,14 @@ def project_status(project: ProjectLayout) -> dict[str, Any]:
             "raw_hashes": sorted({receipt.raw_hash for receipt in state.imports}),
             "by_entity": {
                 entity: sum(receipt.entity == entity for receipt in state.imports)
-                for entity in ("accounts", "videos", "metrics", "comments", "transcripts")
+                for entity in (
+                    "accounts",
+                    "videos",
+                    "metrics",
+                    "comments",
+                    "transcripts",
+                    "audience_profiles",
+                )
             },
         },
         "normalized": table_counts,
@@ -147,6 +154,9 @@ def project_status(project: ProjectLayout) -> dict[str, Any]:
             "account_health_reports": len(account_reports),
             "video_analyses": len(
                 list((project.root / "analyses" / "videos").glob("*/*/analysis.json"))
+            ),
+            "gpt_analyses": len(
+                list((project.root / "analyses" / "gpt").glob("*/*/analysis.json"))
             ),
             "media_analyses": len(media_analyses),
             "media_enrichments": len(media_enrichments),

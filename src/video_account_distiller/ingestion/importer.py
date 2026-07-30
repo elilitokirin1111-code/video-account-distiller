@@ -17,11 +17,17 @@ from video_account_distiller.adapters.mapping import (
 )
 from video_account_distiller.config import load_config
 from video_account_distiller.errors import DistillerError, ErrorCode
+from video_account_distiller.ingestion.audience_profiles import (
+    ConvertedAudienceRecord,
+    convert_audience_profile_records,
+)
 from video_account_distiller.models import (
     Account,
+    AudienceProfileSegment,
     Comment,
     DataQualityFlag,
     DataQualityIssue,
+    DataSourceTier,
     ImportReceipt,
     MetricSnapshot,
     Platform,
@@ -35,7 +41,7 @@ from video_account_distiller.utils.ids import new_run_id, stable_id
 from video_account_distiller.utils.io import atomic_write_text
 from video_account_distiller.utils.time import parse_datetime
 
-EntityName = Literal["accounts", "videos", "metrics", "comments"]
+EntityName = Literal["accounts", "videos", "metrics", "comments", "audience_profiles"]
 
 INT_FIELDS = {
     "follower_count_current",
@@ -56,6 +62,8 @@ INT_FIELDS = {
     "leads",
     "orders",
     "like_count",
+    "audience_count",
+    "sample_size",
 }
 FLOAT_FIELDS = {
     "duration_seconds",
@@ -66,6 +74,7 @@ FLOAT_FIELDS = {
     "five_second_view_rate",
     "revenue",
     "promotion_spend",
+    "share",
 }
 BOOL_FIELDS = {
     "verified",
@@ -300,6 +309,46 @@ def _build_comment(
     return Comment(**trace, **payload)
 
 
+def _build_audience_profile(
+    values: dict[str, Any], platform: Platform, run_id: str, raw_hash: str, source_uri: str
+) -> AudienceProfileSegment:
+    account_id = _internal_account_id(platform, str(values["account_id"]))
+    snapshot_at = cast(datetime, values["snapshot_at"])
+    dimension = str(values["dimension"])
+    bucket = str(values["bucket"])
+    segment_id = str(
+        values.get("profile_segment_id")
+        or stable_id(
+            "aps_",
+            platform.value,
+            account_id,
+            snapshot_at.isoformat(),
+            dimension,
+            bucket,
+        )
+    )
+    trace = _trace(
+        record_id=segment_id,
+        platform=platform,
+        source_type="audience_profile_segment",
+        source_uri=source_uri,
+        source_record_id=segment_id,
+        collected_at=snapshot_at,
+        run_id=run_id,
+        raw_hash=raw_hash,
+        flags=[],
+    )
+    payload = {
+        **values,
+        "profile_segment_id": segment_id,
+        "account_id": account_id,
+        "snapshot_at": snapshot_at,
+        "dimension": dimension,
+        "bucket": bucket,
+    }
+    return AudienceProfileSegment(**trace, **payload)
+
+
 BUILDERS: dict[
     EntityName,
     Callable[[dict[str, Any], Platform, str, str, str], TraceFields],
@@ -308,6 +357,7 @@ BUILDERS: dict[
     "videos": _build_video,
     "metrics": _build_metrics,
     "comments": _build_comment,
+    "audience_profiles": _build_audience_profile,
 }
 
 
@@ -327,6 +377,8 @@ class ImportService:
         platform: Platform,
         mapping_path: Path | None = None,
         dry_run: bool = False,
+        data_source_tier: DataSourceTier = DataSourceTier.PUBLIC,
+        authorization_grant_id: str | None = None,
     ) -> tuple[ImportReceipt | None, QualityReport, bool]:
         """Import a file; return receipt, report, and whether it was already imported."""
 
@@ -345,6 +397,16 @@ class ImportService:
             None,
         )
         if existing is not None:
+            existing_tier = DataSourceTier(existing.data_source_tier)
+            if existing_tier not in {DataSourceTier.UNKNOWN, data_source_tier}:
+                raise DistillerError(
+                    ErrorCode.SCHEMA_INVALID,
+                    "Input hash was already imported with a different data source tier",
+                    details={
+                        "existing": existing_tier.value,
+                        "requested": data_source_tier.value,
+                    },
+                )
             report = QualityReport(
                 run_id=existing.run_id,
                 entity=entity,
@@ -355,12 +417,32 @@ class ImportService:
                     "rejected_rows": existing.rejected_rows,
                     "duplicate_rows": existing.duplicate_rows,
                 },
-                warnings=["Input hash already imported; no files were changed."],
+                warnings=[
+                    "Input hash already imported; no files were changed."
+                    + (
+                        " Existing provenance is unknown and was not rewritten."
+                        if existing_tier == DataSourceTier.UNKNOWN
+                        else ""
+                    )
+                ],
             )
             return existing, report, True
 
         records = self.file_adapter.load_records(source)
-        available_fields = {str(key) for record in records for key in record}
+        first_row_number = 2 if source.suffix == ".csv" else 1
+        import_records = (
+            convert_audience_profile_records(
+                records,
+                platform=platform,
+                first_row_number=first_row_number,
+            )
+            if entity == "audience_profiles"
+            else [
+                ConvertedAudienceRecord(first_row_number + offset, record)
+                for offset, record in enumerate(records)
+            ]
+        )
+        available_fields = {str(key) for converted in import_records for key in converted.values}
         explicit = load_mapping_file(mapping_path) if mapping_path else None
         config = load_config(self.project.config_path)
         mapping = self.mapping_resolver.resolve(
@@ -384,7 +466,9 @@ class ImportService:
         seen: set[str] = set()
         duplicate_rows = 0
 
-        for row_number, raw_record in enumerate(records, start=2 if source.suffix == ".csv" else 1):
+        for converted in import_records:
+            row_number = converted.source_row_number
+            raw_record = converted.values
             try:
                 mapped = self.mapping_resolver.apply(raw_record, mapping)
                 values = _coerce_fields(mapped, mapping.timezone)
@@ -432,8 +516,9 @@ class ImportService:
             input_hashes=[raw_hash],
             stats={
                 "input_rows": len(records),
+                "expanded_rows": len(import_records),
                 "accepted_rows": len(accepted),
-                "rejected_rows": len(records) - len(accepted) - duplicate_rows,
+                "rejected_rows": len(import_records) - len(accepted) - duplicate_rows,
                 "duplicate_rows": duplicate_rows,
             },
             issues=issues,
@@ -467,6 +552,8 @@ class ImportService:
             entity=entity,
             platform=platform,
             source_name=source.name,
+            data_source_tier=data_source_tier.value,
+            authorization_grant_id=authorization_grant_id,
             raw_hash=raw_hash,
             raw_path=self.project.relative(raw_path),
             staging_path=self.project.relative(staging_path),

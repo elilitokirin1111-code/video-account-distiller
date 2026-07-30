@@ -29,6 +29,16 @@
 {% endfor %}
 {% endif %}
 
+## 数据来源与缺口
+
+| 字段 | 来源层级 | 状态 | 可用记录 | 观测来源 | 证据反链 |
+|---|---|---|---:|---|---|
+{% for row in data_gaps.rows %}
+| {{ row.label }} (`{{ row.field }}`) | `{{ row.source_tier }}` | {{ "可用" if row.availability == "available" else "未知" }} | {{ row.available_records }}/{{ row.total_records }} | {% if row.observed_source_tiers %}{{ row.observed_source_tiers | join(", ") }}{% else %}未知{% endif %} | {% if row.evidence_refs %}{% for evidence in row.evidence_refs %}`{{ evidence.table }}:{{ evidence.record_id }}`{% if not loop.last %}、{% endif %}{% endfor %}{% else %}无{% endif %} |
+{% endfor %}
+
+未导入或不可观测字段统一显示为“未知”，不会以 0 代替。完整机器表见 `data-gaps.json`。
+
 ## 账号基础统计
 
 | 指标 | 数值 | 证据 |

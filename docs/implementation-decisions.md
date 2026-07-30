@@ -657,3 +657,40 @@ requirements from later phases.
   failure could duplicate Provider charges or partially repeat immutable writes, so checkpoint-based
   user retry remains the safer boundary. Migrating the primary workbench workflow first closes the
   main M2 path without coupling every legacy service call to one oversized dispatcher change.
+
+## ID-078 — Keep GPT credentials environment-only and freeze the pricing basis per run
+
+- **Decision:** Accept only secret-free GPT analysis requests. Read `OPENAI_API_KEY` inside the API
+  process, require a local preflight that exposes the bounded data scope, request fingerprints,
+  selected model, rate-card snapshot, and conservative cost ceiling, and persist actual token usage
+  with that immutable pricing basis. Save a separate fixed-question evaluation artifact; never
+  write GPT output into Rule or Rubric records.
+- **Reason:** Request-body credentials contradict the repository's environment-only secret
+  contract and expand the browser/API leakage surface. A versioned price snapshot makes historical
+  estimates reproducible even after public prices change, while the preflight and non-retryable
+  task boundary prevent silent paid calls. Separate evaluation keeps model conclusions derived,
+  reviewable, and comparable without weakening deterministic governance.
+
+## ID-079 — Keep private-data provenance in immutable import receipts
+
+- **Decision:** Classify imported data as `public`, `authorized_private`, `model_inferred`, or
+  `unknown` in immutable import receipts, and retain the authorization grant ID for private imports.
+  Normalize creator audience data through a versioned flat segment contract. Generate a fixed
+  machine-readable account data-gap table that separates intended source tier, observed provenance,
+  availability counts, and row-level evidence backlinks.
+- **Reason:** Adding source labels directly to historical normalized rows would silently rewrite old
+  provenance and make unchanged raw hashes appear newly trusted. Receipt-level provenance preserves
+  the original authorization boundary, while `unknown` remains honest for legacy imports. A flat
+  audience segment table is strict enough to validate shares and counts but portable across changing
+  creator-center export shapes.
+
+## ID-080 — Keep the productized Web redesign inside the Streamlit boundary
+
+- **Decision:** Retain the existing Streamlit multipage runtime and FastAPI contracts, but centralize
+  the visual shell, theme tokens, browser-persisted light/dark state, Chinese navigation, reusable
+  cards, workflow steppers, form states, tables, badges, and responsive rules in one shared Web
+  module. Keep page-specific business requests in their existing page modules.
+- **Reason:** Replacing the frontend framework would add a second deployment and API-client surface
+  while the current product workflows are still evolving. A shared Streamlit design layer removes
+  the default prototype appearance and provides consistent SaaS behavior without duplicating or
+  destabilizing collection, import, analysis, report, permission, and task-recovery logic.

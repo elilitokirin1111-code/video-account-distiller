@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
-import json
-import sys
-from collections.abc import Callable
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any
 
 import typer
 
 from video_account_distiller.adapters import build_collaboration_adapter
 from video_account_distiller.benchmarking import AccountBenchmarkProfileService
+from video_account_distiller.cli_backup import backup_app
+from video_account_distiller.cli_gpt_evaluation import gpt_evaluation_app
+from video_account_distiller.cli_release import release_app
+from video_account_distiller.cli_runtime import emit as _emit
+from video_account_distiller.cli_runtime import execute as _execute
 from video_account_distiller.closed_loop import (
     PredictionService,
     PublicationService,
@@ -105,9 +107,10 @@ app.add_typer(snapshot_app, name="snapshot")
 app.add_typer(team_app, name="team")
 app.add_typer(account_app, name="account")
 app.add_typer(knowledge_app, name="knowledge")
+app.add_typer(backup_app, name="backup")
+app.add_typer(release_app, name="release")
+app.add_typer(gpt_evaluation_app, name="gpt-eval")
 knowledge_app.add_typer(openkb_app, name="openkb")
-
-T = TypeVar("T")
 
 
 def _vision_provider(
@@ -150,35 +153,6 @@ def root_callback(
     ),
 ) -> None:
     """Run the distiller command-line toolkit."""
-
-
-def _emit(payload: Any, *, json_output: bool, human: str | None = None) -> None:
-    if json_output:
-        typer.echo(json.dumps(payload, ensure_ascii=True, default=str))
-    else:
-        typer.echo(human or json.dumps(payload, ensure_ascii=False, indent=2, default=str))
-
-
-def _execute(operation: Callable[[], T], *, json_output: bool) -> T:
-    try:
-        return operation()
-    except DistillerError as exc:
-        if json_output:
-            typer.echo(json.dumps(exc.as_dict(), ensure_ascii=True), file=sys.stdout)
-        else:
-            typer.echo(f"{exc.code.value}: {exc.message}", err=True)
-        raise typer.Exit(exc.exit_code) from exc
-    except Exception as exc:
-        wrapped = DistillerError(
-            ErrorCode.INTERNAL,
-            "Unexpected internal error",
-            details={"type": type(exc).__name__, "reason": str(exc)},
-        )
-        if json_output:
-            typer.echo(json.dumps(wrapped.as_dict(), ensure_ascii=True), file=sys.stdout)
-        else:
-            typer.echo(f"{wrapped.code.value}: {wrapped.message}: {exc}", err=True)
-        raise typer.Exit(wrapped.exit_code) from exc
 
 
 @app.command("init")

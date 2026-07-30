@@ -291,6 +291,18 @@ def run_acceptance(
         _assert_counts(final_status, media_expected=media is not None)
         if not final_validation.get("ok") or not final_doctor.get("ok"):
             raise AcceptanceFailure("final validation or doctor report was not ready")
+        backup_drill = _run_json(
+            "backup-recovery-drill",
+            ["backup", "drill", "--project", str(project), "--json"],
+            steps,
+        )
+        if (
+            backup_drill.get("ok") is not True
+            or backup_drill.get("workspace_scope") != "temporary"
+            or backup_drill.get("workspace_removed") is not True
+            or backup_drill.get("restored_validation_errors") != 0
+        ):
+            raise AcceptanceFailure("isolated backup and rollback drill did not pass")
 
         report = {
             "ok": True,
@@ -306,6 +318,11 @@ def run_acceptance(
             "validation": {
                 "errors": final_validation.get("quality", {}).get("stats", {}).get("errors"),
                 "warnings": final_validation.get("quality", {}).get("stats", {}).get("warnings"),
+            },
+            "backup_recovery": {
+                "verified": backup_drill.get("backup_verified"),
+                "restored": backup_drill.get("restored_to_new_directory"),
+                "workspace_removed": backup_drill.get("workspace_removed"),
             },
             "media": media_evidence,
             "workspace_retained": keep_workspace,

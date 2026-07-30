@@ -18,6 +18,9 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 BRIDGE_SCHEMA_VERSION = "1.0"
 DOUYIN_HOME = "https://www.douyin.com/"
@@ -302,6 +305,37 @@ async def _collect_comments(
     return result
 
 
+def _resolve_douyin_short_url(url: str) -> str:
+    """Follow v.douyin.com short link redirects and extract the full profile URL."""
+    host = (urlparse(url).hostname or "").casefold()
+    if host not in ("v.douyin.com", "v.douyin.com."):
+        return url
+    try:
+        req = Request(url, method="HEAD", headers={"User-Agent": "Mozilla/5.0"})
+        with urlopen(req, timeout=15) as resp:
+            resolved = resp.url
+        if resolved and resolved != url:
+            # iesdouyin.com/share/user/... contains sec_uid in the path or query
+            parsed = urlparse(resolved)
+            if "iesdouyin.com" in (parsed.hostname or ""):
+                # Extract sec_uid from path: /share/user/{sec_uid}
+                path_match = __import__("re").search(r"/share/user/([^/?]+)", resolved)
+                if path_match:
+                    return f"https://www.douyin.com/user/{path_match.group(1)}"
+                # Fallback: extract sec_uid from query params
+                qs = __import__("urllib.parse").parse_qs(parsed.query)
+                if "sec_uid" in qs:
+                    sec_uid = qs["sec_uid"][0]
+                    if isinstance(sec_uid, str):
+                        return f"https://www.douyin.com/user/{sec_uid}"
+                return str(resolved)
+            if "douyin.com" in (parsed.hostname or ""):
+                return str(resolved)
+    except (HTTPError, URLError, TimeoutError, OSError):
+        pass
+    return url
+
+
 async def _run(args: argparse.Namespace) -> dict[str, Any]:
     media_root = Path(args.media_root).resolve()
     runtime = _load_mediacrawler(media_root)
@@ -311,8 +345,9 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
     raw_pages: list[dict[str, Any]] = []
     warnings: list[str] = []
     parse_creator = runtime["parse_creator"]
+    profile_url = _resolve_douyin_short_url(args.profile_url)
     try:
-        sec_user_id = str(parse_creator(args.profile_url).sec_user_id)
+        sec_user_id = str(parse_creator(profile_url).sec_user_id)
     except Exception as exc:
         raise BridgeFailure("profile_invalid", str(exc)) from exc
 

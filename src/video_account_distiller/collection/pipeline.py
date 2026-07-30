@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from video_account_distiller.collection.drift import TikHubDriftDetector
 from video_account_distiller.collection.planning import (
     CollectionProfile,
     build_collection_plan,
@@ -104,6 +105,16 @@ class AccountCollectionService:
                 ErrorCode.ADAPTER_RESPONSE,
                 "Provider returned no usable public videos for this account",
             )
+        drift_report = (
+            TikHubDriftDetector().evaluate(batch.raw_pages)
+            if batch.provider == CollectionProviderKind.TIKHUB
+            else None
+        )
+        collection_warnings = list(batch.warnings)
+        if drift_report is not None and drift_report.status == "fail":
+            collection_warnings.append("tikhub_response_contract_drift")
+        elif drift_report is not None and drift_report.status == "warn":
+            collection_warnings.append("tikhub_response_contract_warning")
         batch_payload = batch.model_dump(mode="json")
         fingerprint = sha256_json(batch_payload)
         batch_dir = (
@@ -114,6 +125,7 @@ class AccountCollectionService:
         videos_path = batch_dir / "videos.json"
         metrics_path = batch_dir / "metrics.json"
         comments_path = batch_dir / "comments.json"
+        drift_path = batch_dir / "drift-report.json"
         account_rows = [batch.account.model_dump(mode="json")]
         video_rows = [item.model_dump(mode="json") for item in batch.videos]
         metric_rows = [item.model_dump(mode="json") for item in batch.metrics]
@@ -124,6 +136,8 @@ class AccountCollectionService:
         _write_immutable_json(metrics_path, metric_rows)
         if comment_rows:
             _write_immutable_json(comments_path, comment_rows)
+        if drift_report is not None:
+            _write_immutable_json(drift_path, drift_report.model_dump(mode="json"))
 
         importer = ImportService(self.project)
         imports: dict[str, Any] = {}
@@ -188,7 +202,13 @@ class AccountCollectionService:
                 "comments": len(batch.comments),
                 "comment_videos": len({item.video_id for item in batch.comments}),
                 "raw_artifact": self.project.relative(raw_path),
-                "warnings": batch.warnings,
+                "drift_artifact": (
+                    self.project.relative(drift_path) if drift_report is not None else None
+                ),
+                "drift": (
+                    drift_report.model_dump(mode="json") if drift_report is not None else None
+                ),
+                "warnings": collection_warnings,
             },
             "coverage": collection_coverage(
                 request,

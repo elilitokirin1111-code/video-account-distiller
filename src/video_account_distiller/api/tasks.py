@@ -39,13 +39,25 @@ class TaskQueueSettings(BaseModel):
     max_concurrent: int = Field(default=2, ge=1, le=32)
     max_pending: int = Field(default=100, ge=1, le=10_000)
     workflow_concurrency: int = Field(default=1, ge=1, le=32)
+    provider_concurrency: int = Field(default=1, ge=1, le=32)
+    model_concurrency: int = Field(default=1, ge=1, le=32)
     lease_seconds: int = Field(default=120, ge=15, le=3_600)
     poll_interval_seconds: float = Field(default=0.05, ge=0.01, le=5.0)
 
     @model_validator(mode="after")
     def _validate_resource_limits(self) -> TaskQueueSettings:
-        if self.workflow_concurrency > self.max_concurrent:
-            raise ValueError("workflow_concurrency cannot exceed max_concurrent")
+        resource_limits = {
+            "workflow_concurrency": self.workflow_concurrency,
+            "provider_concurrency": self.provider_concurrency,
+            "model_concurrency": self.model_concurrency,
+        }
+        invalid = [
+            field_name
+            for field_name, value in resource_limits.items()
+            if value > self.max_concurrent
+        ]
+        if invalid:
+            raise ValueError(f"{', '.join(invalid)} cannot exceed max_concurrent")
         return self
 
     @classmethod
@@ -56,6 +68,8 @@ class TaskQueueSettings(BaseModel):
             "max_concurrent": "DISTILLER_TASK_MAX_CONCURRENT",
             "max_pending": "DISTILLER_TASK_MAX_PENDING",
             "workflow_concurrency": "DISTILLER_TASK_WORKFLOW_CONCURRENCY",
+            "provider_concurrency": "DISTILLER_TASK_PROVIDER_CONCURRENCY",
+            "model_concurrency": "DISTILLER_TASK_MODEL_CONCURRENCY",
             "lease_seconds": "DISTILLER_TASK_LEASE_SECONDS",
             "poll_interval_seconds": "DISTILLER_TASK_POLL_INTERVAL_SECONDS",
         }
@@ -75,6 +89,10 @@ class TaskQueueSettings(BaseModel):
     def resource_limit(self, resource_class: str) -> int:
         if resource_class == "workflow":
             return self.workflow_concurrency
+        if resource_class == "provider":
+            return self.provider_concurrency
+        if resource_class == "model":
+            return self.model_concurrency
         return self.max_concurrent
 
 
@@ -375,6 +393,8 @@ class TaskStore:
                 "max_concurrent": self.queue_settings.max_concurrent,
                 "max_pending": self.queue_settings.max_pending,
                 "workflow_concurrency": self.queue_settings.workflow_concurrency,
+                "provider_concurrency": self.queue_settings.provider_concurrency,
+                "model_concurrency": self.queue_settings.model_concurrency,
                 "lease_seconds": self.queue_settings.lease_seconds,
             },
             "by_status": by_status,
@@ -799,6 +819,7 @@ def enqueue_persistent_task(
     resource_class: str,
     job_payload: dict[str, Any],
     task_metadata: TaskData | None = None,
+    retryable: bool | None = None,
     resume_state: dict[str, Any] | None = None,
     retried_from: str | None = None,
 ) -> TaskData:
@@ -810,7 +831,7 @@ def enqueue_persistent_task(
         "durable": True,
         "stage": "pending",
         "message": "任务已进入持久队列",
-        "retryable": task_metadata is not None,
+        "retryable": task_metadata is not None if retryable is None else retryable,
         "job_payload": job_payload,
     }
     if task_metadata is not None:
@@ -831,6 +852,36 @@ def enqueue_persistent_task(
     if retried_from is not None:
         submission["retried_from"] = retried_from
     return submission
+
+
+def retry_persistent_task(tasks: TaskStore, task: TaskData) -> TaskData:
+    """Requeue a validated serialized job after explicit user confirmation."""
+    task_type = task.get("task_type")
+    resource_class = task.get("resource_class")
+    job_payload = task.get("job_payload")
+    if (
+        not isinstance(task_type, str)
+        or not isinstance(resource_class, str)
+        or not isinstance(job_payload, dict)
+    ):
+        raise DistillerError(
+            ErrorCode.SCHEMA_INVALID,
+            "Durable task retry payload is incomplete",
+        )
+    metadata = task.get("task_metadata")
+    task_metadata = metadata if isinstance(metadata, dict) else None
+    checkpoint = task.get("checkpoint")
+    resume_state = checkpoint if isinstance(checkpoint, dict) else None
+    return enqueue_persistent_task(
+        tasks,
+        task_type=task_type,
+        resource_class=resource_class,
+        job_payload=job_payload,
+        task_metadata=task_metadata,
+        retryable=True,
+        resume_state=resume_state,
+        retried_from=str(task["task_id"]),
+    )
 
 
 class TaskWorkerPool:
@@ -1011,6 +1062,83 @@ def enqueue_task(
 
     asyncio.create_task(_runner())
     return {"ok": True, "task_id": task_id, "status": "pending"}
+
+
+def enqueue_ephemeral_task(
+    tasks: TaskStore,
+    fn: Callable[..., Any],
+    *args: Any,
+    task_type: str,
+    resource_class: str,
+    **kwargs: Any,
+) -> TaskData:
+    """Run a secret-bearing task without serializing its arguments into SQLite."""
+
+    task_id = new_run_id()
+    tasks.create(
+        task_id,
+        initial={
+            "task_type": task_type,
+            "resource_class": resource_class,
+            "durable": False,
+            "retryable": False,
+            "stage": "pending",
+            "message": "临时任务已进入当前应用进程；凭据不会持久化",
+        },
+    )
+
+    async def _runner() -> None:
+        try:
+            if tasks.cancellation_requested(task_id):
+                _mark_cancelled(tasks, task_id)
+                return
+            tasks.update(
+                task_id,
+                status="running",
+                stage="model_request",
+                message="正在调用已确认的远程模型",
+            )
+            result = await asyncio.to_thread(fn, *args, **kwargs)
+            if tasks.cancellation_requested(task_id):
+                _mark_cancelled(tasks, task_id)
+                return
+            tasks.update(
+                task_id,
+                status="completed",
+                progress=1.0,
+                stage="completed",
+                message="远程模型分析与本地审计工件已完成",
+                result=result,
+            )
+        except DistillerError as exc:
+            tasks.update(
+                task_id,
+                status="failed",
+                progress=1.0,
+                stage="failed",
+                message=exc.message,
+                error=exc.as_dict()["error"],
+            )
+        except Exception as exc:
+            tasks.update(
+                task_id,
+                status="failed",
+                progress=1.0,
+                stage="failed",
+                message=str(exc),
+                error={"code": "E_INTERNAL", "message": str(exc), "details": {}},
+            )
+
+    asyncio.create_task(_runner())
+    return {
+        "ok": True,
+        "task_id": task_id,
+        "task_type": task_type,
+        "resource_class": resource_class,
+        "durable": False,
+        "retryable": False,
+        "status": "pending",
+    }
 
 
 def enqueue_progress_task(

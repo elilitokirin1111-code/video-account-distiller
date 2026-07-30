@@ -70,6 +70,25 @@ analysis project.
 Raw inputs, prediction records, publications, and prior analyses are immutable. Upgrades do not
 rewrite them automatically.
 
+Create and verify a full project backup outside the project directory:
+
+```powershell
+distiller backup create --project C:\data\project `
+  --output D:\backups\project-before-upgrade.zip --json
+distiller backup verify --archive D:\backups\project-before-upgrade.zip --json
+```
+
+Rollback restores only to a new path and never overwrites the source project:
+
+```powershell
+distiller backup restore --archive D:\backups\project-before-upgrade.zip `
+  --destination C:\data\project-restored --json
+```
+
+The ZIP and `.zip.manifest.json` sidecar must remain together. The archive is not encrypted; store
+it on access-controlled encrypted storage. The full RC checklist is in
+`docs/release-candidate-operations.md`.
+
 ## Release acceptance command
 
 Maintainers can reproduce the installed-wheel workflow with:
@@ -83,7 +102,8 @@ python tools\release_acceptance.py `
 
 Run this script with the Python executable from the environment where the built wheel is installed.
 It creates a temporary Chinese-path project, checks every JSON result, verifies expected tables and
-artifacts, and removes the project unless `--keep-workspace` is supplied.
+artifacts, exercises isolated backup/verify/restore cleanup, and removes the project unless
+`--keep-workspace` is supplied.
 
 ## Optional integrations
 

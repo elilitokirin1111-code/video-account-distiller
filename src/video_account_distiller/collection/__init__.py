@@ -1,5 +1,6 @@
 """Authorized account collection public API."""
 
+from video_account_distiller.collection.drift import TikHubDriftDetector
 from video_account_distiller.collection.mediacrawler import MediaCrawlerAccountProvider
 from video_account_distiller.collection.pipeline import AccountCollectionService
 from video_account_distiller.collection.planning import (
@@ -23,6 +24,7 @@ __all__ = [
     "CollectionProfile",
     "MediaCrawlerAccountProvider",
     "TikHubAccountProvider",
+    "TikHubDriftDetector",
     "build_account_provider",
     "build_collection_plan",
     "build_collection_request",

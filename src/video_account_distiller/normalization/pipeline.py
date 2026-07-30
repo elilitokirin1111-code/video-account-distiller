@@ -8,6 +8,7 @@ from typing import Any
 from video_account_distiller.models import (
     Account,
     AccountSnapshot,
+    AudienceProfileSegment,
     Comment,
     DataQualityIssue,
     MetricSnapshot,
@@ -26,6 +27,7 @@ MODEL_BY_ENTITY: dict[str, type[TraceFields]] = {
     "metrics": MetricSnapshot,
     "comments": Comment,
     "transcripts": TranscriptSegment,
+    "audience_profiles": AudienceProfileSegment,
 }
 OUTPUT_BY_ENTITY = {
     "accounts": "accounts.parquet",
@@ -33,6 +35,7 @@ OUTPUT_BY_ENTITY = {
     "metrics": "metric_snapshots.parquet",
     "comments": "comments.parquet",
     "transcripts": "transcripts.parquet",
+    "audience_profiles": "audience_profiles.parquet",
 }
 
 

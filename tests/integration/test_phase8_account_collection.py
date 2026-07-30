@@ -124,6 +124,7 @@ def test_account_url_runs_existing_normalized_report_and_distillation_pipeline(
     provider = FixtureAccountProvider()
     request = AccountCollectionRequest(
         profile_url="https://www.douyin.com/user/MS4wLjABAAAAphase8-hotel",
+        provider=CollectionProviderKind.TIKHUB,
         count=10,
         comments_per_video=2,
         comment_video_limit=2,
@@ -160,10 +161,24 @@ def test_account_url_runs_existing_normalized_report_and_distillation_pipeline(
     assert result["report"]["report"]["data_scope"]["population_size"] == 10
     assert result["distillation"]["distillation"]["data_scope"]["video_count"] == 10
     raw_artifact = project.root / Path(result["collection"]["raw_artifact"])
+    drift_artifact = project.root / Path(result["collection"]["drift_artifact"])
     assert raw_artifact.is_file()
+    assert drift_artifact.is_file()
+    assert result["collection"]["drift"]["status"] == "fail"
+    assert "tikhub_response_contract_drift" in result["collection"]["warnings"]
     assert (project.normalized_dir / "accounts.parquet").is_file()
     assert (project.normalized_dir / "derived_metrics.parquet").is_file()
     assert (raw_artifact.parent / "comments.json").is_file()
+    assert validate_project(project).error_count == 0
+
+    drift_payload = read_json(drift_artifact)
+    drift_payload["ok"] = True
+    atomic_write_json(drift_artifact, drift_payload)
+    drift_validation = validate_project(project)
+    assert drift_validation.error_count == 1
+    assert drift_validation.issues[0].entity == "phase8_collection"
+    drift_payload["ok"] = False
+    atomic_write_json(drift_artifact, drift_payload)
     assert validate_project(project).error_count == 0
 
     videos_path = raw_artifact.parent / "videos.json"

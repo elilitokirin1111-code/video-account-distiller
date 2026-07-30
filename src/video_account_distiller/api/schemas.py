@@ -63,6 +63,10 @@ class ProjectInitResponse(BaseModel):
     already_initialized: bool
 
 
+class CloudModelSettingsUpdate(BaseModel):
+    allow_cloud_model_upload: bool
+
+
 # ---------------------------------------------------------------------------
 # Import
 # ---------------------------------------------------------------------------

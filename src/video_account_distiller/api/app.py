@@ -17,6 +17,7 @@ from video_account_distiller.api.tasks import (
     TaskQueueSettings,
     TaskStore,
     TaskWorkerPool,
+    retry_persistent_task,
 )
 from video_account_distiller.errors import DistillerError
 from video_account_distiller.logging import configure_logging
@@ -74,6 +75,7 @@ def create_app(
     from video_account_distiller.api.router_analysis import router as analysis_router
     from video_account_distiller.api.router_closed_loop import router as closed_loop_router
     from video_account_distiller.api.router_collection import router as collection_router
+    from video_account_distiller.api.router_data import router as data_router
     from video_account_distiller.api.router_distillation import router as distillation_router
     from video_account_distiller.api.router_doctor import router as doctor_router
     from video_account_distiller.api.router_import import router as import_router
@@ -88,6 +90,7 @@ def create_app(
     app.include_router(projects_router, prefix="/api", tags=["Projects"])
     app.include_router(status_router, prefix="/api/projects", tags=["Status"])
     app.include_router(import_router, prefix="/api/projects", tags=["Import"])
+    app.include_router(data_router, prefix="/api/projects", tags=["Data"])
     app.include_router(insights_router, prefix="/api/projects", tags=["Insights"])
     app.include_router(knowledge_router, prefix="/api/projects", tags=["Knowledge"])
     app.include_router(analysis_router, prefix="/api/projects", tags=["Analysis"])
@@ -131,16 +134,20 @@ def create_app(
                 status_code=409,
                 detail="Only failed or cancelled tasks can be retried",
             )
-        if task.get("task_type") != "account_distill" or not task.get("retryable"):
+        if not task.get("retryable") or (
+            not task.get("durable") and task.get("task_type") != "account_distill"
+        ):
             raise HTTPException(
                 status_code=409,
                 detail="This task type does not support persisted retry",
             )
-        from video_account_distiller.api.router_workflows import (
-            retry_account_distill_task,
-        )
+        if task.get("task_type") == "account_distill":
+            from video_account_distiller.api.router_workflows import (
+                retry_account_distill_task,
+            )
 
-        return retry_account_distill_task(task_store, task)
+            return retry_account_distill_task(task_store, task)
+        return retry_persistent_task(task_store, task)
 
     app.state.tasks = task_store
     app.state.task_workers = task_workers

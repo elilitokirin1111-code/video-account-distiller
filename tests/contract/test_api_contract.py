@@ -9,7 +9,10 @@ from urllib.parse import quote
 import pytest
 from fastapi.testclient import TestClient
 
+from video_account_distiller.adapters.collaboration import HttpResponse
 from video_account_distiller.api.app import create_app
+from video_account_distiller.api.schemas import SampleParams
+from video_account_distiller.api.task_jobs import SampleJob
 from video_account_distiller.api.tasks import TaskQueueSettings, TaskStore
 from video_account_distiller.storage.project import ProjectLayout
 from video_account_distiller.utils.ids import stable_id
@@ -51,6 +54,7 @@ def test_health_openapi_and_missing_task_contract(tmp_path: Path) -> None:
         assert "/api/tasks/{task_id}" in _json(openapi)["paths"]
         assert "/api/tasks/{task_id}/cancel" in _json(openapi)["paths"]
         assert "/api/tasks/{task_id}/retry" in _json(openapi)["paths"]
+        assert "/api/doctor/task-recovery-drill" in _json(openapi)["paths"]
 
         missing = client.get("/api/tasks/missing")
         assert missing.status_code == 404
@@ -104,6 +108,10 @@ def test_collection_dry_run_uses_bounded_default_and_completes_task(
         task = _wait_for_task(client, str(submission["task_id"]))
         assert task["status"] == "completed"
         assert task["progress"] == 1.0
+        assert task["task_type"] == "collection_analyze"
+        assert task["resource_class"] == "provider"
+        assert task["durable"] is True
+        assert task["retryable"] is True
         result = task["result"]
         assert result["request"]["provider"] == "tikhub"
         assert result["request"]["count"] == 20
@@ -219,6 +227,11 @@ def test_report_listing_and_content_contract(project: ProjectLayout, tmp_path: P
         encoding="utf-8",
     )
     report_dir.joinpath("report.md").write_text("# 健康报告\n", encoding="utf-8")
+    data_gaps = {"rows": [{"field": "metric.revenue", "availability": "unknown"}]}
+    report_dir.joinpath("data-gaps.json").write_text(
+        json.dumps(data_gaps),
+        encoding="utf-8",
+    )
     encoded = _project_path(project.root)
 
     with TestClient(create_app(tmp_path / "tasks.sqlite3")) as client:
@@ -233,6 +246,43 @@ def test_report_listing_and_content_contract(project: ProjectLayout, tmp_path: P
         payload = _json(content)
         assert payload["data"] == report
         assert payload["markdown"] == "# 健康报告\n"
+        assert payload["data_gaps"] == data_gaps
+
+
+def test_sample_and_report_use_durable_analysis_queue(
+    phase2_project: ProjectLayout,
+    tmp_path: Path,
+) -> None:
+    encoded = _project_path(phase2_project.root)
+    account_id = stable_id("acc_", "douyin", "phase2-hotel")
+
+    with TestClient(create_app(tmp_path / "tasks.sqlite3")) as client:
+        sample_submission = _json(
+            client.post(
+                f"/api/projects/{encoded}/sample/{account_id}",
+                params={"dry_run": "true"},
+                json={"size": 5},
+            )
+        )
+        sample = _wait_for_task(client, str(sample_submission["task_id"]))
+
+        report_submission = _json(
+            client.post(
+                f"/api/projects/{encoded}/report/{account_id}",
+                params={"dry_run": "true"},
+                json={"sample_size": 5},
+            )
+        )
+        report = _wait_for_task(client, str(report_submission["task_id"]))
+
+    assert sample["status"] == "completed"
+    assert sample["task_type"] == "sample"
+    assert sample["resource_class"] == "analysis"
+    assert sample["durable"] is True
+    assert report["status"] == "completed"
+    assert report["task_type"] == "report"
+    assert report["resource_class"] == "analysis"
+    assert report["durable"] is True
 
 
 def test_interrupted_task_is_recovered_with_stable_retryable_error(tmp_path: Path) -> None:
@@ -328,6 +378,51 @@ def test_account_distill_task_can_retry_from_persisted_inputs(
         assert task["result"]["request"]["count"] == 20
 
 
+def test_generic_durable_task_can_retry_from_serialized_job(
+    phase2_project: ProjectLayout,
+    tmp_path: Path,
+) -> None:
+    account_id = stable_id("acc_", "douyin", "phase2-hotel")
+    job = SampleJob(
+        project_path=str(phase2_project.root),
+        account_id=account_id,
+        body=SampleParams(size=5),
+        dry_run=True,
+    )
+    app = create_app(tmp_path / "tasks.sqlite3")
+    store: TaskStore = app.state.tasks
+    store.create(
+        "task_sample_retryable",
+        initial={
+            "task_type": "sample",
+            "resource_class": "analysis",
+            "durable": True,
+            "retryable": True,
+            "job_payload": job.model_dump(mode="json"),
+        },
+    )
+    store.update(
+        "task_sample_retryable",
+        status="failed",
+        error={
+            "code": "E_TASK_INTERRUPTED",
+            "message": "interrupted",
+            "details": {"retryable": True},
+        },
+    )
+
+    with TestClient(app) as client:
+        retried = client.post("/api/tasks/task_sample_retryable/retry")
+        assert retried.status_code == 200
+        submission = _json(retried)
+        assert submission["retried_from"] == "task_sample_retryable"
+        task = _wait_for_task(client, str(submission["task_id"]))
+
+    assert task["status"] == "completed"
+    assert task["task_type"] == "sample"
+    assert task["result"]["dry_run"] is True
+
+
 def test_task_cancel_endpoint_is_idempotent(tmp_path: Path) -> None:
     app = create_app(tmp_path / "tasks.sqlite3")
     with TestClient(app) as client:
@@ -365,6 +460,180 @@ def test_growth_and_analysis_context_endpoints(
         assert payload["context_version"] == "1.0.0"
         assert payload["account"]["account_id"] == account_id
         assert payload["analysis_contract"]
+
+
+class _OpenAIContractExecutor:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def send(
+        self,
+        *,
+        method: str,
+        url: str,
+        headers: dict[str, str],
+        body: bytes | None,
+        timeout: int,
+    ) -> HttpResponse:
+        self.calls.append(
+            {
+                "method": method,
+                "url": url,
+                "headers": headers,
+                "body": body,
+                "timeout": timeout,
+            }
+        )
+        result = {
+            "executive_summary": "账号上下文可用，建议先建立连续观察周期。",
+            "findings": [
+                {
+                    "classification": "observed_fact",
+                    "title": "账号记录可用",
+                    "statement": "受限上下文包含一个标准化账号快照。",
+                    "evidence_refs": ["context://account"],
+                    "confidence": "high",
+                }
+            ],
+            "priority_actions": [
+                {
+                    "priority": 1,
+                    "action": "建立连续观察",
+                    "rationale": "当前增长上下文尚不足以判断趋势。",
+                    "evidence_refs": ["context://growth"],
+                }
+            ],
+            "experiments": [],
+            "limitations": ["缺少多个分隔时间点的账号快照。"],
+        }
+        response = {
+            "id": "resp_contract",
+            "status": "completed",
+            "model": "gpt-5.6-terra",
+            "output": [
+                {
+                    "type": "message",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": json.dumps(result, ensure_ascii=False),
+                        }
+                    ],
+                }
+            ],
+            "usage": {"input_tokens": 80, "output_tokens": 40, "total_tokens": 120},
+        }
+        return HttpResponse(
+            200,
+            json.dumps(response, ensure_ascii=False).encode("utf-8"),
+        )
+
+
+def test_cloud_model_settings_and_ephemeral_gpt_analysis_contract(
+    normalized_project: ProjectLayout,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    encoded = _project_path(normalized_project.root)
+    account_id = stable_id("acc_", "douyin", "hotel-demo")
+    secret = "sk-contract-temporary-secret"
+    executor = _OpenAIContractExecutor()
+    task_db = tmp_path / "gpt-tasks.sqlite3"
+    app = create_app(task_db)
+    app.state.openai_executor = executor
+    body = {
+        "model": "gpt-5.6-terra",
+        "template": "account_health",
+        "reasoning_effort": "low",
+        "max_video_analyses": 5,
+        "confirm_cloud_upload": True,
+        "confirm_cost": True,
+    }
+
+    with TestClient(app) as client:
+        settings_path = f"/api/projects/{encoded}/settings/cloud-model"
+        settings = client.get(settings_path)
+        assert settings.status_code == 200
+        assert _json(settings)["allow_cloud_model_upload"] is False
+        assert _json(settings)["api_key_configured"] is False
+
+        blocked = client.post(
+            f"/api/projects/{encoded}/accounts/{account_id}/gpt-analysis",
+            json=body,
+        )
+        assert blocked.status_code == 402
+        assert _json(blocked)["error"]["code"] == "E_PROVIDER_COST_CONFIRMATION_REQUIRED"
+        assert not executor.calls
+
+        enabled = client.put(
+            settings_path,
+            json={"allow_cloud_model_upload": True},
+        )
+        assert enabled.status_code == 200
+        assert _json(enabled)["allow_cloud_model_upload"] is True
+        assert _json(enabled)["api_key_persisted"] is False
+
+        unconfirmed = client.post(
+            f"/api/projects/{encoded}/accounts/{account_id}/gpt-analysis",
+            json={**body, "confirm_cost": False},
+        )
+        assert unconfirmed.status_code == 402
+        assert not executor.calls
+
+        preview = client.post(
+            f"/api/projects/{encoded}/accounts/{account_id}/gpt-analysis/preview",
+            json=body,
+        )
+        assert preview.status_code == 200
+        preview_payload = _json(preview)
+        assert preview_payload["remote_call_performed"] is False
+        assert preview_payload["model"] == "gpt-5.6-terra"
+        assert preview_payload["cost_preview"]["conservative_maximum_usd"] > 0
+        assert preview_payload["request_fingerprints"]["context_hash"]
+        assert not executor.calls
+
+        missing_credential = client.post(
+            f"/api/projects/{encoded}/accounts/{account_id}/gpt-analysis",
+            json=body,
+        )
+        assert missing_credential.status_code == 401
+        assert _json(missing_credential)["error"]["code"] == "E_ADAPTER_AUTH"
+        assert not executor.calls
+
+        monkeypatch.setenv("OPENAI_API_KEY", secret)
+        submitted = client.post(
+            f"/api/projects/{encoded}/accounts/{account_id}/gpt-analysis",
+            json=body,
+        )
+        assert submitted.status_code == 200
+        submission = _json(submitted)
+        assert submission["durable"] is False
+        assert submission["retryable"] is False
+        task = _wait_for_task(client, str(submission["task_id"]))
+
+    assert task["status"] == "completed"
+    assert task["task_type"] == "gpt_account_analysis"
+    assert task["resource_class"] == "model"
+    assert task["durable"] is False
+    assert task["retryable"] is False
+    assert secret not in json.dumps(task, ensure_ascii=False)
+    assert len(executor.calls) == 1
+    call = executor.calls[0]
+    assert call["headers"]["Authorization"] == f"Bearer {secret}"
+    assert secret not in (call["body"] or b"").decode("utf-8")
+
+    outputs = task["result"]["outputs"]
+    assert len(outputs) == 4
+    for relative in outputs:
+        path = normalized_project.root / relative
+        assert path.is_file()
+        assert secret not in path.read_text(encoding="utf-8")
+    for database_file in tmp_path.glob("gpt-tasks.sqlite3*"):
+        assert secret.encode("utf-8") not in database_file.read_bytes()
+    audit = task["result"]["audit"]
+    assert audit["privacy"]["api_key_source"] == "OPENAI_API_KEY"
+    assert audit["response"]["estimated_cost"]["estimated_total_usd"] is not None
+    assert task["result"]["evaluation"]["evaluation_version"] == "account-analysis-eval-v1"
 
 
 def test_openkb_export_and_confirmation_contract(

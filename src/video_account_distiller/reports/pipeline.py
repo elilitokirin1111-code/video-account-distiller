@@ -11,6 +11,7 @@ from jinja2 import Environment, StrictUndefined
 
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.models import (
+    AccountDataGapTable,
     AccountHealthReport,
     AccountStatistics,
     CohortStatistics,
@@ -24,6 +25,10 @@ from video_account_distiller.models import (
     ReportFinding,
     SampleManifest,
     ScalarStatistic,
+)
+from video_account_distiller.reports.data_gaps import (
+    build_account_data_gap_table,
+    data_gap_summary,
 )
 from video_account_distiller.reports.statistics import (
     longest_low_streak,
@@ -42,7 +47,7 @@ from video_account_distiller.utils.ids import stable_id
 from video_account_distiller.utils.io import atomic_write_json, atomic_write_text, read_json
 from video_account_distiller.version import ANALYSIS_SCHEMA_VERSION
 
-REPORT_VERSION = "1.0.0"
+REPORT_VERSION = "1.1.0"
 MetricName = Literal[
     "views",
     "engagement_rate_by_view",
@@ -548,7 +553,11 @@ def _findings(
     return findings
 
 
-def _render_markdown(report: AccountHealthReport, evidence: EvidenceIndex) -> str:
+def _render_markdown(
+    report: AccountHealthReport,
+    evidence: EvidenceIndex,
+    data_gaps: AccountDataGapTable,
+) -> str:
     template_path = Path(__file__).parent / "templates" / "account-health.md.j2"
     try:
         environment = Environment(undefined=StrictUndefined, autoescape=False)
@@ -557,6 +566,7 @@ def _render_markdown(report: AccountHealthReport, evidence: EvidenceIndex) -> st
             template.render(
                 report=report.model_dump(mode="json"),
                 evidence_count=len(evidence.items),
+                data_gaps=data_gaps.model_dump(mode="json"),
             ).rstrip()
             + "\n"
         )
@@ -603,7 +613,8 @@ class ReportService:
         report_markdown_path = output_dir / "report.md"
         evidence_path = output_dir / "evidence-index.json"
         warnings_path = output_dir / "warnings.json"
-        if report_json_path.is_file() and not dry_run:
+        data_gaps_path = output_dir / "data-gaps.json"
+        if report_json_path.is_file() and data_gaps_path.is_file() and not dry_run:
             existing = AccountHealthReport.model_validate(read_json(report_json_path))
             return {
                 "ok": True,
@@ -615,6 +626,7 @@ class ReportService:
                     self.project.relative(report_markdown_path),
                     self.project.relative(evidence_path),
                     self.project.relative(warnings_path),
+                    self.project.relative(data_gaps_path),
                 ],
             }
 
@@ -712,12 +724,19 @@ class ReportService:
             input_hashes=dataset.input_hashes,
             items=[collector.items[key] for key in sorted(collector.items)],
         )
-        markdown = _render_markdown(report, evidence)
+        data_gaps = build_account_data_gap_table(
+            self.project,
+            dataset,
+            report_id=report_id,
+            generated_at=now,
+        )
+        markdown = _render_markdown(report, evidence, data_gaps)
         outputs = [
             self.project.relative(report_json_path),
             self.project.relative(report_markdown_path),
             self.project.relative(evidence_path),
             self.project.relative(warnings_path),
+            self.project.relative(data_gaps_path),
         ]
         if dry_run:
             return {
@@ -725,12 +744,14 @@ class ReportService:
                 "dry_run": True,
                 "already_generated": False,
                 "report": report.model_dump(mode="json"),
+                "data_gaps": data_gaps.model_dump(mode="json"),
                 "outputs": outputs,
             }
 
         atomic_write_json(report_json_path, report.model_dump(mode="json"))
         atomic_write_text(report_markdown_path, markdown)
         atomic_write_json(evidence_path, evidence.model_dump(mode="json"))
+        atomic_write_json(data_gaps_path, data_gaps.model_dump(mode="json"))
         atomic_write_json(
             warnings_path,
             {
@@ -751,6 +772,7 @@ class ReportService:
                 "population_videos": len(dataset.records),
                 "sample_videos": sample.selected_size,
                 "evidence_items": len(evidence.items),
+                "data_gap_fields": data_gap_summary(data_gaps)["fields"],
             },
             output_files=outputs,
             warnings=warnings,

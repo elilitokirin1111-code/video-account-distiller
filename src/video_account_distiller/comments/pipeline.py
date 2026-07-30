@@ -18,6 +18,7 @@ from video_account_distiller.features.prompts import (
 )
 from video_account_distiller.features.providers import (
     ModelSchemaFailure,
+    OllamaTextProvider,
     StructuredFileProvider,
     TextModelProvider,
 )
@@ -283,6 +284,12 @@ class CommentAnalysisService:
         selected, partial = _selected_comments(comments, config.analysis.max_comments_per_analysis)
         file_provider = StructuredFileProvider(model_output) if model_output else None
         selected_provider = provider or file_provider
+        if selected_provider is None and config.models.text_provider == "ollama":
+            selected_provider = OllamaTextProvider(
+                model=config.models.vision_model,
+                base_url=config.models.ollama_base_url,
+                timeout_seconds=config.models.vision_timeout_seconds,
+            )
         attempts_limit = max_attempts or config.models.max_schema_attempts
         effective_strict = strict_model or not config.models.allow_degraded_analysis
         generated_at = datetime.now(UTC)

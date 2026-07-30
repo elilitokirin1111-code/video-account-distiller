@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import time
 from typing import Any
 from urllib.parse import quote
@@ -10,18 +9,19 @@ from urllib.parse import quote
 import requests
 import streamlit as st
 
-st.set_page_config(page_title="账号分析", page_icon="🔬", layout="wide")
-
-st.title("🔬 账号分析工作流")
-
-api_url = st.sidebar.text_input(
-    "API 地址",
-    value=os.environ.get("DISTILLER_API_URL", "http://127.0.0.1:8000"),
+from video_account_distiller.web.ui import (
+    badge,
+    section_header,
+    setup_page,
+    stepper,
 )
-project_path = st.sidebar.text_input(
-    "项目路径", value=str(st.session_state.get("project_path", ""))
+
+st.set_page_config(
+    page_title="账号分析 · Video Account Distiller",
+    page_icon=":material/monitoring:",
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
-encoded_project = quote(project_path, safe="")
 
 
 def _api(path: str, method: str = "GET", **kwargs: Any) -> dict[str, Any]:
@@ -32,6 +32,23 @@ def _api(path: str, method: str = "GET", **kwargs: Any) -> dict[str, Any]:
     except (requests.RequestException, ValueError):
         st.error(f"无法连接 API: {api_url}")
         return {"ok": False}
+
+
+def _handle_action_response(response: dict[str, Any], *, label: str) -> None:
+    """Render queued and synchronous action results without silent failures."""
+
+    task_id = response.get("task_id")
+    if isinstance(task_id, str) and task_id:
+        st.session_state["last_task"] = task_id
+        st.info(f"{label}任务已提交: {task_id}")
+        return
+    if response.get("ok") is True:
+        st.session_state["last_action_result"] = response
+        st.success(f"{label}完成 ✅")
+        return
+    error = response.get("error")
+    message = error.get("message") if isinstance(error, dict) else None
+    st.error(f"{label}失败: {message or 'API 未返回可用结果'}")
 
 
 def _poll_task(task_id: str) -> dict[str, Any] | None:
@@ -57,87 +74,181 @@ def _poll_task(task_id: str) -> dict[str, Any] | None:
     return None
 
 
-# ── 账号选择 ──────────────────────────────────────────────────────────
-account_id = st.text_input("账号 ID", placeholder="acc_xxx")
-video_id = st.text_input("视频 ID (媒体分析用)", placeholder="vid_xxx")
+context = setup_page(
+    "analysis",
+    "账号分析",
+    "按顺序完成账号定位、抽样报告、内容分析与策略提炼，每一步都有明确状态。",
+    eyebrow="ACCOUNT WORKFLOW",
+)
+api_url = context.api_url
+project_path = context.project_path
+encoded_project = quote(project_path, safe="")
 
-st.divider()
+with st.container(border=True):
+    input_columns = st.columns([1, 1, 0.55], vertical_alignment="bottom")
+    with input_columns[0]:
+        account_id = st.text_input(
+            "账号 ID",
+            placeholder="acc_xxx",
+            key="analysis_account_id",
+        )
+    with input_columns[1]:
+        video_id = st.text_input(
+            "视频 ID",
+            placeholder="vid_xxx（媒体分析时使用）",
+            key="analysis_video_id",
+        )
+    with input_columns[2]:
+        size = st.number_input(
+            "样本大小",
+            min_value=1,
+            max_value=500,
+            value=40,
+        )
+    if not account_id:
+        st.caption("先输入已入库的账号 ID；涉及单条视频的操作还需要视频 ID。")
+    else:
+        st.markdown(
+            badge("账号已就绪", "success"),
+            unsafe_allow_html=True,
+        )
 
-col1, col2, col3 = st.columns(3)
+stepper(
+    ["输入目标", "抽样与报告", "内容分析", "提炼闭环", "任务状态"],
+    active=2 if account_id else 1,
+    completed=1 if account_id else 0,
+)
 
-with col1:
-    st.subheader("📊 抽样 & 报告")
-    size = st.number_input("样本大小", min_value=1, max_value=500, value=40)
-    if st.button("🎯 分层抽样", use_container_width=True):
-        r = _api(
-            f"/api/projects/{encoded_project}/sample/{account_id}",
-            "POST",
-            json={"size": size},
-        )
-        if r.get("task_id"):
-            st.session_state["last_task"] = r["task_id"]
-            st.info(f"任务已提交: {r['task_id']}")
-    if st.button("📄 生成报告", use_container_width=True):
-        r = _api(
-            f"/api/projects/{encoded_project}/report/{account_id}",
-            "POST",
-            json={"sample_size": size},
-        )
-        if r.get("task_id"):
-            st.session_state["last_task"] = r["task_id"]
-            st.info(f"任务已提交: {r['task_id']}")
+section_header("分析流程", "从左到右执行；需要视频 ID 的操作会在按钮旁明确提示。")
+workflow_columns = st.columns(3, gap="large")
 
-with col2:
-    st.subheader("🎬 内容分析")
-    if st.button("🎙️ 视频盲标注", use_container_width=True):
-        r = _api(
-            f"/api/projects/{encoded_project}/analyze/video/{video_id}",
-            "POST",
+with workflow_columns[0]:
+    with st.container(border=True):
+        st.markdown("#### 02 · 抽样与报告")
+        st.caption("先建立代表性样本，再生成基于证据的账号报告。")
+        st.markdown(
+            badge("可开始" if account_id else "等待账号", "success" if account_id else "neutral"),
+            unsafe_allow_html=True,
         )
-        if r.get("task_id"):
-            st.session_state["last_task"] = r["task_id"]
-            st.info(f"任务已提交: {r['task_id']}")
-    if st.button("💬 评论意图分析", use_container_width=True):
-        r = _api(
-            f"/api/projects/{encoded_project}/analyze/comments/{account_id}",
-            "POST",
-        )
-        if r.get("task_id"):
-            st.session_state["last_task"] = r["task_id"]
-            st.info(f"任务已提交: {r['task_id']}")
-    if st.button("📹 媒体分析", use_container_width=True):
-        r = _api(
-            f"/api/projects/{encoded_project}/analyze/media/{video_id}",
-            "POST",
-        )
-        if r.get("task_id"):
-            st.session_state["last_task"] = r["task_id"]
-            st.info(f"任务已提交: {r['task_id']}")
+        if st.button(
+            "分层抽样",
+            icon=":material/filter_alt:",
+            use_container_width=True,
+            disabled=not bool(account_id),
+        ):
+            response = _api(
+                f"/api/projects/{encoded_project}/sample/{account_id}",
+                "POST",
+                json={"size": size},
+            )
+            _handle_action_response(response, label="分层抽样")
+        if st.button(
+            "生成分析报告",
+            icon=":material/description:",
+            use_container_width=True,
+            disabled=not bool(account_id),
+        ):
+            response = _api(
+                f"/api/projects/{encoded_project}/report/{account_id}",
+                "POST",
+                json={"sample_size": size},
+            )
+            _handle_action_response(response, label="报告生成")
 
-with col3:
-    st.subheader("🧠 提炼 & 闭环")
-    if st.button("🏭 账号提炼", use_container_width=True):
-        r = _api(
-            f"/api/projects/{encoded_project}/distill/{account_id}",
-            "POST",
+with workflow_columns[1]:
+    with st.container(border=True):
+        st.markdown("#### 03 · 内容分析")
+        st.caption("对视频画面、语音和评论意图进行结构化分析。")
+        st.markdown(
+            badge(
+                "需要视频 ID" if not video_id else "视频已就绪",
+                "warning" if not video_id else "success",
+            ),
+            unsafe_allow_html=True,
         )
-        if r.get("task_id"):
-            st.session_state["last_task"] = r["task_id"]
-            st.info(f"任务已提交: {r['task_id']}")
-    if st.button("📈 计算指标", use_container_width=True):
-        r = _api(
-            f"/api/projects/{encoded_project}/metrics/{account_id}",
-            "POST",
+        if st.button(
+            "视频盲标注",
+            icon=":material/subtitles:",
+            use_container_width=True,
+            disabled=not bool(video_id),
+        ):
+            response = _api(
+                f"/api/projects/{encoded_project}/analyze/video/{video_id}",
+                "POST",
+            )
+            _handle_action_response(response, label="视频盲标注")
+        if st.button(
+            "评论意图分析",
+            icon=":material/forum:",
+            use_container_width=True,
+            disabled=not bool(account_id),
+        ):
+            response = _api(
+                f"/api/projects/{encoded_project}/analyze/comments/{account_id}",
+                "POST",
+            )
+            _handle_action_response(response, label="评论意图分析")
+        if st.button(
+            "媒体深度分析",
+            icon=":material/movie:",
+            use_container_width=True,
+            disabled=not bool(video_id),
+        ):
+            response = _api(
+                f"/api/projects/{encoded_project}/analyze/media/{video_id}",
+                "POST",
+            )
+            _handle_action_response(response, label="媒体分析")
+
+with workflow_columns[2]:
+    with st.container(border=True):
+        st.markdown("#### 04 · 提炼与闭环")
+        st.caption("聚合指标、增长轨迹与分析上下文，形成可复用策略。")
+        st.markdown(
+            badge("可开始" if account_id else "等待账号", "success" if account_id else "neutral"),
+            unsafe_allow_html=True,
         )
-        if r.get("task_id"):
-            st.session_state["last_task"] = r["task_id"]
-            st.info(f"任务已提交: {r['task_id']}")
-    if st.button("📉 查看账号增长", use_container_width=True):
-        growth = _api(f"/api/projects/{encoded_project}/accounts/{account_id}/growth")
-        st.session_state["last_growth"] = growth
-    if st.button("🤖 生成 GPT 上下文", use_container_width=True):
-        context = _api(f"/api/projects/{encoded_project}/accounts/{account_id}/analysis-context")
-        st.session_state["last_analysis_context"] = context
+        if st.button(
+            "账号提炼",
+            icon=":material/psychology:",
+            use_container_width=True,
+            disabled=not bool(account_id),
+        ):
+            response = _api(
+                f"/api/projects/{encoded_project}/distill/{account_id}",
+                "POST",
+            )
+            _handle_action_response(response, label="账号提炼")
+        if st.button(
+            "计算指标",
+            icon=":material/calculate:",
+            use_container_width=True,
+            disabled=not bool(account_id),
+        ):
+            response = _api(
+                f"/api/projects/{encoded_project}/metrics/{account_id}",
+                "POST",
+            )
+            _handle_action_response(response, label="指标计算")
+        detail_actions = st.columns(2)
+        if detail_actions[0].button(
+            "增长轨迹",
+            icon=":material/trending_up:",
+            use_container_width=True,
+            disabled=not bool(account_id),
+        ):
+            growth = _api(f"/api/projects/{encoded_project}/accounts/{account_id}/growth")
+            st.session_state["last_growth"] = growth
+        if detail_actions[1].button(
+            "GPT 上下文",
+            icon=":material/data_object:",
+            use_container_width=True,
+            disabled=not bool(account_id),
+        ):
+            analysis_context = _api(
+                f"/api/projects/{encoded_project}/accounts/{account_id}/analysis-context"
+            )
+            st.session_state["last_analysis_context"] = analysis_context
 
 if "last_growth" in st.session_state:
     with st.expander("📉 账号历史增长", expanded=True):
@@ -148,14 +259,26 @@ if "last_analysis_context" in st.session_state:
         st.caption("该上下文不含原始评论、签名视频地址、凭据或浏览器状态。")
         st.json(st.session_state["last_analysis_context"])
 
-# ── 任务追踪 ──────────────────────────────────────────────────────────
-st.divider()
-st.subheader("🔄 任务状态")
+if "last_action_result" in st.session_state:
+    with st.expander("✅ 最近同步操作结果", expanded=True):
+        st.json(st.session_state["last_action_result"])
+
+section_header("任务状态", "查看最近异步任务的执行阶段与结果。")
 
 if "last_task" in st.session_state:
     task_id = st.session_state["last_task"]
-    if st.button(f"📡 查询任务 {task_id[:16]}...", type="primary"):
-        result = _poll_task(task_id)
-        if result:
-            st.json(result)
-    st.caption(f"最近任务: {task_id}")
+    with st.container(border=True):
+        status_columns = st.columns([3, 1], vertical_alignment="center")
+        status_columns[0].markdown(f"**最近任务** `{task_id}`")
+        if status_columns[1].button(
+            "查询进度",
+            type="primary",
+            icon=":material/sync:",
+            use_container_width=True,
+        ):
+            result = _poll_task(task_id)
+            if result:
+                st.json(result)
+else:
+    with st.container(border=True):
+        st.caption("尚未提交分析任务。完成上方任一步骤后，任务状态会显示在这里。")

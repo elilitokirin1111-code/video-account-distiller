@@ -12,7 +12,11 @@ from video_account_distiller.api.schemas import (
     OpenKBQueryParams,
     OpenKBSyncParams,
 )
-from video_account_distiller.api.tasks import enqueue_task
+from video_account_distiller.api.task_jobs import (
+    OpenKBQueryJob,
+    OpenKBSyncJob,
+    enqueue_api_job,
+)
 from video_account_distiller.knowledge import (
     KnowledgeExportService,
     OpenKBIntegrationService,
@@ -59,19 +63,18 @@ async def sync_account_knowledge(
     body: OpenKBSyncParams,
     dry_run: bool = False,
 ) -> dict[str, Any]:
-    service = _integration(project_path, require_remote_token=not dry_run)
+    layout = resolve_project(project_path)
+    service = _integration(str(layout.root), require_remote_token=not dry_run)
     if not dry_run:
         service.require_model_confirmation(body.confirm_model_processing)
-    return enqueue_task(
+    return enqueue_api_job(
         request.app.state.tasks,
-        service.sync_account,
-        account_id=account_id,
-        confirm_model_processing=body.confirm_model_processing,
-        create_kb=body.create_kb,
-        force=body.force,
-        max_video_analyses=body.max_video_analyses,
-        max_export_bytes=body.max_export_bytes,
-        dry_run=dry_run,
+        OpenKBSyncJob(
+            project_path=str(layout.root),
+            account_id=account_id,
+            body=body,
+            dry_run=dry_run,
+        ),
     )
 
 
@@ -93,12 +96,13 @@ async def query_account_knowledge(
     request: Request,
     body: OpenKBQueryParams,
 ) -> dict[str, Any]:
-    service = _integration(project_path)
+    layout = resolve_project(project_path)
+    service = _integration(str(layout.root))
     service.require_model_confirmation(body.confirm_model_processing)
-    return enqueue_task(
+    return enqueue_api_job(
         request.app.state.tasks,
-        service.query,
-        question=body.question,
-        confirm_model_processing=body.confirm_model_processing,
-        save=body.save,
+        OpenKBQueryJob(
+            project_path=str(layout.root),
+            body=body,
+        ),
     )

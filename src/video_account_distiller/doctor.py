@@ -11,7 +11,7 @@ from pathlib import Path
 
 from video_account_distiller.collection.mediacrawler import (
     chrome_executable,
-    mediacrawler_runtime_available,
+    mediacrawler_diagnostic,
 )
 from video_account_distiller.models.system import (
     CapabilityDiagnostic,
@@ -123,6 +123,7 @@ def doctor_report(project: Path | None = None) -> DoctorReport:
         and project_state.writable
         and project_state.validation_ok is True
     )
+    mediacrawler = mediacrawler_diagnostic()
     return DoctorReport(
         ok=core_ready and project_ready,
         package_version=PACKAGE_VERSION,
@@ -141,10 +142,10 @@ def doctor_report(project: Path | None = None) -> DoctorReport:
                 executable_state["ffmpeg"]
                 and executable_state["ffprobe"]
                 and executable_state["whisper"]
-                and mediacrawler_runtime_available()
+                and mediacrawler.runtime_ready
             ),
             mediacrawler_douyin=(
-                mediacrawler_runtime_available()
+                mediacrawler.ready
                 and executable_state["node"]
                 and executable_state["uv"]
                 and executable_state["chrome"]
@@ -153,5 +154,6 @@ def doctor_report(project: Path | None = None) -> DoctorReport:
             feishu_bitable=bool(os.environ.get("FEISHU_BITABLE_TOKEN")),
             google_sheets=bool(os.environ.get("GOOGLE_SHEETS_TOKEN")),
         ),
+        mediacrawler=mediacrawler,
         project=project_state,
     )

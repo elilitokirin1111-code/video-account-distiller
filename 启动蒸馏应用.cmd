@@ -3,8 +3,14 @@ setlocal
 cd /d "%~dp0"
 if errorlevel 1 goto launch_error
 
+:: Clear PYTHONPATH to avoid conflicts with Hermes global venv
+set PYTHONPATH=
+
+:: Point Ollama to the existing model store
+set OLLAMA_MODELS=%USERPROFILE%\.ollama\models
+
 if not defined DISTILLER_DEFAULT_PROJECT (
-  set "DISTILLER_DEFAULT_PROJECT=%~dp0..\video-account-distiller-projects\workspace"
+  set "DISTILLER_DEFAULT_PROJECT=%~dp0..\\video-account-distiller-projects\\workspace"
 )
 
 where uv >nul 2>&1

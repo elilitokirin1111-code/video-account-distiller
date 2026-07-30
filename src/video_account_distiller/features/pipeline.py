@@ -21,6 +21,7 @@ from video_account_distiller.features.prompts import (
 )
 from video_account_distiller.features.providers import (
     ModelSchemaFailure,
+    OllamaTextProvider,
     StructuredFileProvider,
     TextModelProvider,
 )
@@ -615,6 +616,12 @@ class VideoAnalysisService:
         file_provider = StructuredFileProvider(model_output) if model_output is not None else None
         selected_provider = provider or file_provider
         config = load_config(self.project.config_path)
+        if selected_provider is None and config.models.text_provider == "ollama":
+            selected_provider = OllamaTextProvider(
+                model=config.models.vision_model,
+                base_url=config.models.ollama_base_url,
+                timeout_seconds=config.models.vision_timeout_seconds,
+            )
         attempts = max_attempts or config.models.max_schema_attempts
         effective_strict_model = strict_model or not config.models.allow_degraded_analysis
         bundle = BlindVideoBundle(

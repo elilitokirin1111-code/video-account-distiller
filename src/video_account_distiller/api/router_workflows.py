@@ -31,7 +31,7 @@ def _enqueue_account_distill(
     layout = resolve_project(project_path)
     job = AccountDistillJob(
         project_path=str(layout.root),
-        body=body.model_dump(mode="json"),
+        body=body,
         dry_run=dry_run,
         resume_state=resume_state,
     )

@@ -8,9 +8,11 @@ from fastapi import APIRouter, Request
 
 from video_account_distiller.api.deps import resolve_project
 from video_account_distiller.api.schemas import CollectionAnalyzeParams
-from video_account_distiller.api.tasks import enqueue_task
+from video_account_distiller.api.task_jobs import (
+    CollectionAnalyzeJob,
+    enqueue_api_job,
+)
 from video_account_distiller.collection import (
-    AccountCollectionService,
     build_account_provider,
     build_collection_request,
     resolve_profile_options,
@@ -33,7 +35,7 @@ async def collection_analyze(
         all_videos=body.all_videos,
         comments_per_video=body.comments_per_video,
     )
-    collection_request = build_collection_request(
+    build_collection_request(
         profile_url=body.url,
         count=count,
         sort=body.sort,
@@ -41,14 +43,12 @@ async def collection_analyze(
         comments_per_video=comments_per_video,
         comment_video_limit=body.comment_video_limit,
     )
-    provider = build_account_provider(body.provider)
-
-    return enqueue_task(
+    build_account_provider(body.provider)
+    return enqueue_api_job(
         request.app.state.tasks,
-        AccountCollectionService(layout, provider).analyze_url,
-        request=collection_request,
-        confirm_provider_cost=body.confirm_provider_cost,
-        dry_run=dry_run,
-        collection_profile=body.profile,
-        max_provider_calls=body.max_provider_calls,
+        CollectionAnalyzeJob(
+            project_path=str(layout.root),
+            body=body,
+            dry_run=dry_run,
+        ),
     )

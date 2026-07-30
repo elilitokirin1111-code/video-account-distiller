@@ -35,7 +35,8 @@ Before adding a cloud implementation:
 5. Add mocked provider, privacy, retry, timeout, and Schema contract tests.
 6. Redact comment direct identifiers before upload and preserve raw response hashes/prompt versions.
 
-No current text-analysis command contacts OpenAI or any other model service.
+The Phase 3/4 per-video and per-comment commands remain offline-only. The separate account-level
+GPT workflow described below is the only bundled remote text-model path.
 
 Phase 5 scoring, prediction, publication, and Retro do not use this provider. Their formulas,
 intervals, version linkage, and approval boundary are deterministic. A future model may suggest
@@ -63,3 +64,46 @@ rejected before image bytes are read. A cloud implementation must not be bundled
 implicitly. It requires explicit user
 authorization, `privacy.allow_cloud_model_upload: true`, documented retention and region, redacted
 logging, and mocked upload/timeout/Schema tests.
+
+## Account-level OpenAI Responses provider
+
+The workbench can optionally send the bounded `AnalysisContextService` payload to the OpenAI
+Responses API. It remains disabled until all three gates are satisfied:
+
+1. the project has `privacy.allow_cloud_model_upload: true`;
+2. the user confirms the bounded data upload for the current run;
+3. the user confirms that the request may incur API charges.
+
+The API key is read only from `OPENAI_API_KEY` in the API server environment. The REST and Web
+interfaces do not accept a key field, and the value is never serialized into the SQLite queue,
+project files, audit artifacts, or Git. Restart the API process after changing the variable. GPT
+tasks remain intentionally non-durable and non-retryable so a restart or retry cannot silently
+repeat a chargeable remote call without fresh scope and cost confirmation.
+
+The provider uses `POST https://api.openai.com/v1/responses`, `store: false`, explicit reasoning
+effort, and `text.format.type: json_schema` with `strict: true`. The returned JSON is validated
+again with Pydantic. Every finding, action, and experiment must cite an exact reference from the
+submitted evidence allowlist; invented references fail with `E_MODEL_SCHEMA_INVALID`.
+
+Only a redacted context is uploaded. Direct platform account IDs, handles, profile URLs, raw
+hashes, and source-row metadata are removed, while raw comments, provider pages, signed media URLs,
+browser state, and credentials were already excluded by the bounded context contract.
+
+Successful calls write:
+
+- `analysis.json`: validated result, requested/returned model, template, and used evidence refs;
+- `audit.json`: request/schema/input hashes, response/output hash, model version, token usage,
+  versioned price snapshot, estimated cost, confirmation flags, and privacy assertions, without
+  the key or raw provider response;
+- `evaluation.json`: the fixed evaluation question set covering citation completeness, evidence
+  allowlist integrity, numeric hallucination review, conclusion stability, and the derived-only
+  Rule/Rubric boundary;
+- `report.md`: deterministic human-readable rendering of the validated JSON.
+
+The default picker uses `gpt-5.6-terra` as the balanced option and also exposes
+`gpt-5.6-sol` and `gpt-5.6-luna`. Model roles follow the current
+[OpenAI model guidance](https://developers.openai.com/api/docs/models). Before submission, the Web
+page displays the selected model, bounded data scope, request fingerprints, the versioned per-token
+rate card, and a conservative maximum estimate. After completion, actual response usage is combined
+with that immutable price snapshot to produce an auditable estimate; the OpenAI billing dashboard
+or invoice remains authoritative. Update the snapshot and its tests when published pricing changes.
