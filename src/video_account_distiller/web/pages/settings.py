@@ -93,7 +93,7 @@ with connection_tab:
         )
 
 with model_tab:
-    section_header("云端模型权限", "默认离线；只有显式授权与逐次确认后才允许调用云端模型。")
+    section_header("云端模型权限", "选择服务商与模型；调用前仍需显式授权并逐次确认。")
     encoded_project = quote(context.project_path, safe="")
     cloud_permission = False
     cloud_payload: dict[str, Any] = {}
@@ -113,7 +113,7 @@ with model_tab:
             [3, 1],
             vertical_alignment="center",
         )
-        permission_header.markdown("#### GPT 数据外发权限")
+        permission_header.markdown("#### 云端深度分析数据外发权限")
         permission_status.markdown(
             badge(
                 "已启用" if cloud_permission else "默认关闭",
@@ -123,7 +123,21 @@ with model_tab:
         )
         st.caption(
             "开启后仍需在每次分析时确认数据外发和潜在费用。"
-            "这里只保存项目权限开关，API 密钥必须在服务环境中配置。"
+            "API Key 可在采集任务的云端深度分析页验证并保存到当前 Windows 用户凭据。"
+        )
+        providers = cloud_payload.get("providers") or {}
+        openai_status, bailian_status = st.columns(2)
+        openai_status.metric(
+            "OpenAI",
+            "密钥已配置"
+            if (providers.get("openai") or {}).get("api_key_configured")
+            else "可在分析页保存",
+        )
+        bailian_status.metric(
+            "阿里云百炼",
+            "密钥已配置"
+            if (providers.get("bailian") or {}).get("api_key_configured")
+            else "可在分析页保存",
         )
         allow_cloud_model_upload = st.toggle(
             "允许将受限、脱敏的分析上下文发送给云端模型",
@@ -160,7 +174,7 @@ with model_tab:
             ("项目权限", "显式开关"),
             ("数据范围", "受限且脱敏"),
             ("费用确认", "每次调用确认"),
-            ("API 密钥", "仅服务环境读取"),
+            ("API 密钥", "Windows 用户凭据"),
         )
         for label, value in security_rows:
             label_column, value_column = st.columns([2.5, 1])

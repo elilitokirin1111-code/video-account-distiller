@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 
 from video_account_distiller.collection import CollectionProfile
 from video_account_distiller.models import (
@@ -34,6 +34,10 @@ class ApiResponse(BaseModel):
     ok: bool
     data: Any | None = None
     error: ApiError | None = None
+
+
+class CloudCredentialUpdate(BaseModel):
+    api_key: SecretStr = Field(min_length=8, max_length=8_192)
 
 
 class TaskStatus(BaseModel):

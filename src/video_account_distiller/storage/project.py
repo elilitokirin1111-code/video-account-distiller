@@ -105,6 +105,8 @@ class ProjectLayout:
                 "# Copy variable names only; keep real values outside the project.\n"
                 "TIKHUB_API_KEY=\n"
                 "TIKHUB_API_BASE_URL=https://api.tikhub.dev\n"
+                "DASHSCOPE_API_KEY=\n"
+                "DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1\n"
                 "FEISHU_BITABLE_TOKEN=\n"
                 "GOOGLE_SHEETS_TOKEN=\n",
             )

@@ -140,14 +140,15 @@ distiller backup restore --archive D:\backups\project.zip --destination C:\data\
 3. 自选作品数量或全主页，自选评论覆盖视频数、每个视频评论数和调用预算。
 4. 对最多 20 条视频执行本地下载、关键帧/镜头/音频、Whisper 转写和可选 Ollama 视觉分析。
 5. 查看持久化任务进度、账号报告和蒸馏结果，并下载 GPT 分析上下文。
-6. 可选开启项目云端模型权限，临时输入 OpenAI API 密钥，选择 GPT-5.6
-   Sol/Terra/Luna 与分析模板，并分别确认数据外发和潜在费用。
+6. 可选开启项目云端模型权限，选择 OpenAI 或阿里云百炼，在网页中验证并保存 API Key，
+   在线识别可用模型后选择分析模板，并分别确认数据外发和潜在费用。
 7. 生成本地 OpenKB 知识包；远端同步必须再次确认模型处理。
 
-MediaCrawler 首次运行可能打开可见 Chrome，登录与平台验证由用户在浏览器中完成。应用
-默认不调用外部模型，也不会保存模型密钥。GPT 分析密钥只存在于当前进程内任务，
-不进入项目、SQLite 任务库或 Git；模型结果会写成结构化分析、审计记录和 Markdown
-报告。关闭启动窗口即可停止本机应用；持久任务状态会保存在本机 SQLite 中。
+MediaCrawler 首次运行可能打开可见 Chrome，登录与平台验证由用户在浏览器中完成。网页
+保存的云端分析密钥进入当前 Windows 用户凭据管理器，持续
+使用直至用户更新或删除；密钥不进入项目、SQLite 任务库或 Git。模型结果会写成结构化
+分析、审计记录和 Markdown 报告。关闭启动窗口即可停止本机应用；持久任务状态会保存在
+本机 SQLite 中。
 
 ### 1. 初始化项目
 
@@ -261,13 +262,16 @@ GET /api/tasks?limit=50
 GET /api/task-queue
 ```
 
-GPT 分析使用 OpenAI Responses API 的严格 JSON Schema，设置 `store: false`，并在本地
-再次校验证据引用。每个结果写入
+云端深度分析可选择 OpenAI Responses API 或阿里云百炼的 OpenAI 兼容接口。OpenAI
+请求使用严格 JSON Schema 和 `store: false`；百炼请求使用 JSON Mode。两条路径都会在
+本地执行严格 Pydantic 校验和证据引用校验。每个结果写入
 `analyses/gpt/<account-id>/<analysis-id>/{analysis.json,audit.json,evaluation.json,report.md}`。
 相同上下文、模型、模板和提示词版本会复用已有工件，避免重复产生费用。
-API Key 仅从 API 服务进程的 `OPENAI_API_KEY` 环境变量读取，不通过网页或 HTTP 请求体
-传输。调用前工作台展示脱敏数据范围、请求指纹、模型费率快照和保守费用上限；完成后
-审计文件记录实际 token 用量、输出哈希和基于版本化费率的费用估算。
+API Key 可在工作台通过 HTTPS 提交一次，在线验证成功后保存到当前 Windows 用户凭据
+管理器；以后直接复用，直到在网页中更新或删除。密钥不进入分析请求、项目文件或任务
+数据库。`OPENAI_API_KEY`/`DASHSCOPE_API_KEY` 仍可作为兼容性后备。百炼兼容端点只允许
+阿里云 HTTPS compatible-mode 地址。调用前工作台展示脱敏数据范围、请求指纹、模型费率
+快照和保守费用上限；完成后审计文件记录实际 token 用量、输出哈希和版本化费用估算。
 
 API 任务默认持久化到用户目录的 SQLite。自助蒸馏任务进入可跨进程原子认领的持久队列；
 尚未开始的任务在 API 进程重启后继续排队，多个共享同一任务数据库的进程不会重复认领。

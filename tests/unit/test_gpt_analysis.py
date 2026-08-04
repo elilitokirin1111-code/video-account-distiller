@@ -9,6 +9,9 @@ from video_account_distiller.adapters.collaboration import HttpResponse
 from video_account_distiller.config import load_config
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.insights import (
+    AnalysisProviderKind,
+    BailianChatCompletionsProvider,
+    BailianModel,
     GptAccountAnalysis,
     GptAnalysisOptions,
     OpenAIModel,
@@ -170,6 +173,83 @@ def test_openai_responses_provider_uses_strict_schema_and_store_false() -> None:
     assert "sk-temporary-secret" not in call["body"].decode("utf-8")
 
 
+def test_bailian_provider_uses_json_mode_and_environment_only_credential() -> None:
+    expected = _analysis()
+    response = {
+        "id": "chatcmpl_bailian_123",
+        "model": "qwen3.7-plus",
+        "choices": [
+            {
+                "finish_reason": "stop",
+                "message": {
+                    "role": "assistant",
+                    "content": json.dumps(expected.model_dump(mode="json"), ensure_ascii=False),
+                },
+            }
+        ],
+        "usage": {
+            "prompt_tokens": 120,
+            "completion_tokens": 60,
+            "total_tokens": 180,
+            "prompt_tokens_details": {"cached_tokens": 20},
+        },
+    }
+    executor = RecordingExecutor(response)
+    provider = BailianChatCompletionsProvider(
+        model=BailianModel.QWEN_3_7_PLUS,
+        reasoning_effort=ReasoningEffort.LOW,
+        executor=executor,
+        credential_loader=lambda: "sk-bailian-temporary-secret",
+    )
+
+    result = provider.analyze(
+        instructions="Analyze with evidence.",
+        context_json='{"account":{"account_id":"acc_test"}}',
+    )
+
+    assert result.analysis == expected
+    assert result.response_id == "chatcmpl_bailian_123"
+    assert result.usage == {
+        "input_tokens": 120,
+        "output_tokens": 60,
+        "total_tokens": 180,
+        "input_tokens_details": {"cached_tokens": 20},
+    }
+    call = executor.calls[0]
+    assert call["url"] == ("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions")
+    assert call["headers"]["Authorization"] == "Bearer sk-bailian-temporary-secret"
+    payload: Any = json.loads(call["body"])
+    assert payload["model"] == "qwen3.7-plus"
+    assert payload["response_format"] == {"type": "json_object"}
+    assert payload["enable_thinking"] is True
+    assert "JSON Schema" in payload["messages"][0]["content"]
+    assert "sk-bailian-temporary-secret" not in call["body"].decode("utf-8")
+
+
+def test_cloud_analysis_options_reject_cross_provider_models() -> None:
+    options = GptAnalysisOptions(
+        provider=AnalysisProviderKind.BAILIAN,
+        model=BailianModel.QWEN_3_7_PLUS,
+    )
+    assert options.provider is AnalysisProviderKind.BAILIAN
+
+    with pytest.raises(ValueError, match="not available for provider"):
+        GptAnalysisOptions(
+            provider=AnalysisProviderKind.BAILIAN,
+            model=OpenAIModel.TERRA,
+        )
+
+
+def test_bailian_provider_rejects_non_alibaba_endpoint() -> None:
+    with pytest.raises(DistillerError, match="approved Alibaba Cloud HTTPS"):
+        BailianChatCompletionsProvider(
+            model=BailianModel.QWEN_3_7_PLUS,
+            reasoning_effort=ReasoningEffort.LOW,
+            credential_loader=lambda: "unused",
+            base_url="https://example.com/compatible-mode/v1",
+        )
+
+
 def test_remote_analysis_requires_project_and_per_run_confirmations(
     normalized_project: ProjectLayout,
 ) -> None:
@@ -224,6 +304,7 @@ def test_remote_analysis_is_redacted_audited_and_idempotent(
         "gpta_",
         account_id,
         GPT_ANALYSIS_VERSION,
+        options.provider.value,
         options.model.value,
         options.template.value,
         options.reasoning_effort.value,

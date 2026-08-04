@@ -2,24 +2,111 @@
 
 from __future__ import annotations
 
-import os
+import asyncio
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from video_account_distiller.api.deps import resolve_project
 from video_account_distiller.api.schemas import (
+    CloudCredentialUpdate,
     CloudModelSettingsUpdate,
     ProjectInitRequest,
 )
 from video_account_distiller.config import load_config
-from video_account_distiller.insights import OPENAI_API_KEY_ENV
+from video_account_distiller.errors import DistillerError, ErrorCode
+from video_account_distiller.insights import (
+    AnalysisProviderKind,
+    CloudCredentialStore,
+    cloud_credential_status,
+    probe_account_analysis_provider,
+    resolve_cloud_credential,
+)
 from video_account_distiller.storage.project import ProjectLayout
 from video_account_distiller.utils.io import atomic_write_text
 from video_account_distiller.validation import validate_project
 
 router = APIRouter()
+
+
+def _credential_store(request: Request) -> CloudCredentialStore:
+    return cast(CloudCredentialStore, request.app.state.cloud_credentials)
+
+
+def _cloud_provider_credentials(store: CloudCredentialStore) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for provider in AnalysisProviderKind:
+        status = cloud_credential_status(store, provider.value)
+        result[provider.value] = {
+            **status,
+            "api_key_configured": status["configured"],
+            "api_key_env": status["environment_fallback"],
+        }
+    return result
+
+
+def _provider_executor(request: Request, provider: AnalysisProviderKind) -> Any:
+    name = "openai_executor" if provider is AnalysisProviderKind.OPENAI else "bailian_executor"
+    return getattr(request.app.state, name, None)
+
+
+@router.put("/cloud-model/credentials/{provider}")
+async def save_cloud_model_credential(
+    provider: AnalysisProviderKind,
+    body: CloudCredentialUpdate,
+    request: Request,
+) -> dict[str, Any]:
+    """Validate and persist a credential in the current user's OS keyring."""
+
+    credential = body.api_key.get_secret_value()
+    result = await asyncio.to_thread(
+        probe_account_analysis_provider,
+        provider,
+        credential=credential,
+        executor=_provider_executor(request, provider),
+    )
+    store = _credential_store(request)
+    store.set(provider.value, credential)
+    return {
+        **result,
+        "credential_persisted": True,
+        "credential_storage": "operating_system_keyring",
+    }
+
+
+@router.post("/cloud-model/credentials/{provider}/probe")
+async def probe_saved_cloud_model_credential(
+    provider: AnalysisProviderKind,
+    request: Request,
+) -> dict[str, Any]:
+    """Verify the saved credential and return supported models without exposing the key."""
+
+    resolved = resolve_cloud_credential(_credential_store(request), provider.value)
+    if resolved is None:
+        raise DistillerError(
+            ErrorCode.ADAPTER_AUTH,
+            "No saved cloud API credential is available",
+            details={"provider": provider.value},
+        )
+    result = await asyncio.to_thread(
+        probe_account_analysis_provider,
+        provider,
+        credential=resolved.value,
+        executor=_provider_executor(request, provider),
+    )
+    return {**result, "credential_source": resolved.source}
+
+
+@router.delete("/cloud-model/credentials/{provider}")
+async def delete_cloud_model_credential(
+    provider: AnalysisProviderKind,
+    request: Request,
+) -> dict[str, Any]:
+    """Delete the provider credential from the current user's OS keyring."""
+
+    deleted = _credential_store(request).delete(provider.value)
+    return {"ok": True, "provider": provider.value, "deleted": deleted}
 
 
 @router.post("/projects/init")
@@ -48,17 +135,19 @@ async def validate(project_path: str) -> dict[str, Any]:
 
 
 @router.get("/projects/{project_path:path}/settings/cloud-model")
-async def cloud_model_settings(project_path: str) -> dict[str, Any]:
+async def cloud_model_settings(project_path: str, request: Request) -> dict[str, Any]:
     """Return the project-level cloud-upload permission without any credential."""
 
     layout = resolve_project(project_path)
     config = load_config(layout.config_path)
+    providers = _cloud_provider_credentials(_credential_store(request))
     return {
         "ok": True,
         "allow_cloud_model_upload": config.privacy.allow_cloud_model_upload,
-        "api_key_persisted": False,
-        "api_key_configured": bool(os.environ.get(OPENAI_API_KEY_ENV, "").strip()),
-        "api_key_env": OPENAI_API_KEY_ENV,
+        "api_key_persisted": providers["openai"]["stored_in_os_keyring"],
+        "api_key_configured": providers["openai"]["api_key_configured"],
+        "api_key_env": providers["openai"]["api_key_env"],
+        "providers": providers,
     }
 
 
@@ -66,6 +155,7 @@ async def cloud_model_settings(project_path: str) -> dict[str, Any]:
 async def update_cloud_model_settings(
     project_path: str,
     body: CloudModelSettingsUpdate,
+    request: Request,
 ) -> dict[str, Any]:
     """Persist only the project permission flag; API keys remain environment-only."""
 
@@ -76,10 +166,12 @@ async def update_cloud_model_settings(
     )
     updated = config.model_copy(update={"privacy": privacy})
     atomic_write_text(layout.config_path, updated.as_yaml())
+    providers = _cloud_provider_credentials(_credential_store(request))
     return {
         "ok": True,
         "allow_cloud_model_upload": updated.privacy.allow_cloud_model_upload,
-        "api_key_persisted": False,
-        "api_key_configured": bool(os.environ.get(OPENAI_API_KEY_ENV, "").strip()),
-        "api_key_env": OPENAI_API_KEY_ENV,
+        "api_key_persisted": providers["openai"]["stored_in_os_keyring"],
+        "api_key_configured": providers["openai"]["api_key_configured"],
+        "api_key_env": providers["openai"]["api_key_env"],
+        "providers": providers,
     }

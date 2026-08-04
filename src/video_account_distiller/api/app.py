@@ -20,6 +20,7 @@ from video_account_distiller.api.tasks import (
     retry_persistent_task,
 )
 from video_account_distiller.errors import DistillerError
+from video_account_distiller.insights import KeyringCloudCredentialStore
 from video_account_distiller.logging import configure_logging
 
 
@@ -151,6 +152,7 @@ def create_app(
 
     app.state.tasks = task_store
     app.state.task_workers = task_workers
+    app.state.cloud_credentials = KeyringCloudCredentialStore()
 
     @app.get("/api/health", tags=["Health"])
     async def health() -> dict[str, str]:

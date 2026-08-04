@@ -1,17 +1,19 @@
-"""Audited, privacy-gated account analysis through the OpenAI Responses API."""
+"""Audited, privacy-gated account analysis through selectable cloud providers."""
 
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, Self
+from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from video_account_distiller.adapters.collaboration import HttpExecutor, UrllibHttpExecutor
 from video_account_distiller.common.http_utils import read_env_credential, request_json
@@ -29,11 +31,16 @@ from video_account_distiller.utils.io import (
 )
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
+OPENAI_MODELS_URL = "https://api.openai.com/v1/models"
 OPENAI_API_KEY_ENV = "OPENAI_API_KEY"
-GPT_ANALYSIS_VERSION = "1.1.0"
+BAILIAN_API_KEY_ENV = "DASHSCOPE_API_KEY"
+BAILIAN_BASE_URL_ENV = "DASHSCOPE_BASE_URL"
+BAILIAN_DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+GPT_ANALYSIS_VERSION = "1.2.0"
 GPT_PROMPT_VERSION = "account-gpt-analysis-v1"
 GPT_EVALUATION_VERSION = "account-analysis-eval-v1"
 GPT_PRICING_SNAPSHOT = "openai-api-pricing-2026-07-28"
+BAILIAN_PRICING_SNAPSHOT = "aliyun-model-studio-pricing-2026-08-04"
 MAX_CLOUD_CONTEXT_BYTES = 1_500_000
 MAX_OUTPUT_TOKENS = 5_000
 MODEL_MAX_INPUT_TOKENS = 922_000
@@ -49,6 +56,18 @@ class OpenAIModel(StrEnum):
     SOL = "gpt-5.6-sol"
     TERRA = "gpt-5.6-terra"
     LUNA = "gpt-5.6-luna"
+
+
+class BailianModel(StrEnum):
+    QWEN_3_7_PLUS = "qwen3.7-plus"
+
+
+class AnalysisProviderKind(StrEnum):
+    OPENAI = "openai"
+    BAILIAN = "bailian"
+
+
+AnalysisModel = OpenAIModel | BailianModel
 
 
 class AnalysisTemplate(StrEnum):
@@ -67,16 +86,26 @@ class ReasoningEffort(StrEnum):
 class GptAnalysisOptions(StrictModel):
     """Secret-free options that may safely enter task memory and audit metadata."""
 
-    model: OpenAIModel = OpenAIModel.TERRA
+    provider: AnalysisProviderKind = AnalysisProviderKind.OPENAI
+    model: AnalysisModel = OpenAIModel.TERRA
     template: AnalysisTemplate = AnalysisTemplate.ACCOUNT_HEALTH
     reasoning_effort: ReasoningEffort = ReasoningEffort.LOW
     max_video_analyses: int = Field(default=10, ge=1, le=25)
     confirm_cloud_upload: bool = False
     confirm_cost: bool = False
 
+    @model_validator(mode="after")
+    def validate_provider_model(self) -> Self:
+        expected = OpenAIModel if self.provider is AnalysisProviderKind.OPENAI else BailianModel
+        if not isinstance(self.model, expected):
+            raise ValueError(
+                f"model {self.model.value!r} is not available for provider {self.provider.value!r}"
+            )
+        return self
+
 
 class GptAnalysisRequest(GptAnalysisOptions):
-    """Secret-free API request; credentials are read only from the server environment."""
+    """Secret-free analysis request; credentials are resolved by the API service."""
 
     def options(self) -> GptAnalysisOptions:
         return GptAnalysisOptions.model_validate(self.model_dump(mode="python"))
@@ -130,51 +159,84 @@ class ProviderAnalysis:
 class AccountAnalysisProvider(Protocol):
     provider_name: str
     model_name: str
+    credential_env: str
+    credential_source: str
 
     def analyze(self, *, instructions: str, context_json: str) -> ProviderAnalysis: ...
 
 
 @dataclass(frozen=True)
 class ModelPricing:
-    input_usd_per_million: float
-    cached_input_usd_per_million: float
-    output_usd_per_million: float
+    currency: Literal["USD", "CNY"]
+    input_per_million: float
+    cached_input_per_million: float
+    output_per_million: float
     source_url: str
+    snapshot: str
+    authoritative_source: str
+    max_input_tokens: int = MODEL_MAX_INPUT_TOKENS
+    long_context_threshold_tokens: int = LONG_CONTEXT_THRESHOLD_TOKENS
+    long_context_input_multiplier: float = 2.0
+    long_context_output_multiplier: float = 1.5
+    cache_write_multiplier: float = 1.25
 
     def as_dict(self) -> dict[str, Any]:
         return {
-            "currency": "USD",
+            "currency": self.currency,
             "unit": "per_1m_tokens",
-            "input": self.input_usd_per_million,
-            "cached_input": self.cached_input_usd_per_million,
-            "output": self.output_usd_per_million,
-            "cache_write_multiplier": 1.25,
-            "long_context_threshold_tokens": LONG_CONTEXT_THRESHOLD_TOKENS,
-            "long_context_input_multiplier": 2.0,
-            "long_context_output_multiplier": 1.5,
-            "snapshot": GPT_PRICING_SNAPSHOT,
+            "input": self.input_per_million,
+            "cached_input": self.cached_input_per_million,
+            "output": self.output_per_million,
+            "cache_write_multiplier": self.cache_write_multiplier,
+            "long_context_threshold_tokens": self.long_context_threshold_tokens,
+            "long_context_input_multiplier": self.long_context_input_multiplier,
+            "long_context_output_multiplier": self.long_context_output_multiplier,
+            "snapshot": self.snapshot,
             "source_url": self.source_url,
         }
 
 
-MODEL_PRICING: dict[OpenAIModel, ModelPricing] = {
+MODEL_PRICING: dict[AnalysisModel, ModelPricing] = {
     OpenAIModel.SOL: ModelPricing(
-        input_usd_per_million=5.0,
-        cached_input_usd_per_million=0.5,
-        output_usd_per_million=30.0,
+        currency="USD",
+        input_per_million=5.0,
+        cached_input_per_million=0.5,
+        output_per_million=30.0,
         source_url="https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+        snapshot=GPT_PRICING_SNAPSHOT,
+        authoritative_source="OpenAI billing dashboard/invoice",
     ),
     OpenAIModel.TERRA: ModelPricing(
-        input_usd_per_million=2.5,
-        cached_input_usd_per_million=0.25,
-        output_usd_per_million=15.0,
+        currency="USD",
+        input_per_million=2.5,
+        cached_input_per_million=0.25,
+        output_per_million=15.0,
         source_url="https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+        snapshot=GPT_PRICING_SNAPSHOT,
+        authoritative_source="OpenAI billing dashboard/invoice",
     ),
     OpenAIModel.LUNA: ModelPricing(
-        input_usd_per_million=1.0,
-        cached_input_usd_per_million=0.1,
-        output_usd_per_million=6.0,
+        currency="USD",
+        input_per_million=1.0,
+        cached_input_per_million=0.1,
+        output_per_million=6.0,
         source_url="https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+        snapshot=GPT_PRICING_SNAPSHOT,
+        authoritative_source="OpenAI billing dashboard/invoice",
+    ),
+    BailianModel.QWEN_3_7_PLUS: ModelPricing(
+        currency="CNY",
+        input_per_million=2.0,
+        cached_input_per_million=2.0,
+        output_per_million=8.0,
+        source_url="https://help.aliyun.com/zh/model-studio/model-pricing",
+        snapshot=BAILIAN_PRICING_SNAPSHOT,
+        authoritative_source="Alibaba Cloud Model Studio console/invoice",
+        max_input_tokens=983_000,
+        long_context_threshold_tokens=256_000,
+        long_context_input_multiplier=3.0,
+        long_context_output_multiplier=3.0,
+        cache_write_multiplier=1.0,
     ),
 }
 
@@ -198,7 +260,7 @@ def _usage_int(usage: dict[str, Any], key: str) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
-def _usage_cost(model: OpenAIModel, usage: dict[str, Any]) -> dict[str, Any]:
+def _usage_cost(model: AnalysisModel, usage: dict[str, Any]) -> dict[str, Any]:
     pricing = MODEL_PRICING[model]
     input_tokens = _usage_int(usage, "input_tokens")
     output_tokens = _usage_int(usage, "output_tokens")
@@ -213,52 +275,57 @@ def _usage_cost(model: OpenAIModel, usage: dict[str, Any]) -> dict[str, Any]:
         "cache_write_tokens": cache_write_tokens,
         "output_tokens": output_tokens,
     }
-    long_context = input_tokens is not None and input_tokens > LONG_CONTEXT_THRESHOLD_TOKENS
-    input_multiplier = 2.0 if long_context else 1.0
-    output_multiplier = 1.5 if long_context else 1.0
+    long_context = input_tokens is not None and input_tokens > pricing.long_context_threshold_tokens
+    input_multiplier = pricing.long_context_input_multiplier if long_context else 1.0
+    output_multiplier = pricing.long_context_output_multiplier if long_context else 1.0
     if input_tokens is not None and output_tokens is not None:
         cached = min(cached_tokens or 0, input_tokens)
         cache_write = min(cache_write_tokens or 0, input_tokens - cached)
         uncached = max(input_tokens - cached - cache_write, 0)
         billed_breakdown["uncached_input_tokens"] = uncached
         input_cost = (
-            uncached * pricing.input_usd_per_million
-            + cached * pricing.cached_input_usd_per_million
-            + cache_write * pricing.input_usd_per_million * 1.25
+            uncached * pricing.input_per_million
+            + cached * pricing.cached_input_per_million
+            + cache_write * pricing.input_per_million * pricing.cache_write_multiplier
         )
-        output_cost = output_tokens * pricing.output_usd_per_million
+        output_cost = output_tokens * pricing.output_per_million
         estimated_total = round(
             (input_cost * input_multiplier + output_cost * output_multiplier) / 1_000_000,
             8,
         )
+    currency_key = f"estimated_total_{pricing.currency.lower()}"
     return {
-        "estimated_total_usd": estimated_total,
+        "currency": pricing.currency,
+        "estimated_total": estimated_total,
+        currency_key: estimated_total,
         "pricing": pricing.as_dict(),
         "usage_basis": billed_breakdown,
         "long_context_pricing_applied": long_context,
         "input_price_multiplier": input_multiplier,
         "output_price_multiplier": output_multiplier,
-        "authoritative_source": "OpenAI billing dashboard/invoice",
+        "authoritative_source": pricing.authoritative_source,
     }
 
 
-def _cost_ceiling(model: OpenAIModel, input_token_upper_bound: int) -> dict[str, Any]:
+def _cost_ceiling(model: AnalysisModel, input_token_upper_bound: int) -> dict[str, Any]:
     pricing = MODEL_PRICING[model]
-    billable_input_upper_bound = min(input_token_upper_bound, MODEL_MAX_INPUT_TOKENS)
-    long_context = billable_input_upper_bound > LONG_CONTEXT_THRESHOLD_TOKENS
-    input_multiplier = 2.0 if long_context else 1.0
-    output_multiplier = 1.5 if long_context else 1.0
-    maximum_usd = round(
+    billable_input_upper_bound = min(input_token_upper_bound, pricing.max_input_tokens)
+    long_context = billable_input_upper_bound > pricing.long_context_threshold_tokens
+    input_multiplier = pricing.long_context_input_multiplier if long_context else 1.0
+    output_multiplier = pricing.long_context_output_multiplier if long_context else 1.0
+    maximum = round(
         (
-            billable_input_upper_bound * pricing.input_usd_per_million * input_multiplier
-            + MAX_OUTPUT_TOKENS * pricing.output_usd_per_million * output_multiplier
+            billable_input_upper_bound * pricing.input_per_million * input_multiplier
+            + MAX_OUTPUT_TOKENS * pricing.output_per_million * output_multiplier
         )
         / 1_000_000,
         6,
     )
+    currency_key = f"conservative_maximum_{pricing.currency.lower()}"
     return {
-        "currency": "USD",
-        "conservative_maximum_usd": maximum_usd,
+        "currency": pricing.currency,
+        "conservative_maximum": maximum,
+        currency_key: maximum,
         "input_token_upper_bound": billable_input_upper_bound,
         "max_output_tokens": MAX_OUTPUT_TOKENS,
         "assumption": (
@@ -333,6 +400,7 @@ class OpenAIResponsesProvider:
     """Minimal SDK-free Responses API client with strict local validation."""
 
     provider_name = "openai_responses"
+    credential_env = OPENAI_API_KEY_ENV
 
     def __init__(
         self,
@@ -342,9 +410,11 @@ class OpenAIResponsesProvider:
         executor: HttpExecutor | None = None,
         retry_policy: RetryPolicy | None = None,
         credential_loader: Callable[[], str] | None = None,
+        credential_source: str = OPENAI_API_KEY_ENV,
     ) -> None:
         self.model_name = model.value
         self.reasoning_effort = reasoning_effort
+        self.credential_source = credential_source
         self.executor = executor or UrllibHttpExecutor()
         self.retry_policy = retry_policy or RetryPolicy(
             max_retries=2,
@@ -426,6 +496,260 @@ class OpenAIResponsesProvider:
             analysis=analysis,
             usage=_safe_usage(response.get("usage")),
         )
+
+
+def _bailian_chat_completions_url(base_url: str | None = None) -> str:
+    configured = (base_url or os.environ.get(BAILIAN_BASE_URL_ENV) or "").strip()
+    value = configured or BAILIAN_DEFAULT_BASE_URL
+    parsed = urlparse(value)
+    hostname = (parsed.hostname or "").lower()
+    allowed_host = hostname in {
+        "dashscope.aliyuncs.com",
+        "dashscope-intl.aliyuncs.com",
+        "dashscope-us.aliyuncs.com",
+    } or hostname.endswith(".maas.aliyuncs.com")
+    if parsed.scheme != "https" or not allowed_host or parsed.query or parsed.fragment:
+        raise DistillerError(
+            ErrorCode.SCHEMA_INVALID,
+            "Bailian base URL must be an approved Alibaba Cloud HTTPS compatible-mode endpoint",
+            details={"environment": BAILIAN_BASE_URL_ENV},
+        )
+    normalized_path = parsed.path.rstrip("/")
+    if not normalized_path.endswith("/compatible-mode/v1"):
+        raise DistillerError(
+            ErrorCode.SCHEMA_INVALID,
+            "Bailian base URL must end with /compatible-mode/v1",
+            details={"environment": BAILIAN_BASE_URL_ENV},
+        )
+    return value.rstrip("/") + "/chat/completions"
+
+
+def _chat_completion_text(payload: dict[str, Any]) -> str:
+    choices = payload.get("choices")
+    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+        raise DistillerError(
+            ErrorCode.MODEL_SCHEMA_INVALID,
+            "Bailian response did not contain a completion choice",
+            details={"response_id": payload.get("id")},
+        )
+    message = choices[0].get("message")
+    content = message.get("content") if isinstance(message, dict) else None
+    if not isinstance(content, str) or not content.strip():
+        raise DistillerError(
+            ErrorCode.MODEL_SCHEMA_INVALID,
+            "Bailian response did not contain JSON output text",
+            details={"response_id": payload.get("id")},
+        )
+    return content.strip()
+
+
+def _chat_usage(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    normalized = {
+        "input_tokens": payload.get("prompt_tokens"),
+        "output_tokens": payload.get("completion_tokens"),
+        "total_tokens": payload.get("total_tokens"),
+    }
+    prompt_details = payload.get("prompt_tokens_details")
+    if isinstance(prompt_details, dict):
+        normalized["input_tokens_details"] = {"cached_tokens": prompt_details.get("cached_tokens")}
+    completion_details = payload.get("completion_tokens_details")
+    if isinstance(completion_details, dict):
+        normalized["output_tokens_details"] = {
+            "reasoning_tokens": completion_details.get("reasoning_tokens")
+        }
+    return _safe_usage(normalized)
+
+
+class BailianChatCompletionsProvider:
+    """Alibaba Cloud Model Studio client using its OpenAI-compatible JSON mode."""
+
+    provider_name = "aliyun_bailian_chat_completions"
+    credential_env = BAILIAN_API_KEY_ENV
+
+    def __init__(
+        self,
+        *,
+        model: BailianModel,
+        reasoning_effort: ReasoningEffort,
+        executor: HttpExecutor | None = None,
+        retry_policy: RetryPolicy | None = None,
+        credential_loader: Callable[[], str] | None = None,
+        credential_source: str = BAILIAN_API_KEY_ENV,
+        base_url: str | None = None,
+    ) -> None:
+        self.model_name = model.value
+        self.reasoning_effort = reasoning_effort
+        self.credential_source = credential_source
+        self.executor = executor or UrllibHttpExecutor()
+        self.retry_policy = retry_policy or RetryPolicy(
+            max_retries=2,
+            base_seconds=1.0,
+            timeout_seconds=180,
+        )
+        self.url = _bailian_chat_completions_url(base_url)
+        self._credential_loader = credential_loader or (
+            lambda: read_env_credential(BAILIAN_API_KEY_ENV, "Alibaba Cloud Model Studio API")
+        )
+
+    @classmethod
+    def from_environment(
+        cls,
+        *,
+        model: BailianModel,
+        reasoning_effort: ReasoningEffort,
+        executor: HttpExecutor | None = None,
+        retry_policy: RetryPolicy | None = None,
+    ) -> BailianChatCompletionsProvider:
+        read_env_credential(BAILIAN_API_KEY_ENV, "Alibaba Cloud Model Studio API")
+        return cls(
+            model=model,
+            reasoning_effort=reasoning_effort,
+            executor=executor,
+            retry_policy=retry_policy,
+        )
+
+    def analyze(self, *, instructions: str, context_json: str) -> ProviderAnalysis:
+        schema_json = json.dumps(
+            GptAccountAnalysis.model_json_schema(),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        payload: dict[str, Any] = {
+            "model": self.model_name,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        f"{instructions}\nReturn only a valid JSON object matching this "
+                        "JSON Schema. "
+                        f"Do not add Markdown fences.\nJSON Schema:\n{schema_json}"
+                    ),
+                },
+                {"role": "user", "content": context_json},
+            ],
+            "response_format": {"type": "json_object"},
+            "enable_thinking": self.reasoning_effort is not ReasoningEffort.NONE,
+        }
+        response = request_json(
+            self.executor,
+            method="POST",
+            url=self.url,
+            token=self._credential_loader(),
+            policy=self.retry_policy,
+            payload=payload,
+        )
+        try:
+            decoded = json.loads(_chat_completion_text(response))
+            analysis = GptAccountAnalysis.model_validate(decoded)
+        except (json.JSONDecodeError, ValidationError, TypeError, ValueError) as exc:
+            raise DistillerError(
+                ErrorCode.MODEL_SCHEMA_INVALID,
+                "Bailian account analysis failed local schema validation",
+                details={"response_id": response.get("id")},
+            ) from exc
+        choices = response.get("choices")
+        first_choice = choices[0] if isinstance(choices, list) and choices else {}
+        status = "completed" if isinstance(first_choice, dict) else "unknown"
+        return ProviderAnalysis(
+            response_id=str(response.get("id") or ""),
+            model=str(response.get("model") or self.model_name),
+            status=status,
+            analysis=analysis,
+            usage=_chat_usage(response.get("usage")),
+        )
+
+
+def build_account_analysis_provider(
+    options: GptAnalysisOptions,
+    *,
+    executor: HttpExecutor | None = None,
+    credential: str | None = None,
+    credential_source: str | None = None,
+) -> AccountAnalysisProvider:
+    """Construct the selected provider with a resolved persistent or environment credential."""
+
+    if options.provider is AnalysisProviderKind.OPENAI:
+        if not isinstance(options.model, OpenAIModel):
+            raise AssertionError("validated OpenAI options must contain an OpenAI model")
+        if credential is not None:
+            return OpenAIResponsesProvider(
+                model=options.model,
+                reasoning_effort=options.reasoning_effort,
+                executor=executor,
+                credential_loader=lambda: credential,
+                credential_source=credential_source or "operating_system_keyring",
+            )
+        return OpenAIResponsesProvider.from_environment(
+            model=options.model,
+            reasoning_effort=options.reasoning_effort,
+            executor=executor,
+        )
+    if not isinstance(options.model, BailianModel):
+        raise AssertionError("validated Bailian options must contain a Bailian model")
+    if credential is not None:
+        return BailianChatCompletionsProvider(
+            model=options.model,
+            reasoning_effort=options.reasoning_effort,
+            executor=executor,
+            credential_loader=lambda: credential,
+            credential_source=credential_source or "operating_system_keyring",
+        )
+    return BailianChatCompletionsProvider.from_environment(
+        model=options.model,
+        reasoning_effort=options.reasoning_effort,
+        executor=executor,
+    )
+
+
+def probe_account_analysis_provider(
+    provider: AnalysisProviderKind,
+    *,
+    credential: str,
+    executor: HttpExecutor | None = None,
+) -> dict[str, Any]:
+    """Authenticate against the provider and return supported models visible to the key."""
+
+    client = executor or UrllibHttpExecutor()
+    policy = RetryPolicy(max_retries=1, base_seconds=0.5, timeout_seconds=30)
+    url = (
+        OPENAI_MODELS_URL
+        if provider is AnalysisProviderKind.OPENAI
+        else _bailian_chat_completions_url().removesuffix("/chat/completions") + "/models"
+    )
+    response = request_json(
+        client,
+        method="GET",
+        url=url,
+        token=credential,
+        policy=policy,
+    )
+    data = response.get("data")
+    items = data if isinstance(data, list) else []
+    visible = {
+        str(item["id"])
+        for item in items
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
+    supported = (
+        [model.value for model in OpenAIModel if model.value in visible]
+        if provider is AnalysisProviderKind.OPENAI
+        else [model.value for model in BailianModel if model.value in visible]
+    )
+    if not supported:
+        raise DistillerError(
+            ErrorCode.MODEL_UNAVAILABLE,
+            "The credential is valid but none of the supported analysis models are available",
+            details={"provider": provider.value, "visible_model_count": len(visible)},
+        )
+    return {
+        "ok": True,
+        "provider": provider.value,
+        "authenticated": True,
+        "models": supported,
+        "credential_persisted": False,
+    }
 
 
 _TEMPLATE_INSTRUCTIONS: dict[AnalysisTemplate, str] = {
@@ -808,7 +1132,7 @@ class RemoteAccountAnalysisService:
         if missing:
             raise DistillerError(
                 ErrorCode.PROVIDER_COST_CONFIRMATION_REQUIRED,
-                "OpenAI analysis requires explicit data-upload and cost confirmation",
+                "Cloud analysis requires explicit data-upload and cost confirmation",
                 details={"required": missing},
             )
 
@@ -836,6 +1160,7 @@ class RemoteAccountAnalysisService:
         return {
             "ok": True,
             "remote_call_performed": False,
+            "provider": options.provider.value,
             "model": options.model.value,
             "template": options.template.value,
             "reasoning_effort": options.reasoning_effort.value,
@@ -887,6 +1212,7 @@ class RemoteAccountAnalysisService:
             {
                 "context_hash": prepared.context_hash,
                 "prompt_hash": prepared.prompt_hash,
+                "provider": options.provider.value,
                 "model": options.model.value,
                 "template": options.template.value,
                 "reasoning_effort": options.reasoning_effort.value,
@@ -895,6 +1221,7 @@ class RemoteAccountAnalysisService:
         analysis_id_parts = [
             account_id,
             GPT_ANALYSIS_VERSION,
+            options.provider.value,
             options.model.value,
             options.template.value,
             options.reasoning_effort.value,
@@ -999,7 +1326,15 @@ class RemoteAccountAnalysisService:
                 "privacy": {
                     "redacted_keys": sorted(_CLOUD_REDACTED_KEYS),
                     "api_key_persisted": False,
-                    "api_key_source": OPENAI_API_KEY_ENV,
+                    "api_key_source": getattr(
+                        self.provider,
+                        "credential_source",
+                        (
+                            OPENAI_API_KEY_ENV
+                            if options.provider is AnalysisProviderKind.OPENAI
+                            else BAILIAN_API_KEY_ENV
+                        ),
+                    ),
                     "raw_response_persisted": False,
                 },
                 "write_boundary": "derived_analysis_only",

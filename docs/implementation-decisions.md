@@ -694,3 +694,16 @@ requirements from later phases.
   while the current product workflows are still evolving. A shared Streamlit design layer removes
   the default prototype appearance and provides consistent SaaS behavior without duplicating or
   destabilizing collection, import, analysis, report, permission, and task-recovery logic.
+
+## ID-081 — Select account-analysis providers explicitly without moving credentials into requests
+
+- **Decision:** Keep one provider-neutral account-analysis contract and add Alibaba Cloud Model
+  Studio beside OpenAI as an explicit Web/API choice. Validate a password-masked credential online,
+  persist it only in the current operating-system user's secure keyring until the user updates or
+  deletes it, allow only Alibaba Cloud HTTPS `compatible-mode/v1` endpoints, and retain
+  provider-specific immutable USD/CNY pricing snapshots. Apply the same local schema, evidence
+  allowlist, privacy gates, audit artifacts, and non-retryable paid-task boundary to both providers.
+- **Reason:** A selectable provider lets operators choose the service appropriate for their region
+  and account without forking the distillation pipeline. Operating-system credential storage avoids
+  repeated local environment edits while keeping secrets outside projects and task records. Endpoint
+  trust and shared validation prevent a compatibility API from weakening the evidence contract.

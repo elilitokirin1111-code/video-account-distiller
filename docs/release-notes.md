@@ -1,5 +1,10 @@
 # Release notes
 
+- Added Alibaba Cloud Model Studio (Bailian) as a selectable account-level deep-analysis provider,
+  including Web-based online credential validation, operating-system keyring storage, approved
+  endpoint validation, JSON-mode schema checks, CNY cost previews, and provider-specific audit
+  metadata.
+
 Keep future changes under **Unreleased** while developing. Move them into a dated version section
 when releasing; retain prior sections so downstream users can understand migrations and behavior
 changes.

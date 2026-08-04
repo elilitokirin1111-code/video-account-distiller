@@ -1,9 +1,19 @@
 """Bounded, evidence-linked context for downstream analysis."""
 
+from video_account_distiller.insights.cloud_credentials import (
+    CloudCredentialStore,
+    KeyringCloudCredentialStore,
+    cloud_credential_status,
+    resolve_cloud_credential,
+)
 from video_account_distiller.insights.context import AnalysisContextService
 from video_account_distiller.insights.gpt_analysis import (
+    BAILIAN_API_KEY_ENV,
     OPENAI_API_KEY_ENV,
+    AnalysisProviderKind,
     AnalysisTemplate,
+    BailianChatCompletionsProvider,
+    BailianModel,
     GptAccountAnalysis,
     GptAnalysisOptions,
     GptAnalysisRequest,
@@ -11,6 +21,8 @@ from video_account_distiller.insights.gpt_analysis import (
     OpenAIResponsesProvider,
     ReasoningEffort,
     RemoteAccountAnalysisService,
+    build_account_analysis_provider,
+    probe_account_analysis_provider,
 )
 from video_account_distiller.insights.gpt_evaluation import (
     GPT_EVALUATION_RESULT_VERSION,
@@ -24,7 +36,12 @@ from video_account_distiller.insights.gpt_evaluation import (
 
 __all__ = [
     "AnalysisContextService",
+    "AnalysisProviderKind",
     "AnalysisTemplate",
+    "BAILIAN_API_KEY_ENV",
+    "BailianChatCompletionsProvider",
+    "BailianModel",
+    "CloudCredentialStore",
     "GptAccountAnalysis",
     "GptAnalysisOptions",
     "GptAnalysisRequest",
@@ -35,9 +52,14 @@ __all__ = [
     "GptEvaluationRunRequest",
     "GptEvaluationService",
     "GptEvaluationSuite",
+    "KeyringCloudCredentialStore",
     "OPENAI_API_KEY_ENV",
     "OpenAIModel",
     "OpenAIResponsesProvider",
     "ReasoningEffort",
     "RemoteAccountAnalysisService",
+    "build_account_analysis_provider",
+    "cloud_credential_status",
+    "probe_account_analysis_provider",
+    "resolve_cloud_credential",
 ]

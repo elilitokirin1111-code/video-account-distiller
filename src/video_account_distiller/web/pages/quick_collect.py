@@ -127,12 +127,12 @@ def _submit_gpt_analysis(account_id: str, payload: dict[str, Any]) -> None:
     )
     task_id = result.get("task_id")
     if not isinstance(task_id, str):
-        st.error(f"GPT 分析提交失败：{(result.get('error') or {}).get('message', '未知错误')}")
+        st.error(f"深度分析提交失败：{(result.get('error') or {}).get('message', '未知错误')}")
         return
     st.session_state["active_task_id"] = task_id
     st.session_state["active_task_kind"] = "gpt_analysis"
     st.session_state.pop("last_gpt_analysis", None)
-    st.toast("GPT 分析任务已提交；临时密钥未写入任务记录", icon="🤖")
+    st.toast("深度分析任务已提交；临时密钥未写入任务记录", icon="🤖")
 
 
 def _cancel_task(task_id: str) -> None:
@@ -377,10 +377,19 @@ def _render_gpt_analysis(account_id: str) -> None:
             st.error(f"权限更新失败：{(updated.get('error') or {}).get('message', '未知错误')}")
         return
 
-    model_labels = {
-        "均衡（GPT-5.6 Terra）": "gpt-5.6-terra",
-        "高质量（GPT-5.6 Sol）": "gpt-5.6-sol",
-        "高效率（GPT-5.6 Luna）": "gpt-5.6-luna",
+    provider_labels = {
+        "OpenAI": "openai",
+        "阿里云百炼": "bailian",
+    }
+    models_by_provider = {
+        "openai": {
+            "均衡（GPT-5.6 Terra）": "gpt-5.6-terra",
+            "高质量（GPT-5.6 Sol）": "gpt-5.6-sol",
+            "高效率（GPT-5.6 Luna）": "gpt-5.6-luna",
+        },
+        "bailian": {
+            "千问 3.7 Plus": "qwen3.7-plus",
+        },
     }
     template_labels = {
         "账号体检": "account_health",
@@ -393,15 +402,115 @@ def _render_gpt_analysis(account_id: str) -> None:
         "中": "medium",
         "高": "high",
     }
-    left, middle, right = st.columns(3)
-    with left:
-        model_label = st.selectbox("OpenAI 模型", list(model_labels))
-    with middle:
+    provider_label = st.selectbox("分析服务商", list(provider_labels))
+    provider_key = provider_labels[provider_label]
+    provider_settings = (settings.get("providers") or {}).get(provider_key) or {}
+    credential_configured = bool(provider_settings.get("api_key_configured"))
+    credential_source = provider_settings.get("source")
+    credential_key = f"cloud_api_key_{provider_key}"
+    clear_key = f"clear_cloud_api_key_{provider_key}"
+    if st.session_state.pop(clear_key, False):
+        st.session_state[credential_key] = ""
+
+    credential_column, save_column, refresh_column, delete_column = st.columns(
+        [2.8, 1, 1, 1], vertical_alignment="bottom"
+    )
+    with credential_column:
+        api_key = st.text_input(
+            f"{provider_label} API Key",
+            type="password",
+            key=credential_key,
+            placeholder="已安全保存，可留空" if credential_configured else "输入后验证并保存",
+            help="密钥保存到当前 Windows 用户的凭据管理器，不写入项目文件或任务数据库。",
+        )
+    save_clicked = save_column.button(
+        "验证并保存",
+        key=f"save_cloud_api_key_{provider_key}",
+        use_container_width=True,
+        disabled=not bool(api_key.strip()),
+    )
+    refresh_clicked = refresh_column.button(
+        "在线识别",
+        key=f"probe_cloud_api_key_{provider_key}",
+        use_container_width=True,
+        disabled=not credential_configured,
+    )
+    delete_clicked = delete_column.button(
+        "删除",
+        key=f"delete_cloud_api_key_{provider_key}",
+        use_container_width=True,
+        disabled=not bool(provider_settings.get("stored_in_os_keyring")),
+    )
+    probe_key = f"cloud_provider_probe_{provider_key}"
+    if save_clicked:
+        saved = _request(
+            f"/api/cloud-model/credentials/{provider_key}",
+            "PUT",
+            json={"api_key": api_key},
+            timeout=45,
+        )
+        if saved.get("ok"):
+            st.session_state[probe_key] = saved
+            st.session_state[clear_key] = True
+            st.toast(f"{provider_label} API 已验证并安全保存", icon="✅")
+            st.rerun()
+        else:
+            st.error(f"API 验证失败：{(saved.get('error') or {}).get('message', '未知错误')}")
+    if refresh_clicked:
+        checked = _request(
+            f"/api/cloud-model/credentials/{provider_key}/probe",
+            "POST",
+            timeout=45,
+        )
+        st.session_state[probe_key] = checked
+        if checked.get("ok"):
+            st.toast(f"已识别 {provider_label} 和可用模型", icon="✅")
+    if delete_clicked:
+        deleted = _request(
+            f"/api/cloud-model/credentials/{provider_key}",
+            "DELETE",
+            timeout=15,
+        )
+        if deleted.get("ok"):
+            st.session_state.pop(probe_key, None)
+            st.session_state[clear_key] = True
+            st.toast(f"已删除保存的 {provider_label} API Key")
+            st.rerun()
+
+    probe = st.session_state.get(probe_key)
+    if credential_configured and not isinstance(probe, dict):
+        probe = _request(
+            f"/api/cloud-model/credentials/{provider_key}/probe",
+            "POST",
+            timeout=45,
+        )
+        st.session_state[probe_key] = probe
+    online_models = probe.get("models", []) if isinstance(probe, dict) and probe.get("ok") else []
+    model_labels = {
+        label: model
+        for label, model in models_by_provider[provider_key].items()
+        if model in online_models
+    }
+    if credential_configured:
+        st.success(
+            f"{provider_label} API 已保存并可持续使用"
+            + (f"；来源：{credential_source}" if credential_source else "")
+        )
+    elif isinstance(probe, dict) and not probe.get("ok"):
+        st.error(f"在线识别失败：{(probe.get('error') or {}).get('message', '未知错误')}")
+    if not model_labels:
+        model_labels = models_by_provider[provider_key]
+
+    model_column, template_column, reasoning_column = st.columns(3)
+    with model_column:
+        model_label = st.selectbox("分析模型", list(model_labels))
+    with template_column:
         template_label = st.selectbox("分析模板", list(template_labels))
-    with right:
+    with reasoning_column:
         reasoning_label = st.selectbox("推理强度", list(reasoning_labels))
     max_video_analyses = st.slider("纳入最近视频分析数", 1, 25, 10)
     preview_request = {
+        "provider": provider_key,
         "model": model_labels[model_label],
         "template": template_labels[template_label],
         "reasoning_effort": reasoning_labels[reasoning_label],
@@ -424,9 +533,13 @@ def _render_gpt_analysis(account_id: str) -> None:
         context_size = (
             f"{context_bytes / 1024:.1f} KB" if isinstance(context_bytes, int) else "未知"
         )
-        maximum_cost = cost_preview.get("conservative_maximum_usd")
+        currency = str(cost_preview.get("currency") or pricing.get("currency") or "")
+        currency_symbol = "¥" if currency == "CNY" else "$" if currency == "USD" else ""
+        maximum_cost = cost_preview.get("conservative_maximum")
         maximum_cost_label = (
-            f"${maximum_cost:.4f}" if isinstance(maximum_cost, int | float) else "未知"
+            f"{currency_symbol}{maximum_cost:.4f} {currency}".strip()
+            if isinstance(maximum_cost, int | float)
+            else "未知"
         )
         st.info(
             f"调用前预览：{preview.get('model')} / {preview.get('template')}；"
@@ -435,10 +548,10 @@ def _render_gpt_analysis(account_id: str) -> None:
             f"保守费用上限约 {maximum_cost_label}。"
         )
         st.caption(
-            f"当前费率快照 {pricing.get('snapshot')}：输入 ${pricing.get('input')}/百万 token，"
-            f"缓存输入 ${pricing.get('cached_input')}/百万 token，"
-            f"输出 ${pricing.get('output')}/百万 token。"
-            "该上限按 UTF-8 字节和全量未缓存输入保守估算；最终以 OpenAI 账单为准。"
+            f"当前费率快照 {pricing.get('snapshot')}：输入 {currency_symbol}{pricing.get('input')}"
+            f"/百万 token，缓存输入 {currency_symbol}{pricing.get('cached_input')}/百万 token，"
+            f"输出 {currency_symbol}{pricing.get('output')}/百万 token。"
+            f"该上限按 UTF-8 字节和全量未缓存输入保守估算；最终以{provider_label}账单为准。"
         )
         with st.expander("查看数据范围、脱敏项与请求指纹"):
             st.json(
@@ -451,23 +564,21 @@ def _render_gpt_analysis(account_id: str) -> None:
     else:
         st.error(f"无法生成调用预览：{(preview.get('error') or {}).get('message', '未知错误')}")
 
-    credential_configured = bool(settings.get("api_key_configured"))
     if not credential_configured:
-        st.error(
-            f"API 服务尚未配置 {settings.get('api_key_env', 'OPENAI_API_KEY')}。"
-            "请在启动 API 的环境中设置后重启服务；密钥不会从网页或请求体接收。"
-        )
+        st.info("请在上方填写 API Key，并点击“验证并保存”。")
 
     with st.form("gpt_account_analysis_form", clear_on_submit=False):
-        confirm_cloud_upload = st.checkbox("我确认将上方预览所代表的受限、脱敏上下文发送给 OpenAI")
+        confirm_cloud_upload = st.checkbox(
+            f"我确认将上方预览所代表的受限、脱敏上下文发送给{provider_label}"
+        )
         confirm_cost = st.checkbox(
-            "我理解本次 Responses API 调用可能产生费用，实际费用以 OpenAI 账户为准"
+            f"我理解本次模型 API 调用可能产生费用，实际费用以{provider_label}账户为准"
         )
         submitted = st.form_submit_button(
-            "生成可审计的 GPT 分析",
+            "生成可审计的深度分析",
             type="primary",
             use_container_width=True,
-            disabled=not preview_ok or not credential_configured,
+            disabled=not preview_ok or not credential_configured or not bool(online_models),
         )
 
     if submitted:
@@ -477,6 +588,7 @@ def _render_gpt_analysis(account_id: str) -> None:
             _submit_gpt_analysis(
                 account_id,
                 {
+                    "provider": provider_key,
                     "model": model_labels[model_label],
                     "template": template_labels[template_label],
                     "reasoning_effort": reasoning_labels[reasoning_label],
@@ -491,7 +603,7 @@ def _render_gpt_analysis(account_id: str) -> None:
     if isinstance(latest, dict):
         analysis = latest.get("analysis")
         st.success(
-            "GPT 分析已完成并写入本地审计工件。"
+            "深度分析已完成并写入本地审计工件。"
             if not latest.get("already_generated")
             else "已复用同一上下文与设置的现有分析，未重复调用 API。"
         )
@@ -502,7 +614,7 @@ def _render_gpt_analysis(account_id: str) -> None:
                 with st.expander("查看结构化分析", expanded=True):
                     st.json(result)
             st.download_button(
-                "下载 GPT 分析 JSON",
+                "下载深度分析 JSON",
                 data=json.dumps(analysis, ensure_ascii=False, indent=2),
                 file_name=f"{account_id}-gpt-analysis.json",
                 mime="application/json",
@@ -970,8 +1082,8 @@ if isinstance(last_result, dict):
 
 account_id = st.session_state.get("last_account_id")
 if isinstance(account_id, str):
-    section_header("后续分析", "在已有蒸馏结果上生成可审计的 GPT 分析或同步知识库。")
-    gpt_tab, openkb_tab = st.tabs(["GPT 分析", "OpenKB 同步"])
+    section_header("后续分析", "在已有蒸馏结果上生成可审计的云端深度分析或同步知识库。")
+    gpt_tab, openkb_tab = st.tabs(["云端深度分析", "OpenKB 同步"])
     with gpt_tab:
         _render_gpt_analysis(account_id)
 

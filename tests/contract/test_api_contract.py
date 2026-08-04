@@ -462,6 +462,20 @@ def test_growth_and_analysis_context_endpoints(
         assert payload["analysis_contract"]
 
 
+class _MemoryCloudCredentialStore:
+    def __init__(self) -> None:
+        self.values: dict[str, str] = {}
+
+    def get(self, provider: str) -> str | None:
+        return self.values.get(provider)
+
+    def set(self, provider: str, credential: str) -> None:
+        self.values[provider] = credential
+
+    def delete(self, provider: str) -> bool:
+        return self.values.pop(provider, None) is not None
+
+
 class _OpenAIContractExecutor:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
@@ -540,6 +554,7 @@ def test_cloud_model_settings_and_ephemeral_gpt_analysis_contract(
     executor = _OpenAIContractExecutor()
     task_db = tmp_path / "gpt-tasks.sqlite3"
     app = create_app(task_db)
+    app.state.cloud_credentials = _MemoryCloudCredentialStore()
     app.state.openai_executor = executor
     body = {
         "model": "gpt-5.6-terra",
@@ -634,6 +649,152 @@ def test_cloud_model_settings_and_ephemeral_gpt_analysis_contract(
     assert audit["privacy"]["api_key_source"] == "OPENAI_API_KEY"
     assert audit["response"]["estimated_cost"]["estimated_total_usd"] is not None
     assert task["result"]["evaluation"]["evaluation_version"] == "account-analysis-eval-v1"
+
+
+class _BailianContractExecutor(_OpenAIContractExecutor):
+    def send(
+        self,
+        *,
+        method: str,
+        url: str,
+        headers: dict[str, str],
+        body: bytes | None,
+        timeout: int,
+    ) -> HttpResponse:
+        self.calls.append(
+            {
+                "method": method,
+                "url": url,
+                "headers": headers,
+                "body": body,
+                "timeout": timeout,
+            }
+        )
+        if method == "GET":
+            response = {
+                "object": "list",
+                "data": [
+                    {"id": "qwen3.7-plus", "object": "model"},
+                    {"id": "unsupported-model", "object": "model"},
+                ],
+            }
+            return HttpResponse(200, json.dumps(response).encode("utf-8"))
+        result = {
+            "executive_summary": "账号上下文可用，建议先建立连续观察周期。",
+            "findings": [
+                {
+                    "classification": "observed_fact",
+                    "title": "账号记录可用",
+                    "statement": "受限上下文包含一个标准化账号快照。",
+                    "evidence_refs": ["context://account"],
+                    "confidence": "high",
+                }
+            ],
+            "priority_actions": [
+                {
+                    "priority": 1,
+                    "action": "建立连续观察",
+                    "rationale": "当前增长上下文尚不足以判断趋势。",
+                    "evidence_refs": ["context://growth"],
+                }
+            ],
+            "experiments": [],
+            "limitations": ["缺少多个分隔时间点的账号快照。"],
+        }
+        response = {
+            "id": "chatcmpl_bailian_contract",
+            "model": "qwen3.7-plus",
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {
+                        "role": "assistant",
+                        "content": json.dumps(result, ensure_ascii=False),
+                    },
+                }
+            ],
+            "usage": {"prompt_tokens": 80, "completion_tokens": 40, "total_tokens": 120},
+        }
+        return HttpResponse(200, json.dumps(response, ensure_ascii=False).encode("utf-8"))
+
+
+def test_bailian_credential_is_validated_persisted_and_used_without_request_secret(
+    normalized_project: ProjectLayout,
+    tmp_path: Path,
+) -> None:
+    encoded = _project_path(normalized_project.root)
+    account_id = stable_id("acc_", "douyin", "hotel-demo")
+    secret = "sk-bailian-contract-temporary-secret"
+    executor = _BailianContractExecutor()
+    app = create_app(tmp_path / "bailian-tasks.sqlite3")
+    credentials = _MemoryCloudCredentialStore()
+    app.state.cloud_credentials = credentials
+    app.state.bailian_executor = executor
+    body = {
+        "provider": "bailian",
+        "model": "qwen3.7-plus",
+        "template": "account_health",
+        "reasoning_effort": "low",
+        "max_video_analyses": 5,
+        "confirm_cloud_upload": True,
+        "confirm_cost": True,
+    }
+
+    with TestClient(app) as client:
+        settings_path = f"/api/projects/{encoded}/settings/cloud-model"
+        settings = _json(client.get(settings_path))
+        assert settings["providers"]["bailian"]["api_key_configured"] is False
+        saved = client.put(
+            "/api/cloud-model/credentials/bailian",
+            json={"api_key": secret},
+        )
+        assert saved.status_code == 200
+        assert _json(saved)["credential_storage"] == "operating_system_keyring"
+        assert _json(saved)["models"] == ["qwen3.7-plus"]
+        assert credentials.get("bailian") == secret
+        configured = _json(client.get(settings_path))["providers"]["bailian"]
+        assert configured["api_key_configured"] is True
+        assert configured["stored_in_os_keyring"] is True
+        assert (
+            client.put(
+                settings_path,
+                json={"allow_cloud_model_upload": True},
+            ).status_code
+            == 200
+        )
+        preview = client.post(
+            f"/api/projects/{encoded}/accounts/{account_id}/gpt-analysis/preview",
+            json=body,
+        )
+        assert preview.status_code == 200
+        preview_payload = _json(preview)
+        assert preview_payload["provider"] == "bailian"
+        assert preview_payload["cost_preview"]["currency"] == "CNY"
+        assert preview_payload["cost_preview"]["conservative_maximum_cny"] > 0
+
+        submitted = client.post(
+            f"/api/projects/{encoded}/accounts/{account_id}/gpt-analysis",
+            json=body,
+        )
+        assert submitted.status_code == 200
+        task = _wait_for_task(client, str(_json(submitted)["task_id"]))
+        deleted = client.delete("/api/cloud-model/credentials/bailian")
+        assert deleted.status_code == 200
+        assert _json(deleted)["deleted"] is True
+
+    assert task["status"] == "completed"
+    assert credentials.get("bailian") is None
+    assert len(executor.calls) == 2
+    call = executor.calls[1]
+    assert call["url"].endswith("/compatible-mode/v1/chat/completions")
+    assert call["headers"]["Authorization"] == f"Bearer {secret}"
+    assert secret not in (call["body"] or b"").decode("utf-8")
+    audit = task["result"]["audit"]
+    assert audit["privacy"]["api_key_source"] == "operating_system_keyring"
+    assert audit["response"]["estimated_cost"]["currency"] == "CNY"
+    assert audit["response"]["estimated_cost"]["estimated_total_cny"] is not None
+    for database_file in tmp_path.glob("bailian-tasks.sqlite3*"):
+        assert secret.encode("utf-8") not in database_file.read_bytes()
 
 
 def test_openkb_export_and_confirmation_contract(

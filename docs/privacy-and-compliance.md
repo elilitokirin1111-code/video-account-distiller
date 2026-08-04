@@ -91,6 +91,15 @@ The default TikHub route reads `TIKHUB_API_KEY` only from the process environmen
 `api.tikhub.dev`/`api.tikhub.io`. Dry-run makes no request. Real TikHub calls require explicit cost
 confirmation, and outputs never contain the token or authorization header.
 
+Optional account-level cloud analysis lets the user enter a password-masked credential in the Web
+UI. The API verifies it online and persists it only in the current operating-system user's secure
+keyring until the user updates or deletes it. It never enters project files, SQLite task arguments,
+analysis artifacts, logs, or Git. Bailian endpoints must use HTTPS and an approved Alibaba Cloud
+`compatible-mode/v1` host. Both providers receive only the same bounded, redacted analysis context
+after project-level permission plus per-run upload and cost confirmation. Derived results retain
+provider/model IDs, hashes, token usage, evidence references, and a versioned cost estimate for
+audit without retaining the raw provider response.
+
 The optional OpenKB integration writes a separate `knowledge-outbox/openkb/` containing only
 curated Markdown and non-secret manifests. It never grants OpenKB access to `raw/`, `normalized/`,
 media, raw comments, Provider pages, browser state, or credentials. HTTP is accepted only for a

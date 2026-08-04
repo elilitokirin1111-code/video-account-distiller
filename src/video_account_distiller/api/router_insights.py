@@ -8,9 +8,11 @@ from fastapi import APIRouter, Request
 
 from video_account_distiller.api.deps import resolve_project
 from video_account_distiller.api.tasks import enqueue_ephemeral_task
+from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.growth import AccountGrowthService
 from video_account_distiller.insights import (
     AnalysisContextService,
+    AnalysisProviderKind,
     GptAnalysisRequest,
     GptEvaluationCase,
     GptEvaluationPreviewRequest,
@@ -18,6 +20,8 @@ from video_account_distiller.insights import (
     GptEvaluationService,
     OpenAIResponsesProvider,
     RemoteAccountAnalysisService,
+    build_account_analysis_provider,
+    resolve_cloud_credential,
 )
 
 router = APIRouter()
@@ -49,15 +53,29 @@ async def account_gpt_analysis(
     request: Request,
     body: GptAnalysisRequest,
 ) -> dict[str, Any]:
-    """Run one explicitly authorized OpenAI analysis with an environment-only key."""
+    """Run one explicitly authorized cloud analysis with an environment-only key."""
 
     layout = resolve_project(project_path)
     options = body.options()
     RemoteAccountAnalysisService.require_authorization(layout, options)
-    provider = OpenAIResponsesProvider.from_environment(
-        model=options.model,
-        reasoning_effort=options.reasoning_effort,
-        executor=getattr(request.app.state, "openai_executor", None),
+    executor_name = (
+        "openai_executor" if options.provider is AnalysisProviderKind.OPENAI else "bailian_executor"
+    )
+    resolved = resolve_cloud_credential(
+        request.app.state.cloud_credentials,
+        options.provider.value,
+    )
+    if resolved is None:
+        raise DistillerError(
+            ErrorCode.ADAPTER_AUTH,
+            "No saved cloud API credential is available",
+            details={"provider": options.provider.value},
+        )
+    provider = build_account_analysis_provider(
+        options,
+        executor=getattr(request.app.state, executor_name, None),
+        credential=resolved.value,
+        credential_source=resolved.source,
     )
     service = RemoteAccountAnalysisService(layout, provider)
     return enqueue_ephemeral_task(
@@ -109,11 +127,19 @@ async def run_gpt_evaluation(
     evaluator = GptEvaluationService(layout)
     evaluator.authorize(body)
     executor = getattr(request.app.state, "openai_executor", None)
+    resolved = resolve_cloud_credential(request.app.state.cloud_credentials, "openai")
+    if resolved is None:
+        raise DistillerError(
+            ErrorCode.ADAPTER_AUTH,
+            "No saved OpenAI API credential is available",
+        )
     providers = {
-        (case.model, case.reasoning_effort): OpenAIResponsesProvider.from_environment(
+        (case.model, case.reasoning_effort): OpenAIResponsesProvider(
             model=case.model,
             reasoning_effort=case.reasoning_effort,
             executor=executor,
+            credential_loader=lambda: resolved.value,
+            credential_source=resolved.source,
         )
         for case in body.suite.cases
     }
