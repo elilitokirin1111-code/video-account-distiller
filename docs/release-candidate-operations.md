@@ -107,8 +107,21 @@ distiller backup drill --project C:\data\distiller-project --json
 只有以下条件全部满足才可冻结：
 
 1. 源码门禁、RC 审计和干净安装验收通过；
-2. wheel/sdist/Skill 包的校验和已冻结且与待发布文件一致；
+2. wheel/sdist/Skill/公测证据包的校验和已冻结且与待发布文件一致；
 3. 备份恢复演练通过，恢复目标零校验错误；
 4. 隐私、第三方许可证、迁移、外部集成验收状态已人工签字；
 5. 发布说明明确列出未完成的真实外部验收，且没有把 Fixture 当作生产证据。
 
+对外稳定版还必须先按 `docs/public-beta-release.md` 生成版本匹配的确定性证据包，并运行：
+
+```powershell
+distiller release audit `
+  --repository . `
+  --artifacts dist `
+  --public-beta-evidence dist\video-account-distiller-public-beta-1.0.0.zip `
+  --require-public-beta-freeze `
+  --json
+```
+
+证据缺失、冻结后篡改、门禁状态不可复现、目标版本错配或证据包不在校验和目录时，RC 审计
+必须失败。稳定版标签工作流执行相同的强制门禁。

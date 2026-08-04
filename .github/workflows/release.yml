@@ -34,10 +34,20 @@ jobs:
       - name: Create checksums
         run: |
           version="${GITHUB_REF_NAME#v}"
+          evidence="release-evidence/video-account-distiller-public-beta-${version}.zip"
+          test -f "${evidence}"
+          cp "${evidence}" dist/
           (cd skills && zip -r "../dist/video-account-distiller-skill-${version}.zip" video-account-distiller)
-          (cd dist && sha256sum video_account_distiller-* video-account-distiller-skill-* > SHA256SUMS.txt)
+          (cd dist && sha256sum video_account_distiller-* video-account-distiller-skill-* video-account-distiller-public-beta-* > SHA256SUMS.txt)
       - name: Audit release candidate
-        run: uv run distiller release audit --repository . --artifacts dist --json
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          uv run distiller release audit \
+            --repository . \
+            --artifacts dist \
+            --public-beta-evidence "dist/video-account-distiller-public-beta-${version}.zip" \
+            --require-public-beta-freeze \
+            --json
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -46,6 +56,7 @@ jobs:
             dist/video_account_distiller-*.whl \
             dist/video_account_distiller-*.tar.gz \
             dist/video-account-distiller-skill-*.zip \
+            dist/video-account-distiller-public-beta-*.zip \
             dist/SHA256SUMS.txt \
             --verify-tag \
             --title "Video Account Distiller ${GITHUB_REF_NAME}" \

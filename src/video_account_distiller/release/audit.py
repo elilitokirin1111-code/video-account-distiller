@@ -12,6 +12,7 @@ from pathlib import Path, PurePosixPath
 
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.models import ReleaseAuditIssue, ReleaseAuditReport
+from video_account_distiller.release.public_beta import verify_public_beta_evidence
 from video_account_distiller.utils.hashing import sha256_file
 from video_account_distiller.utils.io import atomic_write_text
 
@@ -22,7 +23,9 @@ REQUIRED_RELEASE_FILES = (
     "pyproject.toml",
     "docs/privacy-and-compliance.md",
     "docs/production-release.md",
+    "docs/public-beta-release.md",
     "docs/release-notes.md",
+    "release-evidence/README.md",
     ".github/workflows/release.yml",
     "tools/release_acceptance.py",
     "src/video_account_distiller/version.py",
@@ -184,8 +187,10 @@ def audit_release_candidate(
     repository: Path,
     *,
     artifact_dir: Path | None = None,
+    public_beta_evidence: Path | None = None,
+    require_public_beta_freeze: bool = False,
 ) -> ReleaseAuditReport:
-    """Audit release notices, version alignment, artifact contents, and checksums."""
+    """Audit source, artifacts, checksums, and optional public-beta freeze evidence."""
 
     repository = repository.expanduser().resolve()
     issues: list[ReleaseAuditIssue] = []
@@ -239,19 +244,20 @@ def audit_release_candidate(
         )
 
     artifact_checksums: dict[str, str] = {}
+    resolved_artifact_dir: Path | None = None
     if artifact_dir is not None:
-        artifact_dir = artifact_dir.expanduser().resolve()
-        if not artifact_dir.is_dir():
+        resolved_artifact_dir = artifact_dir.expanduser().resolve()
+        if not resolved_artifact_dir.is_dir():
             issues.append(
                 ReleaseAuditIssue(
                     severity="error",
                     code="artifact_directory_missing",
                     message="Release artifact directory does not exist",
-                    path=str(artifact_dir),
+                    path=str(resolved_artifact_dir),
                 )
             )
         else:
-            artifacts = _release_artifacts(artifact_dir)
+            artifacts = _release_artifacts(resolved_artifact_dir)
             artifact_checksums = {path.name: sha256_file(path) for path in artifacts}
             wheel_matches = [
                 path
@@ -277,7 +283,7 @@ def audit_release_candidate(
                         severity="error",
                         code="release_wheel_missing",
                         message="Exactly one version-matched wheel is required",
-                        path=str(artifact_dir),
+                        path=str(resolved_artifact_dir),
                     )
                 )
             else:
@@ -288,7 +294,7 @@ def audit_release_candidate(
                         severity="error",
                         code="release_sdist_missing",
                         message="Exactly one version-matched source distribution is required",
-                        path=str(artifact_dir),
+                        path=str(resolved_artifact_dir),
                     )
                 )
             else:
@@ -299,13 +305,13 @@ def audit_release_candidate(
                         severity="error",
                         code="release_skill_archive_missing",
                         message="Exactly one version-matched Skill archive is required",
-                        path=str(artifact_dir),
+                        path=str(resolved_artifact_dir),
                     )
                 )
             else:
                 _audit_skill_archive(skill_matches[0], issues)
 
-            checksum_path = artifact_dir / "SHA256SUMS.txt"
+            checksum_path = resolved_artifact_dir / "SHA256SUMS.txt"
             if checksum_path.is_file():
                 try:
                     declared = _checksum_entries(checksum_path)
@@ -337,6 +343,45 @@ def audit_release_candidate(
                     )
                 )
 
+    public_beta_verified: bool | None = None
+    public_beta_evidence_path: str | None = None
+    public_beta_evidence_sha256: str | None = None
+    if public_beta_evidence is None:
+        if require_public_beta_freeze:
+            issues.append(
+                ReleaseAuditIssue(
+                    severity="error",
+                    code="public_beta_evidence_required",
+                    message="A verified public-beta evidence bundle is required",
+                )
+            )
+    else:
+        resolved_public_beta = public_beta_evidence.expanduser().resolve()
+        public_beta_evidence_path = str(resolved_public_beta)
+        verification = verify_public_beta_evidence(
+            resolved_public_beta,
+            expected_version=package_version,
+        )
+        public_beta_verified = verification.ok
+        public_beta_evidence_sha256 = verification.source_sha256
+        issues.extend(verification.issues)
+        if resolved_artifact_dir is not None and resolved_artifact_dir.is_dir():
+            if (
+                resolved_public_beta.parent != resolved_artifact_dir
+                or resolved_public_beta.name not in artifact_checksums
+            ):
+                issues.append(
+                    ReleaseAuditIssue(
+                        severity="error",
+                        code="public_beta_evidence_not_in_artifacts",
+                        message=(
+                            "Public-beta evidence must be a checksummed file in the release "
+                            "artifact directory"
+                        ),
+                        path=str(resolved_public_beta),
+                    )
+                )
+
     return ReleaseAuditReport(
         ok=not any(issue.severity == "error" for issue in issues),
         checked_at=datetime.now(UTC),
@@ -345,6 +390,10 @@ def audit_release_candidate(
         skill_version=skill_version,
         required_files=required_files,
         artifact_checksums=artifact_checksums,
+        public_beta_required=require_public_beta_freeze,
+        public_beta_verified=public_beta_verified,
+        public_beta_evidence_path=public_beta_evidence_path,
+        public_beta_evidence_sha256=public_beta_evidence_sha256,
         issues=issues,
     )
 

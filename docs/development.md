@@ -249,6 +249,7 @@ uv build
 Install the wheel into a new Python 3.11 environment and run `tools/release_acceptance.py`; do not
 reuse the repository editable environment as release evidence. On Windows, include a Chinese path
 and an authorized local hotel MP4 when available. Run the Skill quick validator, confirm the source
-tree is clean, then push the release commit and signed or annotated `v<version>` tag. The tag
-workflow repeats all gates, smoke-tests the installed wheel, writes SHA-256 checksums, and creates
-the GitHub Release.
+tree is clean, and stage the version-matched deterministic public-beta bundle under
+`release-evidence/` before pushing the signed or annotated `v<version>` tag. The tag workflow
+repeats all gates, smoke-tests the installed wheel, verifies the freeze against the package version,
+writes SHA-256 checksums, and creates the GitHub Release.

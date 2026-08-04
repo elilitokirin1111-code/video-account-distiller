@@ -43,7 +43,21 @@ def test_source_and_version_release_audit_passes() -> None:
     assert report.package_version == "1.0.0"
     assert report.skill_version == "1.0.0"
     assert all(report.required_files.values())
+    assert report.public_beta_required is False
+    assert report.public_beta_verified is None
     assert report.issues == []
+
+
+def test_release_audit_can_require_public_beta_freeze_evidence() -> None:
+    report = audit_release_candidate(
+        REPOSITORY_ROOT,
+        require_public_beta_freeze=True,
+    )
+
+    assert report.ok is False
+    assert report.public_beta_required is True
+    assert report.public_beta_verified is None
+    assert any(issue.code == "public_beta_evidence_required" for issue in report.issues)
 
 
 def test_release_artifacts_and_checksum_manifest_are_verified(

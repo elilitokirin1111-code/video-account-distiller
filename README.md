@@ -605,6 +605,7 @@ uv run python tools/generate_large_fixture.py --output ./tmp/large-fixture --row
 
 - [产品方向与开发路线](docs/product-direction.md)
 - [正式版安装与运行](docs/production-release.md)
+- [公测试运行、项目迁移与版本冻结](docs/public-beta-release.md)
 - [1.0.0 生产验收记录](docs/production-acceptance-v1.0.0.md)
 - [Phase 8 抖音主页链接一键解析](docs/phase8-account-url-analysis.md)
 - [交付介绍](docs/delivery-overview.md)

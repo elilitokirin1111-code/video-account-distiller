@@ -28,6 +28,17 @@ def test_package_and_skill_release_versions_are_aligned() -> None:
     assert SKILL_VERSION == PACKAGE_VERSION
 
 
+def test_stable_tag_workflow_requires_checksums_and_uploads_public_beta_evidence() -> None:
+    repository = Path(__file__).resolve().parents[2]
+    workflow = (repository / ".github/workflows/release.yml").read_text(encoding="utf-8")
+
+    assert 'test -f "${evidence}"' in workflow
+    assert "--require-public-beta-freeze" in workflow
+    assert "--public-beta-evidence" in workflow
+    assert "video-account-distiller-public-beta-* > SHA256SUMS.txt" in workflow
+    assert "dist/video-account-distiller-public-beta-*.zip" in workflow
+
+
 def test_doctor_emits_machine_readable_read_only_report(project: ProjectLayout) -> None:
     before = project.load_state()
     result = runner.invoke(app, ["doctor", "--project", str(project.root), "--json"])

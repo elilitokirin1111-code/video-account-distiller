@@ -8,6 +8,15 @@ changes.
 
 ### Added
 
+- Backup-first project schema migration preview/apply commands with verified archives, validation,
+  migration receipts, automatic state rollback, and explicit future/unknown-version rejection.
+- An immutable 7-14 day public-beta evidence gate covering hashed multi-account/machine identities,
+  compatibility snapshots, real SQLite concurrency and injected-failure retry, task/backup/migration
+  recovery drills, incident recording, and explicitly confirmed release-freeze records.
+- Post-freeze evidence re-verification, deterministic portable evidence ZIPs with per-file hashes,
+  version binding, path/inventory limits, and tamper detection.
+- Optional or mandatory public-beta evidence consumption in RC audit, including artifact/checksum
+  membership enforcement and a stable-tag workflow that fails closed when evidence is absent.
 - Phase 8 collection schema `0.8.0` and strict request, canonical account/video/metric, raw-page,
   and Provider batch contracts.
 - Backward-compatible collection schema `0.8.1` with optional canonical comments, one-page

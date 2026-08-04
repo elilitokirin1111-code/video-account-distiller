@@ -74,3 +74,23 @@ def test_release_audit_cli_is_machine_readable() -> None:
     payload = json.loads(result.stdout)
     assert payload["ok"] is True
     assert payload["package_version"] == "1.0.0"
+
+
+def test_release_audit_cli_can_require_public_beta_evidence() -> None:
+    result = runner.invoke(
+        app,
+        [
+            "release",
+            "audit",
+            "--repository",
+            str(REPOSITORY_ROOT),
+            "--require-public-beta-freeze",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 4
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert payload["public_beta_required"] is True
+    assert any(issue["code"] == "public_beta_evidence_required" for issue in payload["issues"])
