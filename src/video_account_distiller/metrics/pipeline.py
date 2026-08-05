@@ -65,6 +65,13 @@ def _base_values(snapshot: MetricSnapshot, video: Video) -> dict[str, float | No
         "follow_conversion": safe_divide(snapshot.follows_gained, snapshot.views),
         "profile_conversion": safe_divide(snapshot.profile_visits, snapshot.views),
         "watch_efficiency": safe_divide(snapshot.avg_watch_time_seconds, video.duration_seconds),
+        # Absolute interaction volumes. These stay observable when the platform
+        # does not expose view counts and act as the heat proxy for scoring.
+        "likes_abs": float(snapshot.likes) if snapshot.likes is not None else None,
+        "comments_abs": float(snapshot.comments) if snapshot.comments is not None else None,
+        "shares_abs": float(snapshot.shares) if snapshot.shares is not None else None,
+        "saves_abs": float(snapshot.saves) if snapshot.saves is not None else None,
+        "interactions_abs": float(interactions) if interactions is not None else None,
     }
 
 
@@ -76,6 +83,11 @@ ZSCORE_FIELDS = (
     "save_rate",
     "follow_conversion",
     "watch_efficiency",
+    "likes_abs",
+    "comments_abs",
+    "shares_abs",
+    "saves_abs",
+    "interactions_abs",
 )
 
 
@@ -199,6 +211,11 @@ class MetricsService:
                     robust_z_save_rate=row.zscores["save_rate"],
                     robust_z_follow_conversion=row.zscores["follow_conversion"],
                     robust_z_watch_efficiency=row.zscores["watch_efficiency"],
+                    robust_z_likes_abs=row.zscores["likes_abs"],
+                    robust_z_comments_abs=row.zscores["comments_abs"],
+                    robust_z_shares_abs=row.zscores["shares_abs"],
+                    robust_z_saves_abs=row.zscores["saves_abs"],
+                    robust_z_interactions_abs=row.zscores["interactions_abs"],
                     viral_index_account=viral_index,
                     viral_index_peer=None,
                     performance_score=row.score,

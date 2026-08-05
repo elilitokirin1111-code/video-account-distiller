@@ -177,6 +177,11 @@ class DerivedMetrics(TraceFields):
     robust_z_save_rate: float | None = None
     robust_z_follow_conversion: float | None = None
     robust_z_watch_efficiency: float | None = None
+    robust_z_likes_abs: float | None = None
+    robust_z_comments_abs: float | None = None
+    robust_z_shares_abs: float | None = None
+    robust_z_saves_abs: float | None = None
+    robust_z_interactions_abs: float | None = None
     viral_index_account: float | None = None
     viral_index_peer: float | None = None
     performance_score: float | None = None

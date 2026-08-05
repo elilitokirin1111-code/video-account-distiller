@@ -11,13 +11,19 @@ from pydantic import BaseModel, ConfigDict, Field
 from video_account_distiller.errors import DistillerError, ErrorCode
 
 DEFAULT_WEIGHTS = {
-    "views": 0.25,
-    "like_rate": 0.15,
-    "comment_rate": 0.15,
-    "share_rate": 0.15,
-    "save_rate": 0.10,
-    "follow_conversion": 0.10,
-    "watch_efficiency": 0.10,
+    "views": 0.20,
+    "like_rate": 0.10,
+    "comment_rate": 0.10,
+    "share_rate": 0.10,
+    "save_rate": 0.06,
+    "follow_conversion": 0.06,
+    "watch_efficiency": 0.06,
+    # Absolute interaction volumes proxy heat when views are unavailable;
+    # they complement the rate terms when views are present.
+    "likes_abs": 0.10,
+    "comments_abs": 0.10,
+    "shares_abs": 0.06,
+    "saves_abs": 0.06,
 }
 
 
