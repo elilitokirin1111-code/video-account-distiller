@@ -1,0 +1,170 @@
+# 《账号深度运营分析报告》
+
+> 账号 ID：`{{ account_id }}` ｜ 生成时间：{{ generated_at[:16].replace('T', ' ') }}
+> 本报告由视频账号蒸馏器基于已完成的采集、转写、视觉/文本分析、评论分析与蒸馏结果自动生成，所有结论均附数据支撑。
+
+{% if positioning.get('statement') %}
+## 一、账号定位与画像
+
+**一句话定位**：{{ positioning['statement'] }}
+
+{% set follower = stats.get('follower_count_current') %}
+{% if follower is mapping and follower.get('value') is not none %}
+- 当前粉丝数：**{{ '{:,}'.format(follower['value'] | int) }}**
+{% endif %}
+{% set frequency = stats.get('publishing_frequency_weekly') %}
+{% if frequency is mapping and frequency.get('value') is not none %}
+- 周发布频率：{{ frequency['value'] | round(2) }} 条/周
+{% endif %}
+{% set gap = stats.get('publication_gap_days') %}
+{% if gap is mapping and gap.get('median') is not none %}
+- 发布间隔中位数：{{ gap['median'] | round(1) }} 天
+{% endif %}
+{% set duration = stats.get('duration_seconds') %}
+{% if duration is mapping and duration.get('median') is not none %}
+- 视频时长中位数：{{ duration['median'] | round(0) | int }} 秒
+{% endif %}
+
+{% if bands %}
+**表现分层**（S=爆款 → D=低热度）：{% for band, count in bands.items() %} {{ band }} 级 {{ count }} 条{% if not loop.last %}，{% endif %}{% endfor %}
+{% endif %}
+
+{% if positioning.get('persona_signals') %}
+**人设信号**：{{ positioning['persona_signals'] | join('、') }}
+{% endif %}
+{% if positioning.get('unknowns') %}
+**尚未识别**：{{ positioning['unknowns'] | join('、') }}
+{% endif %}
+{% endif %}
+
+{% if clusters %}
+## 二、内容策略拆解
+
+### 内容方向分布
+
+{% for cluster in clusters %}
+- **{{ cluster.name }}**（{{ cluster.video_count }} 条视频）：表现分中位数 {{ cluster.median_performance_score | round(2) if cluster.median_performance_score is not none else '暂无' }}，高表现率 {{ (cluster.high_performance_rate * 100 | round(0)) | int if cluster.high_performance_rate is not none else '暂无' }}%
+{% endfor %}
+
+{% endif %}
+
+{% if top_rows or bottom_rows %}
+### 高热度视频盘点（Top 5）
+
+{% for row in top_rows %}
+- **{{ row.title[:40] }}**（{{ row.band or '未分层' }}级，表现分 {{ row.score | round(2) if row.score is not none else '暂无' }}）：点赞 {{ '{:,}'.format(row.likes) if row.likes is not none else '?' }}、评论 {{ '{:,}'.format(row.comments) if row.comments is not none else '?' }}、分享 {{ '{:,}'.format(row.shares) if row.shares is not none else '?' }}、收藏 {{ '{:,}'.format(row.saves) if row.saves is not none else '?' }}{% if row.pillar %}；内容方向：{{ row.pillar }}{% endif %}{% if row.duration_seconds %}；时长 {{ row.duration_seconds | round(0) | int }} 秒{% endif %}{% if row.avg_shot_ms %}；镜头节奏 {{ (row.avg_shot_ms / 1000) | round(1) }} 秒/镜头{% endif %}
+{% endfor %}
+
+### 低热度视频盘点（Bottom 5）
+
+{% for row in bottom_rows %}
+- **{{ row.title[:40] }}**（{{ row.band or '未分层' }}级，表现分 {{ row.score | round(2) if row.score is not none else '暂无' }}）：点赞 {{ '{:,}'.format(row.likes) if row.likes is not none else '?' }}、评论 {{ '{:,}'.format(row.comments) if row.comments is not none else '?' }}{% if row.pillar %}；内容方向：{{ row.pillar }}{% endif %}{% if row.duration_seconds %}；时长 {{ row.duration_seconds | round(0) | int }} 秒{% endif %}
+{% endfor %}
+
+{% endif %}
+
+{% if enrichment.get('vision') or enrichment.get('visual') or positioning.get('visual_and_audio_identity') %}
+## 三、拍摄与制作手法
+
+{% set signals = positioning.get('visual_and_audio_identity') or [] %}
+{% if signals %}
+- **视听风格**：{{ signals | join('；') }}
+{% endif %}
+{% if enrichment.get('vision') %}
+- **画面语义分析**：{{ enrichment['vision'] }}
+{% endif %}
+{% if enrichment.get('audio') %}
+- **音频分析**：{{ enrichment['audio'] }}
+{% endif %}
+{% if enrichment.get('shots') %}
+- **镜头统计**：共 {{ enrichment['shots'] }} 个镜头
+{% endif %}
+{% if enrichment.get('keyframes') %}
+- **关键帧**：{{ enrichment['keyframes'] }} 帧
+{% endif %}
+{% endif %}
+
+{% if patterns %}
+## 四、热度规律（可模仿的运营规律）
+
+{% for pattern in patterns %}
+### {{ pattern.name }}
+
+- **规律描述**：{{ pattern.effect_summary }}
+- **类型**：{{ pattern.pattern_type }} ｜ **成熟度**：Level {{ pattern.maturity_level }} ｜ **置信度**：{{ (pattern.confidence * 100) | round(0) | int }}%
+- **支持样本（{{ pattern.support_count }} 条）**：{{ pattern.support_video_ids | join(', ') }}
+{% if pattern.counterexample_video_ids %}
+- **反例（{{ pattern.counterexample_count }} 条）**：{{ pattern.counterexample_video_ids | join(', ') }}
+{% endif %}
+{% if pattern.confounders %}
+- **混杂因素**：{{ pattern.confounders | join('、') }}
+{% endif %}
+{% if pattern.risks %}
+- **风险**：{{ pattern.risks | join('；') }}
+{% endif %}
+
+{% endfor %}
+{% endif %}
+
+{% if comment_needs %}
+## 五、评论区需求洞察
+
+共分析 {{ comment_count }} 条评论，用户需求聚类如下：
+
+| 需求类型 | 评论数 | 机会点 |
+|---|---:|---|
+{% for need in comment_needs %}
+| {{ need.name }} | {{ need.frequency }} | {{ need.content_opportunities | join('；') if need.content_opportunities else '待补充' }} |
+{% endfor %}
+
+{% endif %}
+
+{% if actions or experiments or strengths or weaknesses or copyable %}
+## 六、模仿学习清单
+
+{% if strengths %}
+**可借鉴的优势**：
+{% for item in strengths %}
+- {{ item }}
+{% endfor %}
+{% endif %}
+
+{% if weaknesses %}
+**需要规避的短板**：
+{% for item in weaknesses %}
+- {{ item }}
+{% endfor %}
+{% endif %}
+
+{% if copyable %}
+**可复制因子**：
+{% for item in copyable %}
+- {{ item }}
+{% endfor %}
+{% endif %}
+
+{% if actions %}
+**立即行动**：
+{% for item in actions %}
+1. {{ item }}
+{% endfor %}
+{% endif %}
+
+{% if experiments %}
+**30 天实验计划**：
+{% for item in experiments %}
+- {{ item }}
+{% endfor %}
+{% endif %}
+{% endif %}
+
+{% if warnings %}
+## 七、数据局限与注意事项
+
+{% for warning in warnings %}
+- {{ warning }}
+{% endfor %}
+{% endif %}
+
+---
+*本报告由 video-account-distiller 自动生成，仅作运营参考，不构成表现保证。*

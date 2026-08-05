@@ -23,7 +23,7 @@ from video_account_distiller.media import (
     WhisperCliTranscriber,
 )
 from video_account_distiller.models import AccountCollectionRequest, CollectionProviderKind
-from video_account_distiller.reports import ReportService
+from video_account_distiller.reports import NarrativeReportService, ReportService
 from video_account_distiller.storage.project import ProjectLayout
 
 WorkflowProgress = Callable[[float, str, str], None]
@@ -400,6 +400,22 @@ class AccountDistillWorkflow:
                     "result": result,
                 },
             )
+
+        progress(0.96, "narrative", "正在生成中文长文运营分析报告")
+        result["narrative_report"] = NarrativeReportService(self.project).generate(
+            account_id=account_id
+        )
+        checkpoint(
+            "narrative_complete",
+            {
+                "version": "1.0.0",
+                "stage": "narrative_complete",
+                "request": request_payload,
+                "collection_profile": collection_profile.value,
+                "account_id": account_id,
+                "result": result,
+            },
+        )
 
         result["workflow"] = {
             "mode": "self_service_account_distill",

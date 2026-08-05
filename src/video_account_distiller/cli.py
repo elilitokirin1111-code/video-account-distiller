@@ -60,7 +60,7 @@ from video_account_distiller.media import (
 from video_account_distiller.metrics import MetricsService
 from video_account_distiller.models import CollectionProviderKind, CollectionSort, Platform
 from video_account_distiller.normalization import NormalizationService
-from video_account_distiller.reports import ReportService
+from video_account_distiller.reports import NarrativeReportService, ReportService
 from video_account_distiller.sampling import SamplingService
 from video_account_distiller.status import project_status
 from video_account_distiller.storage.project import ProjectLayout
@@ -1079,6 +1079,29 @@ def report_command(
         result,
         json_output=json_output,
         human=f"Generated account-health report for {account}: {result['outputs'][0]}",
+    )
+
+
+@app.command("narrative")
+def narrative_command(
+    project: Path = typer.Option(..., "--project"),
+    account: str = typer.Option(..., "--account"),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Generate a Chinese long-form narrative analysis report for an account."""
+
+    result = _execute(
+        lambda: NarrativeReportService(ProjectLayout.open(project)).generate(
+            account_id=account,
+            dry_run=dry_run,
+        ),
+        json_output=json_output,
+    )
+    _emit(
+        result,
+        json_output=json_output,
+        human=f"Generated narrative report for {account}: {result['outputs'][0]}",
     )
 
 
