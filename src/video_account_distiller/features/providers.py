@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Protocol, TypeVar
+from typing import Any, Protocol, TypeVar
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -117,9 +117,11 @@ class StructuredFileProvider:
 
 
 class OllamaTextProvider:
-    """Local text analysis through Ollama's OpenAI-compatible API.
+    """Local text analysis through Ollama's chat API.
 
-    Uses the same model and base URL as the vision provider.
+    Uses a compact field guide derived from the response schema instead of the
+    full JSON schema, because small local models return empty or malformed
+    output when the prompt embeds a very long schema.
     """
 
     provider_name = "ollama"
@@ -127,13 +129,73 @@ class OllamaTextProvider:
     def __init__(
         self,
         *,
-        model: str = "qwen3-vl:8b",
+        model: str = "qwen3:8b",
         base_url: str = "http://127.0.0.1:11434",
         timeout_seconds: int = 180,
     ) -> None:
         self.model_name = model
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
+
+    @staticmethod
+    def _field_guide(response_model: type[BaseModel]) -> str:
+        """Build a compact, human-readable JSON shape from the Pydantic schema."""
+
+        schema = response_model.model_json_schema()
+        defs = schema.get("$defs") or {}
+
+        def deref(prop: dict[str, Any]) -> dict[str, Any]:
+            ref = prop.get("$ref")
+            if isinstance(ref, str):
+                name = ref.rsplit("/", 1)[-1]
+                return dict(defs.get(name) or {})
+            any_of = prop.get("anyOf")
+            if isinstance(any_of, list):
+                non_null = [item for item in any_of if item.get("type") != "null"]
+                if len(non_null) == 1:
+                    merged = dict(non_null[0])
+                    merged.setdefault("nullable", True)
+                    return merged
+            return prop
+
+        def shape(prop: dict[str, Any], depth: int = 0) -> str:
+            indent = "  " * depth
+            resolved = deref(prop)
+            kind = resolved.get("type")
+            if kind == "array":
+                items = resolved.get("items") or {}
+                return f"{indent}[{shape(items, 0).strip()}]"
+            if kind == "object":
+                props = resolved.get("properties") or {}
+                if not props:
+                    return f"{indent}{{object}}"
+                lines = [f"{indent}{{"]
+                for name, sub in props.items():
+                    lines.append(f"{indent}  {name}: {shape(sub, depth + 1).strip()}")
+                lines.append(f"{indent}}}")
+                return "\n".join(lines)
+            nullable = "或null" if resolved.get("nullable") else ""
+            enum = resolved.get("enum")
+            hint = f"（可选值：{'/'.join(str(e) for e in enum)}）" if enum else ""
+            return f"{kind}{nullable}{hint}"
+
+        props = schema.get("properties") or {}
+        lines = ["输出 JSON，结构如下：", "{"]
+        for name, prop in props.items():
+            required = "必填" if name in (schema.get("required") or []) else "可选"
+            lines.append(f"  {name}: {shape(prop).strip()} ({required})")
+        lines.append("}")
+        return "\n".join(lines)
+
+    def _build_prompt(self, prompt: str, response_model: type[BaseModel]) -> str:
+        """Replace the embedded long schema section with a compact field guide."""
+        marker = "## Response schema"
+        guide = self._field_guide(response_model)
+        if marker in prompt:
+            head = prompt.split(marker, 1)[0].rstrip()
+            suffix = "\n\n## Response schema（字段说明）\n\n"
+            return f"{head}{suffix}{guide}\n\n只输出 JSON，不要其他文字。"
+        return f"{prompt}\n\n{guide}\n\n只输出 JSON，不要其他文字。"
 
     def generate_structured(
         self,
@@ -143,14 +205,15 @@ class OllamaTextProvider:
         temperature: float = 0.0,
     ) -> ResponseT:
         """Call Ollama with a prompt and validate the response against the schema."""
-        schema = response_model.model_json_schema()
+        content = self._build_prompt(prompt, response_model)
         body = json.dumps(
             {
                 "model": self.model_name,
-                "messages": [{"role": "user", "content": prompt}],
+                "messages": [{"role": "user", "content": content}],
                 "stream": False,
+                "think": False,
                 "options": {"temperature": temperature},
-                "format": schema,
+                "format": "json",
             }
         ).encode()
         url = f"{self.base_url}/api/chat"
@@ -172,15 +235,99 @@ class OllamaTextProvider:
             raise ModelSchemaFailure("Ollama returned an empty text response")
         try:
             parsed = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise ModelSchemaFailure(f"Ollama response is not valid JSON: {raw[:200]}") from exc
+        except json.JSONDecodeError:
+            start = raw.find("{")
+            if start >= 0:
+                try:
+                    # Parse the first complete JSON object and ignore trailing junk
+                    # or accidentally concatenated objects from the local model.
+                    parsed, _ = json.JSONDecoder().raw_decode(raw[start:])
+                except json.JSONDecodeError as exc:
+                    raise ModelSchemaFailure(
+                        f"Ollama response is not valid JSON: {raw[:200]}"
+                    ) from exc
+            else:
+                raise ModelSchemaFailure(
+                    f"Ollama response is not valid JSON: {raw[:200]}"
+                ) from None
         try:
             return response_model.model_validate(parsed)
-        except ValidationError as exc:
-            compact_errors = [
-                {"loc": list(error["loc"]), "type": error["type"]}
-                for error in exc.errors(include_url=False)
-            ]
-            raise ModelSchemaFailure(
-                f"Ollama response failed schema validation: {compact_errors}"
-            ) from exc
+        except ValidationError:
+            # Local models produce noisy keys and free-text enum values.
+            # Coerce once against the schema before giving up.
+            coerced = self._coerce_to_schema(
+                parsed, response_model.model_json_schema()
+            )
+            try:
+                return response_model.model_validate(coerced)
+            except ValidationError as exc:
+                compact_errors = [
+                    {"loc": list(error["loc"]), "type": error["type"]}
+                    for error in exc.errors(include_url=False)
+                ]
+                raise ModelSchemaFailure(
+                    f"Ollama response failed schema validation: {compact_errors}"
+                ) from exc
+
+    @staticmethod
+    def _coerce_to_schema(data: object, schema: dict[str, Any]) -> object:
+        """Drop keys outside the schema and map unknown enum values to unknown.
+
+        Recurses through ``$defs``-referenced sub-schemas so nested noise from
+        small local models cannot fail an otherwise correct analysis.
+        """
+        defs = schema.get("$defs") or {}
+
+        def deref(prop: dict[str, Any]) -> dict[str, Any]:
+            ref = prop.get("$ref")
+            if isinstance(ref, str):
+                return dict(defs.get(ref.rsplit("/", 1)[-1]) or prop)
+            return prop
+
+        def coerce(value: object, prop: dict[str, Any]) -> object:
+            resolved = deref(prop)
+            kind = resolved.get("type")
+            if kind == "object" and isinstance(value, dict):
+                props = resolved.get("properties") or {}
+                result: dict[str, object] = {}
+                for name, sub in props.items():
+                    if name not in value:
+                        continue
+                    coerced = coerce(value[name], sub)
+                    if coerced is not None:
+                        result[name] = coerced
+                # Drop nested objects whose non-empty array contract is no
+                # longer satisfied (e.g. a fact with zero surviving citations).
+                for name, sub in props.items():
+                    if deref(sub).get("minItems", 0) >= 1:
+                        field = result.get(name)
+                        if not isinstance(field, list) or not field:
+                            return None
+                # Required enum fields left out by the model default to unknown.
+                for name, sub in props.items():
+                    if name in result or name not in (resolved.get("required") or []):
+                        continue
+                    enum = deref(sub).get("enum")
+                    if enum:
+                        result[name] = next(
+                            (item for item in enum if "unknown" in str(item).lower()),
+                            enum[0],
+                        )
+                return result
+            if kind == "array" and isinstance(value, list):
+                items = resolved.get("items") or {}
+                return [
+                    item
+                    for item in (coerce(entry, items) for entry in value)
+                    if item is not None
+                ]
+            enum = resolved.get("enum")
+            if enum and value not in enum:
+                fallback = next(
+                    (item for item in enum if "unknown" in str(item).lower()),
+                    enum[0],
+                )
+                return fallback
+            return value
+
+        return coerce(data, schema)

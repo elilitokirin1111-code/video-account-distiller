@@ -286,7 +286,6 @@ class CommentAnalysisService:
         selected_provider = provider or file_provider
         if selected_provider is None and config.models.text_provider == "ollama":
             selected_provider = OllamaTextProvider(
-                model=config.models.vision_model,
                 base_url=config.models.ollama_base_url,
                 timeout_seconds=config.models.vision_timeout_seconds,
             )

@@ -75,11 +75,14 @@ with connection_tab:
             type="primary",
             icon=":material/save:",
         ):
-            st.session_state["global_api_url"] = api_url
-            st.session_state["global_project_path"] = project_path
+            # Widget keys cannot be reassigned after instantiation; drop them so
+            # the sidebar rebuilds from the saved values on the next rerun.
+            st.session_state.pop("global_api_url", None)
+            st.session_state.pop("global_project_path", None)
             st.session_state["api_url"] = api_url
             st.session_state["project_path"] = project_path
             st.success("连接配置已应用到当前会话。")
+            st.rerun()
 
     with st.container(border=True):
         st.markdown("#### 配置说明")
