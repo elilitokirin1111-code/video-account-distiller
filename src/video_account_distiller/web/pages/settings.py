@@ -8,6 +8,7 @@ from urllib.parse import quote
 import requests
 import streamlit as st
 
+from video_account_distiller.web import web_state
 from video_account_distiller.web.ui import (
     badge,
     section_header,
@@ -81,7 +82,8 @@ with connection_tab:
             st.session_state.pop("global_project_path", None)
             st.session_state["api_url"] = api_url
             st.session_state["project_path"] = project_path
-            st.success("连接配置已应用到当前会话。")
+            web_state.set_state(api_url=api_url, project_path=project_path)
+            st.success("连接配置已保存并应用到当前会话。")
             st.rerun()
 
     with st.container(border=True):

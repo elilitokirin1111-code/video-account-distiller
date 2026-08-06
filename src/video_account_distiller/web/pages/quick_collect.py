@@ -11,6 +11,7 @@ from urllib.parse import quote
 import requests
 import streamlit as st
 
+from video_account_distiller.web import web_state
 from video_account_distiller.web.ui import (
     badge,
     section_header,
@@ -114,6 +115,11 @@ def _submit_workflow(payload: dict[str, Any], *, dry_run: bool) -> None:
     st.session_state["active_task_id"] = task_id
     st.session_state["active_task_dry_run"] = dry_run
     st.session_state["active_task_kind"] = "account_distill"
+    web_state.set_state(
+        active_task_id=task_id,
+        active_task_kind="account_distill",
+        active_task_dry_run=dry_run,
+    )
     st.session_state.pop("last_workflow_result", None)
     st.session_state.pop("last_account_id", None)
     st.toast("预检任务已提交" if dry_run else "蒸馏任务已提交", icon="✅")
@@ -131,6 +137,7 @@ def _submit_gpt_analysis(account_id: str, payload: dict[str, Any]) -> None:
         return
     st.session_state["active_task_id"] = task_id
     st.session_state["active_task_kind"] = "gpt_analysis"
+    web_state.set_state(active_task_id=task_id, active_task_kind="gpt_analysis")
     st.session_state.pop("last_gpt_analysis", None)
     st.toast("深度分析任务已提交；临时密钥未写入任务记录", icon="🤖")
 
@@ -151,6 +158,10 @@ def _retry_task(task_id: str) -> None:
         return
     st.session_state["active_task_id"] = new_task_id
     st.session_state["active_task_kind"] = result.get("task_type", "account_distill")
+    web_state.set_state(
+        active_task_id=new_task_id,
+        active_task_kind=result.get("task_type", "account_distill"),
+    )
     st.session_state.pop("last_workflow_result", None)
     st.toast("已从最近的安全检查点创建重试任务", icon="🔁")
 
@@ -672,6 +683,7 @@ def _task_monitor() -> None:
                 st.session_state["last_workflow_result"] = result
         st.session_state.pop("active_task_id", None)
         st.session_state.pop("active_task_kind", None)
+        web_state.clear_state("active_task_id", "active_task_kind", "active_task_dry_run")
         st.success("任务已完成")
         st.rerun()
     elif status == "failed":
@@ -693,6 +705,7 @@ def _task_monitor() -> None:
         ):
             st.session_state.pop("active_task_id", None)
             st.session_state.pop("active_task_kind", None)
+            web_state.clear_state("active_task_id", "active_task_kind", "active_task_dry_run")
             st.rerun()
     elif status == "cancelled":
         st.info("任务已安全取消；已完成的不可变数据和分析产物仍保留在项目中。")
@@ -712,6 +725,7 @@ def _task_monitor() -> None:
         ):
             st.session_state.pop("active_task_id", None)
             st.session_state.pop("active_task_kind", None)
+            web_state.clear_state("active_task_id", "active_task_kind", "active_task_dry_run")
             st.rerun()
 
 
@@ -724,6 +738,18 @@ context = setup_page(
 st.session_state["api_url"] = context.api_url
 st.session_state["project_path"] = context.project_path
 project_path = context.project_path
+
+# Restore an in-flight task after reloads / theme toggles / reconnects.
+if not st.session_state.get("active_task_id"):
+    persisted_task = web_state.get_state("active_task_id")
+    if isinstance(persisted_task, str):
+        st.session_state["active_task_id"] = persisted_task
+        st.session_state["active_task_kind"] = web_state.get_state(
+            "active_task_kind", "account_distill"
+        )
+        st.session_state["active_task_dry_run"] = web_state.get_state(
+            "active_task_dry_run", False
+        )
 
 doctor = _request(f"/api/doctor/{_encoded_project()}", timeout=20) if project_path else {}
 doctor_value = doctor.get("data")
@@ -1108,6 +1134,7 @@ if isinstance(account_id, str):
             if sync.get("task_id"):
                 st.session_state["active_task_id"] = sync["task_id"]
                 st.session_state["active_task_kind"] = "openkb_sync"
+                web_state.set_state(active_task_id=sync["task_id"], active_task_kind="openkb_sync")
                 st.rerun()
             else:
                 st.error(f"OpenKB 同步提交失败：{(sync.get('error') or {}).get('message')}")

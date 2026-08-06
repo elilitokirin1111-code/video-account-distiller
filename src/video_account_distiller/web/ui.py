@@ -12,6 +12,8 @@ import requests
 import streamlit as st
 from streamlit.components.v2 import component
 
+from video_account_distiller.web import web_state
+
 Theme = Literal["light", "dark"]
 
 
@@ -75,9 +77,10 @@ def _resolve_theme() -> Theme:
     if query_theme in {"light", "dark"}:
         theme = cast(Theme, query_theme)
     else:
-        state_theme = st.session_state.get("distiller_theme")
+        state_theme = st.session_state.get("distiller_theme") or web_state.get_state("theme")
         theme = state_theme if state_theme in {"light", "dark"} else "light"
     st.session_state["distiller_theme"] = theme
+    web_state.set_state(theme=theme)
     return theme
 
 
@@ -879,10 +882,21 @@ def _render_sidebar(current_page: str) -> tuple[str, str]:
 
         st.markdown('<div class="ds-nav-label">工作区</div>', unsafe_allow_html=True)
         with st.expander("连接与项目", expanded=False, icon=":material/tune:"):
+            if "global_api_url" not in st.session_state:
+                st.session_state["global_api_url"] = web_state.get_state(
+                    "api_url", "http://127.0.0.1:8000"
+                )
+            if "global_project_path" not in st.session_state:
+                st.session_state["global_project_path"] = web_state.get_state(
+                    "project_path",
+                    str(Path.home() / "video-account-distiller-projects" / "workspace"),
+                )
             api_url = st.text_input("API 地址", key="global_api_url")
             project_path = st.text_input("项目路径", key="global_project_path")
             st.session_state["api_url"] = api_url.rstrip("/")
             st.session_state["project_path"] = project_path
+            # Persist so reloads / theme toggles / reconnects restore them.
+            web_state.set_state(api_url=api_url.rstrip("/"), project_path=project_path)
 
             action_a, action_b = st.columns(2)
             if action_a.button(
