@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -96,6 +97,28 @@ def _request(
 
 def _encoded_project() -> str:
     return quote(_project_path(), safe="")
+
+
+def _sanitize_folder_name(name: str) -> str:
+    """Strip characters Windows forbids in folder names."""
+    cleaned = re.sub(r'[\\/:*?"<>|]', "", name).strip()
+    return cleaned or "distill"
+
+
+def _resolve_account_project(container: str, name: str) -> str:
+    """Pick a fresh project folder under the container for one account.
+
+    First run uses ``<container>/<name>``; later runs append ``-1``, ``-2``,
+    and so on so repeated distillation of the same account never overwrites
+    earlier artifacts.
+    """
+    base = Path(container).expanduser() / _sanitize_folder_name(name)
+    candidate = base
+    suffix = 0
+    while candidate.exists():
+        suffix += 1
+        candidate = base.with_name(f"{base.name}-{suffix}")
+    return str(candidate)
 
 
 def _submit_workflow(payload: dict[str, Any], *, dry_run: bool) -> None:
@@ -863,6 +886,12 @@ with st.form("self_service_distill_form"):
             placeholder="https://v.douyin.com/.../ 或 https://www.douyin.com/user/...",
             help="当前自动采集链路支持抖音主页链接。",
         )
+        account_name = st.text_input(
+            "蒸馏对象名称（可选）",
+            placeholder="例如：小许的酒店日记",
+            help="填写后会在项目目录下自动创建同名文件夹保存本次蒸馏结果；"
+            "同名文件夹已存在时自动追加 -1、-2 序号。留空则直接使用当前项目目录。",
+        )
         source_status, browser_status = st.columns(2)
         with source_status:
             source_ready = (
@@ -1089,12 +1118,25 @@ elif preview_clicked or run_clicked:
     elif not project_path.strip():
         st.error("请设置项目目录")
     else:
+        effective_project = project_path
+        if account_name.strip():
+            # One folder per distilled account, with -1/-2 suffixes on reruns.
+            effective_project = _resolve_account_project(project_path, account_name)
+            st.caption(f"本次蒸馏项目：{effective_project}")
         initialized = _request(
             "/api/projects/init",
             "POST",
-            json={"path": project_path, "name": Path(project_path).name},
+            json={
+                "path": effective_project,
+                "name": Path(effective_project).name,
+                # Inherit local model settings from the container project so
+                # the new account folder uses the same Ollama configuration.
+                "config_template": project_path,
+            },
         )
         if initialized.get("ok"):
+            st.session_state["project_path"] = effective_project
+            web_state.set_state(project_path=effective_project)
             _submit_workflow(payload, dry_run=preview_clicked)
             st.rerun()
         else:

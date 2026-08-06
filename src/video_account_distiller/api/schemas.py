@@ -60,6 +60,13 @@ class TaskStatus(BaseModel):
 class ProjectInitRequest(BaseModel):
     path: str = Field(..., description="Absolute path to the project directory")
     name: str | None = Field(None, description="Display name for the project")
+    config_template: str | None = Field(
+        None,
+        description=(
+            "Optional distiller.yaml path whose settings (models, media, "
+            "analysis) are inherited by the new project."
+        ),
+    )
 
 
 class ProjectInitResponse(BaseModel):

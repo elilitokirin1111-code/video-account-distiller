@@ -112,7 +112,24 @@ async def delete_cloud_model_credential(
 @router.post("/projects/init")
 async def init_project(body: ProjectInitRequest) -> dict[str, Any]:
     """Initialise a new distiller project at *path*."""
-    layout, already = ProjectLayout.initialize(Path(body.path), project_name=body.name)
+    template = (
+        Path(body.config_template).expanduser() / "distiller.yaml"
+        if body.config_template
+        else None
+    )
+    layout, already = ProjectLayout.initialize(
+        Path(body.path),
+        project_name=body.name,
+        config_template=template,
+    )
+    if not already:
+        # Web-created projects default to the local Ollama setup so
+        # per-account folders work without extra configuration.
+        config = load_config(layout.config_path)
+        if config.models.text_provider is None and config.models.vision_provider is None:
+            config.models.text_provider = "ollama"
+            config.models.vision_provider = "ollama"
+            atomic_write_text(layout.config_path, config.as_yaml())
     return {
         "ok": True,
         "data": {"project": str(layout.root), "already_initialized": already},
