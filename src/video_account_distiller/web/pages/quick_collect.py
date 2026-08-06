@@ -99,6 +99,18 @@ def _encoded_project() -> str:
     return quote(_project_path(), safe="")
 
 
+def _account_project() -> str:
+    """Return the project that owns the last distilled account when known."""
+    remembered = st.session_state.get("last_account_project") or web_state.get_state(
+        "last_account_project"
+    )
+    return str(remembered) if remembered else _project_path()
+
+
+def _encoded_account_project() -> str:
+    return quote(_account_project(), safe="")
+
+
 def _sanitize_folder_name(name: str) -> str:
     """Strip characters Windows forbids in folder names."""
     cleaned = re.sub(r'[\\/:*?"<>|]', "", name).strip()
@@ -122,12 +134,17 @@ def _resolve_account_project(container: str, name: str) -> str:
 
 
 def _remember_account(result: dict[str, Any]) -> None:
-    """Record the distilled account id in session and persistent state."""
+    """Record the distilled account id and its owning project for follow-up analysis."""
     account = result.get("account") or {}
     account_id = account.get("account_id")
     if isinstance(account_id, str):
         st.session_state["last_account_id"] = account_id
         web_state.set_state(last_account_id=account_id)
+    project_root = result.get("project_root") or _project_path()
+    project_root = str(project_root) if project_root else ""
+    if project_root.strip():
+        st.session_state["last_account_project"] = project_root
+        web_state.set_state(last_account_project=project_root)
 
 
 def _submit_workflow(payload: dict[str, Any], *, dry_run: bool) -> None:
@@ -154,13 +171,14 @@ def _submit_workflow(payload: dict[str, Any], *, dry_run: bool) -> None:
     )
     st.session_state.pop("last_workflow_result", None)
     st.session_state.pop("last_account_id", None)
-    web_state.clear_state("last_account_id")
+    st.session_state.pop("last_account_project", None)
+    web_state.clear_state("last_account_id", "last_account_project")
     st.toast("预检任务已提交" if dry_run else "蒸馏任务已提交", icon="✅")
 
 
 def _submit_gpt_analysis(account_id: str, payload: dict[str, Any]) -> None:
     result = _request(
-        f"/api/projects/{_encoded_project()}/accounts/{account_id}/gpt-analysis",
+        f"/api/projects/{_encoded_account_project()}/accounts/{account_id}/gpt-analysis",
         "POST",
         json=payload,
     )
@@ -391,9 +409,7 @@ def _render_result(result: dict[str, Any]) -> None:
         )
         st.caption("知识产物：" + "、".join(str(item) for item in knowledge.get("outputs", [])))
 
-    if isinstance(account_id, str):
-        st.session_state["last_account_id"] = account_id
-        web_state.set_state(last_account_id=account_id)
+    _remember_account(result)
 
     with st.expander("完整工作流结果"):
         st.json(result)
@@ -401,7 +417,7 @@ def _render_result(result: dict[str, Any]) -> None:
 
 def _render_gpt_analysis(account_id: str) -> None:
     settings = _request(
-        f"/api/projects/{_encoded_project()}/settings/cloud-model",
+        f"/api/projects/{_encoded_account_project()}/settings/cloud-model",
         timeout=10,
     )
     permission_enabled = bool(settings.get("allow_cloud_model_upload"))
@@ -411,7 +427,7 @@ def _render_gpt_analysis(account_id: str) -> None:
         )
         if st.button("为此项目开启云端模型权限", use_container_width=True):
             updated = _request(
-                f"/api/projects/{_encoded_project()}/settings/cloud-model",
+                f"/api/projects/{_encoded_account_project()}/settings/cloud-model",
                 "PUT",
                 json={"allow_cloud_model_upload": True},
                 timeout=10,
@@ -564,7 +580,7 @@ def _render_gpt_analysis(account_id: str) -> None:
         "confirm_cost": False,
     }
     preview = _request(
-        f"/api/projects/{_encoded_project()}/accounts/{account_id}/gpt-analysis/preview",
+        f"/api/projects/{_encoded_account_project()}/accounts/{account_id}/gpt-analysis/preview",
         "POST",
         json=preview_request,
         timeout=30,
@@ -790,6 +806,10 @@ if not st.session_state.get("last_account_id"):
     persisted_account = web_state.get_state("last_account_id")
     if isinstance(persisted_account, str):
         st.session_state["last_account_id"] = persisted_account
+if not st.session_state.get("last_account_project"):
+    persisted_project = web_state.get_state("last_account_project")
+    if isinstance(persisted_project, str):
+        st.session_state["last_account_project"] = persisted_project
 
 doctor = _request(f"/api/doctor/{_encoded_project()}", timeout=20) if project_path else {}
 doctor_value = doctor.get("data")
@@ -1182,7 +1202,10 @@ if isinstance(account_id, str):
             use_container_width=True,
         ):
             sync = _request(
-                f"/api/projects/{_encoded_project()}/knowledge/openkb/accounts/{account_id}/sync",
+                (
+                    f"/api/projects/{_encoded_account_project()}"
+                    f"/knowledge/openkb/accounts/{account_id}/sync"
+                ),
                 "POST",
                 json={
                     "confirm_model_processing": True,

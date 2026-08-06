@@ -276,6 +276,7 @@ class AccountDistillWorkflow:
                 ],
             }
             result["diagnostics"] = diagnostics
+            result["project_root"] = str(self.project.root)
             progress(1.0, "ready", "预检完成，可以开始蒸馏")
             return result
 
@@ -430,5 +431,6 @@ class AccountDistillWorkflow:
             media_limit=media_limit,
             vision_requested=local_vision is not None,
         )
+        result["project_root"] = str(self.project.root)
         progress(1.0, "completed", "账号蒸馏完成")
         return result
