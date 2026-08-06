@@ -121,6 +121,15 @@ def _resolve_account_project(container: str, name: str) -> str:
     return str(candidate)
 
 
+def _remember_account(result: dict[str, Any]) -> None:
+    """Record the distilled account id in session and persistent state."""
+    account = result.get("account") or {}
+    account_id = account.get("account_id")
+    if isinstance(account_id, str):
+        st.session_state["last_account_id"] = account_id
+        web_state.set_state(last_account_id=account_id)
+
+
 def _submit_workflow(payload: dict[str, Any], *, dry_run: bool) -> None:
     result = _request(
         f"/api/projects/{_encoded_project()}/workflows/account-distill",
@@ -145,6 +154,7 @@ def _submit_workflow(payload: dict[str, Any], *, dry_run: bool) -> None:
     )
     st.session_state.pop("last_workflow_result", None)
     st.session_state.pop("last_account_id", None)
+    web_state.clear_state("last_account_id")
     st.toast("预检任务已提交" if dry_run else "蒸馏任务已提交", icon="✅")
 
 
@@ -383,6 +393,7 @@ def _render_result(result: dict[str, Any]) -> None:
 
     if isinstance(account_id, str):
         st.session_state["last_account_id"] = account_id
+        web_state.set_state(last_account_id=account_id)
 
     with st.expander("完整工作流结果"):
         st.json(result)
@@ -704,6 +715,7 @@ def _task_monitor() -> None:
                 st.session_state["last_gpt_analysis"] = result
             else:
                 st.session_state["last_workflow_result"] = result
+                _remember_account(result)
         st.session_state.pop("active_task_id", None)
         st.session_state.pop("active_task_kind", None)
         web_state.clear_state("active_task_id", "active_task_kind", "active_task_dry_run")
@@ -773,6 +785,11 @@ if not st.session_state.get("active_task_id"):
         st.session_state["active_task_dry_run"] = web_state.get_state(
             "active_task_dry_run", False
         )
+# Restore the last distilled account so follow-up analysis works after reloads.
+if not st.session_state.get("last_account_id"):
+    persisted_account = web_state.get_state("last_account_id")
+    if isinstance(persisted_account, str):
+        st.session_state["last_account_id"] = persisted_account
 
 doctor = _request(f"/api/doctor/{_encoded_project()}", timeout=20) if project_path else {}
 doctor_value = doctor.get("data")
@@ -835,6 +852,7 @@ with st.expander("最近任务与恢复"):
                     key in selected_result for key in ("workflow", "workflow_plan", "collection")
                 ):
                     st.session_state["last_workflow_result"] = selected_result
+                    _remember_account(selected_result)
                 else:
                     st.session_state["last_openkb_result"] = selected_result
             elif isinstance(selected, dict):

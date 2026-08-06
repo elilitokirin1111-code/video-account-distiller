@@ -25,6 +25,7 @@ _KNOWN_KEYS = {
     "active_task_id",
     "active_task_kind",
     "active_task_dry_run",
+    "last_account_id",
     "theme",
 }
 
