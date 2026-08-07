@@ -27,6 +27,10 @@ _KNOWN_KEYS = {
     "active_task_dry_run",
     "last_account_id",
     "last_account_project",
+    "last_collection_template",
+    "obsidian_vault_path",
+    "weknora_base_url",
+    "weknora_kb_name",
     "theme",
 }
 

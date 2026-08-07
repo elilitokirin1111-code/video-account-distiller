@@ -47,12 +47,12 @@ STAGE_LABELS = {
 
 
 def _api_url() -> str:
-    return str(
-        st.session_state.get(
-            "api_url",
-            os.environ.get("DISTILLER_API_URL", "http://127.0.0.1:8000"),
-        )
-    ).rstrip("/")
+    value = str(st.session_state.get("api_url") or "").strip().rstrip("/")
+    if not value:
+        value = os.environ.get("DISTILLER_API_URL", "http://127.0.0.1:8000").rstrip("/")
+    if not value.startswith(("http://", "https://")):
+        value = f"http://{value}"
+    return value
 
 
 def _project_path() -> str:
@@ -217,6 +217,26 @@ def _retry_task(task_id: str) -> None:
     st.toast("已从最近的安全检查点创建重试任务", icon="🔁")
 
 
+def _restore_latest_task_result(task_type: str, session_key: str) -> None:
+    """Restore the most recent completed task result into the session."""
+
+    payload = _request("/api/tasks", params={"limit": 30}, timeout=10)
+    tasks = payload.get("tasks")
+    if not isinstance(tasks, list):
+        return
+    for task in tasks:
+        if not isinstance(task, dict):
+            continue
+        if task.get("task_type") != task_type or task.get("status") != "completed":
+            continue
+        result = task.get("result")
+        if isinstance(result, dict):
+            st.session_state[session_key] = result
+            if task_type == "account_distill":
+                _remember_account(result)
+        return
+
+
 def _coverage_text(completed: Any, requested: Any, ratio: Any) -> str:
     if requested in {None, 0, "0"}:
         return "未请求"
@@ -369,7 +389,7 @@ def _render_result(result: dict[str, Any]) -> None:
         c1.metric("计划视频", plan.get("media_limit", 0))
         c2.metric("MediaCrawler", "可用" if capabilities.get("mediacrawler_douyin") else "需配置")
         c3.metric("Whisper", "可用" if capabilities.get("video_transcription") else "需配置")
-        c4.metric("Ollama", "可用" if capabilities.get("local_vision") else "可选")
+        c4.metric("llama.cpp", "可用" if capabilities.get("local_vision") else "可选")
         with st.expander("查看完整预检结果"):
             st.json(result)
         return
@@ -404,8 +424,8 @@ def _render_result(result: dict[str, Any]) -> None:
     knowledge = result.get("knowledge_export") or {}
     if knowledge.get("ok"):
         st.info(
-            "GPT/OpenKB 本地知识包已生成。只有点击下方同步并确认模型处理后，"
-            "数据才会发送给已配置的 OpenKB 模型。"
+            "本地知识包已生成。可在下方“本地 Obsidian 知识库”页签同步到你的仓库，"
+            "整个过程不会上传数据；如需云端模型分析，请使用“云端深度分析”。"
         )
         st.caption("知识产物：" + "、".join(str(item) for item in knowledge.get("outputs", [])))
 
@@ -569,7 +589,13 @@ def _render_gpt_analysis(account_id: str) -> None:
         template_label = st.selectbox("分析模板", list(template_labels))
     with reasoning_column:
         reasoning_label = st.selectbox("推理强度", list(reasoning_labels))
-    max_video_analyses = st.slider("纳入最近视频分析数", 1, 25, 10)
+    max_video_analyses = st.slider(
+        "纳入最近视频分析数",
+        1,
+        25,
+        10,
+        key="gpt_max_video_analyses",
+    )
     preview_request = {
         "provider": provider_key,
         "model": model_labels[model_label],
@@ -811,6 +837,13 @@ if not st.session_state.get("last_account_project"):
     if isinstance(persisted_project, str):
         st.session_state["last_account_project"] = persisted_project
 
+# Restore the most recent completed results so reloads do not lose records.
+if not st.session_state.get("active_task_id"):
+    if not st.session_state.get("last_workflow_result"):
+        _restore_latest_task_result("account_distill", "last_workflow_result")
+    if not st.session_state.get("last_gpt_analysis"):
+        _restore_latest_task_result("gpt_account_analysis", "last_gpt_analysis")
+
 doctor = _request(f"/api/doctor/{_encoded_project()}", timeout=20) if project_path else {}
 doctor_value = doctor.get("data")
 doctor_data: dict[str, Any] = doctor_value if isinstance(doctor_value, dict) else {}
@@ -903,6 +936,11 @@ with st.expander("最近任务与恢复"):
     else:
         st.caption("暂无任务")
 
+saved_template = web_state.get_state("last_collection_template")
+if isinstance(saved_template, dict) and not st.session_state.get("last_collection_template"):
+    st.session_state["last_collection_template"] = saved_template
+template = st.session_state.get("last_collection_template") or {}
+
 stepper(["采集来源", "采集范围", "内容理解", "预检与执行"], active=1)
 
 with st.form("self_service_distill_form"):
@@ -915,17 +953,19 @@ with st.form("self_service_distill_form"):
                 "MediaCrawler（本地浏览器，需手动登录抖音）",
                 "TikHub API（付费，需要环境变量 TIKHUB_API_TOKEN）",
             ],
-            index=0,
+            index=0 if template.get("provider") != "tikhub" else 1,
             horizontal=True,
             help="MediaCrawler 打开本机 Chrome 手动登录，不收费；TikHub 调用付费 API。",
         )
         profile_url = st.text_input(
             "账号主页链接",
+            value=str(template.get("url") or ""),
             placeholder="https://v.douyin.com/.../ 或 https://www.douyin.com/user/...",
             help="当前自动采集链路支持抖音主页链接。",
         )
         account_name = st.text_input(
             "蒸馏对象名称（可选）",
+            value=str(template.get("account_name") or ""),
             placeholder="例如：小许的酒店日记",
             help="填写后会在项目目录下自动创建同名文件夹保存本次蒸馏结果；"
             "同名文件夹已存在时自动追加 -1、-2 序号。留空则直接使用当前项目目录。",
@@ -961,6 +1001,7 @@ with st.form("self_service_distill_form"):
         collection_mode = st.radio(
             "作品采集方式",
             ["指定视频数量", "采集主页全部公开视频"],
+            index=1 if template.get("all_videos") else 0,
             horizontal=True,
             help="全主页模式仍受 1,000 页/20,000 条作品安全上限与调用预算约束。",
         )
@@ -968,29 +1009,40 @@ with st.form("self_service_distill_form"):
 
         c1, c2, c3 = st.columns(3)
         with c1:
+            template_count = template.get("count")
             video_count = st.number_input(
                 "采集视频数",
                 min_value=1,
                 max_value=20_000,
-                value=20,
+                value=int(template_count) if isinstance(template_count, int) else 20,
                 disabled=all_videos,
                 help="选择全主页模式时不使用此上限。",
             )
         with c2:
+            template_comments = template.get("comments_per_video")
             comments_per_video = st.number_input(
                 "每个视频采集评论数",
                 min_value=0,
                 max_value=20,
-                value=10,
+                value=(
+                    int(template_comments)
+                    if isinstance(template_comments, int)
+                    else 10
+                ),
                 help="选择 0 可完全关闭评论采集。",
             )
         with c3:
             comment_video_max = 200 if all_videos else min(int(video_count), 200)
+            template_comment_limit = template.get("comment_video_limit")
             comment_video_limit = st.number_input(
                 "采集评论的视频数",
                 min_value=1,
                 max_value=comment_video_max,
-                value=min(20, comment_video_max),
+                value=(
+                    min(int(template_comment_limit), comment_video_max)
+                    if isinstance(template_comment_limit, int)
+                    else min(20, comment_video_max)
+                ),
                 disabled=int(comments_per_video) == 0,
                 help="可覆盖所选作品，单次最多 200 个视频。",
             )
@@ -1010,15 +1062,35 @@ with st.form("self_service_distill_form"):
     with st.container(border=True):
         st.markdown("#### 03 · 内容理解")
         st.caption("配置语音转写、画面语义和本地知识包生成。")
-        analyze_media = st.toggle("下载并分析视频本身", value=True)
+        template_media_limit = template.get("media_limit")
+        analyze_media = st.toggle(
+            "下载并分析视频本身",
+            value=(
+                int(template_media_limit) > 0
+                if isinstance(template_media_limit, int)
+                else True
+            ),
+        )
         media_limit_max = 20 if all_videos else min(int(video_count), 20)
         m1, m2, m3 = st.columns(3)
         with m1:
+            template_whisper = template.get("whisper_model")
+            whisper_index = (
+                ["tiny", "base", "small", "medium"].index(template_whisper)
+                if template_whisper in ["tiny", "base", "small", "medium"]
+                else 1
+            )
+            template_vision_choice = template.get("vision_provider")
             media_limit = st.number_input(
                 "视频内容分析数",
                 min_value=1,
                 max_value=media_limit_max,
-                value=media_limit_max,
+                value=(
+                    min(int(template_media_limit), media_limit_max)
+                    if isinstance(template_media_limit, int)
+                    and int(template_media_limit) > 0
+                    else media_limit_max
+                ),
                 disabled=not analyze_media,
                 help="视频下载、Whisper 与视觉分析计算量较大，单次最多 20 条。",
             )
@@ -1026,33 +1098,57 @@ with st.form("self_service_distill_form"):
             whisper_model = st.selectbox(
                 "Whisper 转写模型",
                 ["tiny", "base", "small", "medium"],
-                index=1,
+                index=whisper_index,
                 disabled=not analyze_media,
             )
         with m3:
             vision_choice = st.selectbox(
                 "画面语义分析",
-                ["本地 Ollama（推荐）", "仅提取关键帧/镜头"],
+                ["本地 llama.cpp（推荐）", "仅提取关键帧/镜头"],
+                index=0 if template_vision_choice == "llamacpp" else 1,
                 disabled=not analyze_media,
             )
 
         with st.expander("高级设置", icon=":material/tune:"):
+            template_sort = template.get("sort")
             sort = st.selectbox(
                 "视频排序",
                 ["latest", "popular"],
+                index=(
+                    ["latest", "popular"].index(template_sort)
+                    if template_sort in ["latest", "popular"]
+                    else 0
+                ),
                 format_func=lambda value: "最新发布" if value == "latest" else "热度优先",
             )
+            template_calls = template.get("max_provider_calls")
             max_provider_calls = st.number_input(
                 "最大采集调用数",
                 min_value=1,
                 max_value=50_000,
-                value=5_000 if all_videos else max(100, int(comment_video_limit) + 10),
+                value=(
+                    int(template_calls)
+                    if isinstance(template_calls, int) and int(template_calls) >= 1
+                    else (5_000 if all_videos else max(100, int(comment_video_limit) + 10))
+                ),
                 help="预检会估算调用量；超过该上限时不会开始真实采集。",
             )
-            vision_model = st.text_input("Ollama 视觉模型", value="qwen3-vl:8b")
-            export_knowledge = st.checkbox("生成 GPT/OpenKB 本地知识包", value=True)
-            strict_media = st.checkbox("任一视频失败即停止", value=False)
-            strict_vision = st.checkbox("视觉模型输出异常即停止", value=False)
+            vision_model = st.text_input(
+                "本地视觉模型（llama.cpp）",
+                value=str(template.get("vision_model") or "qwen3-vl-8b"),
+            )
+            export_knowledge = st.checkbox(
+                "生成本地知识包（Obsidian/OpenKB）",
+                value=bool(template.get("export_knowledge", True)),
+            )
+            strict_media = st.checkbox(
+                "任一视频失败即停止",
+                value=bool(template.get("strict_media_enrichment", False)),
+            )
+            strict_vision = st.checkbox(
+                "视觉模型输出异常即停止",
+                value=bool(template.get("strict_vision", False)),
+            )
 
     with st.container(border=True):
         st.markdown("#### 04 · 预检与执行")
@@ -1102,7 +1198,7 @@ with st.form("self_service_distill_form"):
         else:
             st.info(
                 "MediaCrawler 首次运行可能打开 Chrome 登录页；默认内容理解只调用本机 "
-                "Whisper/Ollama，不产生外部模型费用。"
+                "Whisper/llama.cpp，不产生外部模型费用。"
             )
         public_content_confirmed = st.checkbox(
             "我确认只分析有权处理的公开内容，并理解平台登录与访问规则",
@@ -1140,7 +1236,9 @@ payload = {
     "confirm_provider_cost": False,
     "media_limit": int(media_limit) if analyze_media else 0,
     "whisper_model": whisper_model,
-    "vision_provider": "ollama" if analyze_media and vision_choice.startswith("本地") else None,
+    "vision_provider": (
+        "llamacpp" if analyze_media and vision_choice.startswith("本地") else None
+    ),
     "vision_model": vision_model,
     "strict_media_enrichment": strict_media,
     "strict_vision": strict_vision,
@@ -1148,8 +1246,10 @@ payload = {
 }
 
 if save_clicked:
-    st.session_state["last_collection_template"] = payload
-    st.toast("任务模板已保存在当前会话")
+    saved_template = {**payload, "account_name": account_name}
+    st.session_state["last_collection_template"] = saved_template
+    web_state.set_state(last_collection_template=saved_template)
+    st.toast("任务模板已保存，刷新页面后仍可恢复")
 elif preview_clicked or run_clicked:
     if not profile_url.strip():
         st.error("请输入抖音主页链接")
@@ -1168,7 +1268,7 @@ elif preview_clicked or run_clicked:
                 "path": effective_project,
                 "name": Path(effective_project).name,
                 # Inherit local model settings from the container project so
-                # the new account folder uses the same Ollama configuration.
+                # the new account folder uses the same local model configuration.
                 "config_template": project_path,
             },
         )
@@ -1189,40 +1289,155 @@ if isinstance(last_result, dict):
 account_id = st.session_state.get("last_account_id")
 if isinstance(account_id, str):
     section_header("后续分析", "在已有蒸馏结果上生成可审计的云端深度分析或同步知识库。")
-    gpt_tab, openkb_tab = st.tabs(["云端深度分析", "OpenKB 同步"])
+    gpt_tab, obsidian_tab, weknora_tab = st.tabs(
+        ["云端深度分析", "本地 Obsidian 知识库", "WeKnora 知识库"]
+    )
     with gpt_tab:
         _render_gpt_analysis(account_id)
 
-    with openkb_tab:
-        st.caption("此步骤可能调用你配置的外部模型。应用不会显示或保存模型密钥。")
-        confirm_model = st.checkbox("我确认将知识包交给已配置的 OpenKB/模型处理")
+    with obsidian_tab:
+        st.caption(
+            "把本地蒸馏结果和已完成云端深度分析一起写入 Obsidian 仓库"
+            "（Markdown + 双链），不会上传任何数据。"
+        )
+        default_vault = st.session_state.get("obsidian_vault_path") or web_state.get_state(
+            "obsidian_vault_path"
+        )
+        vault_path = st.text_input(
+            "Obsidian 仓库路径（Vault 目录）",
+            value=str(default_vault or ""),
+            key="obsidian_vault_input",
+            placeholder=r"D:\ObsidianVault",
+            help="填写 Obsidian 的仓库根目录；同步会创建“视频账号蒸馏/<账号名>”子目录。",
+        )
+        obsidian_max = st.slider(
+            "纳入最近视频分析数",
+            1,
+            25,
+            10,
+            key="obsidian_max_video_analyses",
+        )
         if st.button(
-            "同步当前账号到 OpenKB",
-            disabled=not confirm_model,
+            "同步当前账号到 Obsidian",
             use_container_width=True,
         ):
-            sync = _request(
-                (
-                    f"/api/projects/{_encoded_account_project()}"
-                    f"/knowledge/openkb/accounts/{account_id}/sync"
-                ),
-                "POST",
-                json={
-                    "confirm_model_processing": True,
-                    "create_kb": True,
-                    "force": False,
-                    "max_video_analyses": 20,
-                },
-            )
-            if sync.get("task_id"):
-                st.session_state["active_task_id"] = sync["task_id"]
-                st.session_state["active_task_kind"] = "openkb_sync"
-                web_state.set_state(active_task_id=sync["task_id"], active_task_kind="openkb_sync")
-                st.rerun()
+            cleaned_vault = vault_path.strip()
+            st.session_state["obsidian_vault_path"] = cleaned_vault
+            web_state.set_state(obsidian_vault_path=cleaned_vault)
+            if not cleaned_vault:
+                st.error("请先填写 Obsidian 仓库路径")
             else:
-                st.error(f"OpenKB 同步提交失败：{(sync.get('error') or {}).get('message')}")
+                sync = _request(
+                    (
+                        f"/api/projects/{_encoded_account_project()}"
+                        f"/knowledge/obsidian/accounts/{account_id}/sync"
+                    ),
+                    "POST",
+                    json={
+                        "vault_path": cleaned_vault,
+                        "max_video_analyses": obsidian_max,
+                    },
+                    timeout=120,
+                )
+                if sync.get("ok"):
+                    st.success("已写入 Obsidian 知识库")
+                    st.session_state["last_obsidian_sync"] = sync
+                    st.write("写入文件：")
+                    for path in sync.get("files", []):
+                        st.write(f"- `{path}`")
+                else:
+                    st.error(
+                        f"Obsidian 同步失败：{(sync.get('error') or {}).get('message')}"
+                    )
 
-openkb_result = st.session_state.get("last_openkb_result")
-if isinstance(openkb_result, dict):
-    with st.expander("最近一次 OpenKB 同步结果", expanded=True):
-        st.json(openkb_result)
+    with weknora_tab:
+        st.caption(
+            "把分析报告上传到 WeKnora 知识库（Markdown），"
+            "上传后可在 WeKnora 里检索和问答。"
+        )
+        default_weknora_url = st.session_state.get("weknora_base_url") or web_state.get_state(
+            "weknora_base_url",
+            "http://127.0.0.1:8080",
+        )
+        default_weknora_kb = st.session_state.get("weknora_kb_name") or web_state.get_state(
+            "weknora_kb_name",
+            "视频账号蒸馏",
+        )
+        weknora_url = st.text_input(
+            "WeKnora 服务地址",
+            value=str(default_weknora_url),
+            key="weknora_url_input",
+            placeholder="http://127.0.0.1:8080",
+        )
+        weknora_kb = st.text_input(
+            "知识库名称",
+            value=str(default_weknora_kb),
+            key="weknora_kb_input",
+        )
+        weknora_key = st.text_input(
+            "WeKnora API Key",
+            type="password",
+            key="weknora_api_key",
+            placeholder="在 WeKnora 账户页面获取",
+            help="密钥只保存在当前会话，不会写入项目文件。",
+        )
+        weknora_max = st.slider(
+            "纳入最近视频分析数",
+            1,
+            25,
+            10,
+            key="weknora_max_video_analyses",
+        )
+        if st.button(
+            "同步当前账号到 WeKnora",
+            use_container_width=True,
+        ):
+            cleaned_url = weknora_url.strip()
+            cleaned_kb = weknora_kb.strip()
+            st.session_state["weknora_base_url"] = cleaned_url
+            st.session_state["weknora_kb_name"] = cleaned_kb
+            web_state.set_state(
+                weknora_base_url=cleaned_url,
+                weknora_kb_name=cleaned_kb,
+            )
+            if not cleaned_url or not cleaned_kb:
+                st.error("请填写 WeKnora 服务地址和知识库名称")
+            elif not weknora_key.strip():
+                st.error("请填写 WeKnora API Key")
+            else:
+                sync = _request(
+                    (
+                        f"/api/projects/{_encoded_account_project()}"
+                        f"/knowledge/weknora/accounts/{account_id}/sync"
+                    ),
+                    "POST",
+                    json={
+                        "base_url": cleaned_url,
+                        "api_key": weknora_key,
+                        "kb_name": cleaned_kb,
+                        "max_video_analyses": weknora_max,
+                    },
+                    timeout=300,
+                )
+                if sync.get("ok"):
+                    st.success("已上传到 WeKnora 知识库")
+                    st.session_state["last_weknora_sync"] = sync
+                    st.write("上传文件：")
+                    for path in sync.get("uploaded", []):
+                        st.write(f"- `{path}`")
+                else:
+                    message = (sync.get("error") or {}).get("message")
+                    st.error(f"WeKnora 同步失败：{message}")
+                    if sync.get("errors"):
+                        for error in sync["errors"]:
+                            st.write(f"- {error}")
+
+weknora_result = st.session_state.get("last_weknora_sync")
+if isinstance(weknora_result, dict):
+    with st.expander("最近一次 WeKnora 同步结果", expanded=True):
+        st.json(weknora_result)
+
+obsidian_result = st.session_state.get("last_obsidian_sync")
+if isinstance(obsidian_result, dict):
+    with st.expander("最近一次 Obsidian 同步结果", expanded=True):
+        st.json(obsidian_result)

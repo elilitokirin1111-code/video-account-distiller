@@ -6,7 +6,7 @@ import html
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal
 
 import requests
 import streamlit as st
@@ -46,14 +46,14 @@ _THEME_BRIDGE = component(
       const storageKey = "video-account-distiller-theme";
       const current = data.theme;
       const url = new URL(window.location.href);
-      const fromUrl = url.searchParams.get("theme");
-      const stored = window.localStorage.getItem(storageKey);
-      if (!fromUrl && (stored === "light" || stored === "dark") && stored !== current) {
-        url.searchParams.set("theme", stored);
-        window.location.replace(url.toString());
-        return;
+      if (url.searchParams.has("theme")) {
+        url.searchParams.delete("theme");
+        history.replaceState(null, "", url.toString());
       }
-      window.localStorage.setItem(storageKey, current);
+      const stored = window.localStorage.getItem(storageKey);
+      if (stored !== current) {
+        window.localStorage.setItem(storageKey, current);
+      }
       document.documentElement.dataset.distillerTheme = current;
       document.body.dataset.distillerTheme = current;
     }
@@ -73,12 +73,9 @@ def _default_project_path() -> str:
 
 
 def _resolve_theme() -> Theme:
-    query_theme = st.query_params.get("theme")
-    if query_theme in {"light", "dark"}:
-        theme = cast(Theme, query_theme)
-    else:
-        state_theme = st.session_state.get("distiller_theme") or web_state.get_state("theme")
-        theme = state_theme if state_theme in {"light", "dark"} else "light"
+    # The UI is fixed to dark mode; light mode was removed to stop theme
+    # toggling/reload churn between pages.
+    theme: Theme = "dark"
     st.session_state["distiller_theme"] = theme
     web_state.set_state(theme=theme)
     return theme
@@ -847,13 +844,17 @@ def _inject_design_system(theme: Theme) -> None:
 
 
 def _render_sidebar(current_page: str) -> tuple[str, str]:
-    if "global_api_url" not in st.session_state:
+    if "global_api_url" not in st.session_state or not str(
+        st.session_state.get("global_api_url") or ""
+    ).strip():
         st.session_state["global_api_url"] = str(
-            st.session_state.get("api_url", _default_api_url())
+            st.session_state.get("api_url") or _default_api_url()
         ).rstrip("/")
-    if "global_project_path" not in st.session_state:
+    if "global_project_path" not in st.session_state or not str(
+        st.session_state.get("global_project_path") or ""
+    ).strip():
         st.session_state["global_project_path"] = str(
-            st.session_state.get("project_path", _default_project_path())
+            st.session_state.get("project_path") or _default_project_path()
         )
 
     with st.sidebar:
@@ -893,10 +894,14 @@ def _render_sidebar(current_page: str) -> tuple[str, str]:
                 )
             api_url = st.text_input("API 地址", key="global_api_url")
             project_path = st.text_input("项目路径", key="global_project_path")
-            st.session_state["api_url"] = api_url.rstrip("/")
-            st.session_state["project_path"] = project_path
+            api_value = api_url.rstrip("/")
+            project_value = project_path.strip()
+            st.session_state["api_url"] = api_value
+            st.session_state["project_path"] = project_value
             # Persist so reloads / theme toggles / reconnects restore them.
-            web_state.set_state(api_url=api_url.rstrip("/"), project_path=project_path)
+            # Never persist blank values: they make later requests lose their scheme.
+            if api_value and project_value:
+                web_state.set_state(api_url=api_value, project_path=project_value)
 
             action_a, action_b = st.columns(2)
             if action_a.button(
@@ -1003,26 +1008,14 @@ def _render_header(
             ):
                 st.toast("暂无新的系统通知")
 
-        if st.session_state.get("_theme_control_source") != theme:
-            st.session_state["distiller_theme_toggle"] = theme == "dark"
-            st.session_state["_theme_control_source"] = theme
         with theme_column:
-            dark_enabled = st.toggle(
-                "夜间模式",
-                key="distiller_theme_toggle",
-                help="主题选择会保存在当前浏览器",
-            )
+            st.markdown("深色模式")
         with avatar_column:
             st.markdown(
                 '<div class="ds-avatar" title="当前用户">DA</div>',
                 unsafe_allow_html=True,
             )
-        selected_theme: Theme = "dark" if dark_enabled else "light"
-        if selected_theme != theme:
-            st.session_state["distiller_theme"] = selected_theme
-            st.session_state["_theme_control_source"] = selected_theme
-            st.query_params["theme"] = selected_theme
-            st.rerun()
+        selected_theme: Theme = "dark"
     return selected_theme
 
 

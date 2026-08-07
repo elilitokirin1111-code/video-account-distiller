@@ -65,7 +65,11 @@ PERFORMANCE_KEYS = {
 
 def _validate_staging(path: Path, model_type: type[BaseModel]) -> list[str]:
     errors: list[str] = []
-    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+    for line_number, line in enumerate(
+        path.read_text(encoding="utf-8").split("\n"),
+        start=1,
+    ):
+        line = line.rstrip("\r")
         if not line.strip():
             continue
         try:

@@ -112,7 +112,8 @@ class NormalizationService:
         for entity, model_type in MODEL_BY_ENTITY.items():
             loaded: list[TraceFields] = []
             for path in sorted((self.project.root / "staging" / entity).glob("*.jsonl")):
-                for line in path.read_text(encoding="utf-8").splitlines():
+                for line in path.read_text(encoding="utf-8").split("\n"):
+                    line = line.rstrip("\r")
                     if line.strip():
                         loaded.append(model_type.model_validate_json(line))
             deduplicated, conflicts = _deduplicate(loaded)
