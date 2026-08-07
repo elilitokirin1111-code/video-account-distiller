@@ -94,7 +94,7 @@ class MediaSection(BaseModel):
     scene_threshold: float = Field(default=0.30, gt=0, lt=1)
     max_shots: int = Field(default=500, ge=1, le=5000)
     max_keyframes: int = Field(default=12, ge=1, le=100)
-    keyframe_width: int = Field(default=720, ge=160, le=3840)
+    keyframe_width: int = Field(default=1440, ge=160, le=3840)
     audio_sample_rate: int = Field(default=8000, ge=1000, le=48000)
     audio_window_ms: int = Field(default=100, ge=20, le=1000)
     silence_threshold_dbfs: float = Field(default=-40.0, ge=-100, le=0)
