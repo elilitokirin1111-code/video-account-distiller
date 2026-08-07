@@ -19,6 +19,7 @@ from video_account_distiller.media.enrichment import (
 )
 from video_account_distiller.media.pipeline import LocalMediaAnalysisService
 from video_account_distiller.media.providers import (
+    CloudVisionProvider,
     LlamaCppVisionProvider,
     OllamaVisionProvider,
     StructuredVisionFileProvider,
@@ -32,6 +33,7 @@ __all__ = [
     "ACCOUNT_MEDIA_ADAPTER_VERSION",
     "CLAUDE_VIDEO_UPSTREAM_COMMIT",
     "AccountMediaEnrichmentService",
+    "CloudVisionProvider",
     "DownloadedMedia",
     "FFmpegMediaBackend",
     "MediaBackend",

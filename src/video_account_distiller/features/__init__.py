@@ -2,6 +2,7 @@
 
 from video_account_distiller.features.pipeline import VideoAnalysisService
 from video_account_distiller.features.providers import (
+    CloudChatTextProvider,
     LlamaCppTextProvider,
     OllamaTextProvider,
     StructuredFileProvider,
@@ -9,6 +10,7 @@ from video_account_distiller.features.providers import (
 )
 
 __all__ = [
+    "CloudChatTextProvider",
     "LlamaCppTextProvider",
     "OllamaTextProvider",
     "StructuredFileProvider",

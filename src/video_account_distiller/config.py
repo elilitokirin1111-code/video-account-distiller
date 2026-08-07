@@ -80,6 +80,10 @@ class ModelsSection(BaseModel):
     llamacpp_api_key: str | None = None
     llamacpp_text_base_url: str = "http://127.0.0.1:8082"
     llamacpp_text_model: str | None = None
+    cloud_base_url: str | None = None
+    cloud_api_key: str | None = None
+    cloud_text_model: str | None = None
+    cloud_vision_model: str | None = None
     vision_batch_size: int = Field(default=4, ge=1, le=8)
     vision_timeout_seconds: int = Field(default=180, ge=1, le=1800)
     require_schema_validation: bool = True

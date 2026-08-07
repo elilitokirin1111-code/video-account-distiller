@@ -36,11 +36,15 @@ OPENAI_API_KEY_ENV = "OPENAI_API_KEY"
 BAILIAN_API_KEY_ENV = "DASHSCOPE_API_KEY"
 BAILIAN_BASE_URL_ENV = "DASHSCOPE_BASE_URL"
 BAILIAN_DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+DEEPSEEK_API_KEY_ENV = "DEEPSEEK_API_KEY"
+DEEPSEEK_BASE_URL_ENV = "DEEPSEEK_BASE_URL"
+DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com"
 GPT_ANALYSIS_VERSION = "1.2.0"
 GPT_PROMPT_VERSION = "account-gpt-analysis-v1"
 GPT_EVALUATION_VERSION = "account-analysis-eval-v1"
 GPT_PRICING_SNAPSHOT = "openai-api-pricing-2026-07-28"
 BAILIAN_PRICING_SNAPSHOT = "aliyun-model-studio-pricing-2026-08-04"
+DEEPSEEK_PRICING_SNAPSHOT = "deepseek-api-pricing-2026-08-05"
 MAX_CLOUD_CONTEXT_BYTES = 1_500_000
 MAX_OUTPUT_TOKENS = 5_000
 MODEL_MAX_INPUT_TOKENS = 922_000
@@ -62,12 +66,18 @@ class BailianModel(StrEnum):
     QWEN_3_7_PLUS = "qwen3.7-plus"
 
 
+class DeepSeekModel(StrEnum):
+    CHAT = "deepseek-chat"
+    REASONER = "deepseek-reasoner"
+
+
 class AnalysisProviderKind(StrEnum):
     OPENAI = "openai"
     BAILIAN = "bailian"
+    DEEPSEEK = "deepseek"
 
 
-AnalysisModel = OpenAIModel | BailianModel
+AnalysisModel = OpenAIModel | BailianModel | DeepSeekModel
 
 
 class AnalysisTemplate(StrEnum):
@@ -96,7 +106,12 @@ class GptAnalysisOptions(StrictModel):
 
     @model_validator(mode="after")
     def validate_provider_model(self) -> Self:
-        expected = OpenAIModel if self.provider is AnalysisProviderKind.OPENAI else BailianModel
+        expected_by_provider = {
+            AnalysisProviderKind.OPENAI: OpenAIModel,
+            AnalysisProviderKind.BAILIAN: BailianModel,
+            AnalysisProviderKind.DEEPSEEK: DeepSeekModel,
+        }
+        expected = expected_by_provider.get(self.provider, BailianModel)
         if not isinstance(self.model, expected):
             raise ValueError(
                 f"model {self.model.value!r} is not available for provider {self.provider.value!r}"
@@ -237,6 +252,34 @@ MODEL_PRICING: dict[AnalysisModel, ModelPricing] = {
         long_context_input_multiplier=3.0,
         long_context_output_multiplier=3.0,
         cache_write_multiplier=1.0,
+    ),
+    DeepSeekModel.CHAT: ModelPricing(
+        currency="USD",
+        input_per_million=0.27,
+        cached_input_per_million=0.07,
+        output_per_million=1.10,
+        source_url="https://api-docs.deepseek.com/quick_start/pricing",
+        snapshot=DEEPSEEK_PRICING_SNAPSHOT,
+        authoritative_source="DeepSeek platform pricing",
+        max_input_tokens=131_072,
+        long_context_threshold_tokens=64_000,
+        long_context_input_multiplier=1.0,
+        long_context_output_multiplier=1.0,
+        cache_write_multiplier=1.25,
+    ),
+    DeepSeekModel.REASONER: ModelPricing(
+        currency="USD",
+        input_per_million=0.55,
+        cached_input_per_million=0.14,
+        output_per_million=2.19,
+        source_url="https://api-docs.deepseek.com/quick_start/pricing",
+        snapshot=DEEPSEEK_PRICING_SNAPSHOT,
+        authoritative_source="DeepSeek platform pricing",
+        max_input_tokens=131_072,
+        long_context_threshold_tokens=64_000,
+        long_context_input_multiplier=1.0,
+        long_context_output_multiplier=1.0,
+        cache_write_multiplier=1.25,
     ),
 }
 
@@ -661,6 +704,111 @@ class BailianChatCompletionsProvider:
         )
 
 
+def _deepseek_chat_completions_url(base_url: str | None = None) -> str:
+    configured = (base_url or os.environ.get(DEEPSEEK_BASE_URL_ENV) or "").strip()
+    value = configured or DEEPSEEK_DEFAULT_BASE_URL
+    return value.rstrip("/") + "/chat/completions"
+
+
+class DeepSeekChatCompletionsProvider:
+    """DeepSeek OpenAI-compatible chat client with structured JSON output."""
+
+    provider_name = "deepseek_chat_completions"
+    credential_env = DEEPSEEK_API_KEY_ENV
+
+    def __init__(
+        self,
+        *,
+        model: DeepSeekModel,
+        reasoning_effort: ReasoningEffort,
+        executor: HttpExecutor | None = None,
+        retry_policy: RetryPolicy | None = None,
+        credential_loader: Callable[[], str] | None = None,
+        credential_source: str = DEEPSEEK_API_KEY_ENV,
+        base_url: str | None = None,
+    ) -> None:
+        self.model_name = model.value
+        self.reasoning_effort = reasoning_effort
+        self.credential_source = credential_source
+        self.executor = executor or UrllibHttpExecutor()
+        self.retry_policy = retry_policy or RetryPolicy(
+            max_retries=2,
+            base_seconds=1.0,
+            timeout_seconds=180,
+        )
+        self.url = _deepseek_chat_completions_url(base_url)
+        self._credential_loader = credential_loader or (
+            lambda: read_env_credential(DEEPSEEK_API_KEY_ENV, "DeepSeek API")
+        )
+
+    @classmethod
+    def from_environment(
+        cls,
+        *,
+        model: DeepSeekModel,
+        reasoning_effort: ReasoningEffort,
+        executor: HttpExecutor | None = None,
+        retry_policy: RetryPolicy | None = None,
+    ) -> DeepSeekChatCompletionsProvider:
+        read_env_credential(DEEPSEEK_API_KEY_ENV, "DeepSeek API")
+        return cls(
+            model=model,
+            reasoning_effort=reasoning_effort,
+            executor=executor,
+            retry_policy=retry_policy,
+        )
+
+    def analyze(self, *, instructions: str, context_json: str) -> ProviderAnalysis:
+        schema_json = json.dumps(
+            GptAccountAnalysis.model_json_schema(),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        payload: dict[str, Any] = {
+            "model": self.model_name,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        f"{instructions}\nReturn only a valid JSON object matching this "
+                        "JSON Schema. "
+                        f"Do not add Markdown fences.\nJSON Schema:\n{schema_json}"
+                    ),
+                },
+                {"role": "user", "content": context_json},
+            ],
+        }
+        if self.model_name == DeepSeekModel.CHAT.value:
+            payload["response_format"] = {"type": "json_object"}
+        response = request_json(
+            self.executor,
+            method="POST",
+            url=self.url,
+            token=self._credential_loader(),
+            policy=self.retry_policy,
+            payload=payload,
+        )
+        try:
+            decoded = json.loads(_chat_completion_text(response))
+            analysis = GptAccountAnalysis.model_validate(decoded)
+        except (json.JSONDecodeError, ValidationError, TypeError, ValueError) as exc:
+            raise DistillerError(
+                ErrorCode.MODEL_SCHEMA_INVALID,
+                "DeepSeek account analysis failed local schema validation",
+                details={"response_id": response.get("id")},
+            ) from exc
+        choices = response.get("choices")
+        first_choice = choices[0] if isinstance(choices, list) and choices else {}
+        status = "completed" if isinstance(first_choice, dict) else "unknown"
+        return ProviderAnalysis(
+            response_id=str(response.get("id") or ""),
+            model=str(response.get("model") or self.model_name),
+            status=status,
+            analysis=analysis,
+            usage=_chat_usage(response.get("usage")),
+        )
+
+
 def build_account_analysis_provider(
     options: GptAnalysisOptions,
     *,
@@ -682,6 +830,22 @@ def build_account_analysis_provider(
                 credential_source=credential_source or "operating_system_keyring",
             )
         return OpenAIResponsesProvider.from_environment(
+            model=options.model,
+            reasoning_effort=options.reasoning_effort,
+            executor=executor,
+        )
+    if options.provider is AnalysisProviderKind.DEEPSEEK:
+        if not isinstance(options.model, DeepSeekModel):
+            raise AssertionError("validated DeepSeek options must contain a DeepSeek model")
+        if credential is not None:
+            return DeepSeekChatCompletionsProvider(
+                model=options.model,
+                reasoning_effort=options.reasoning_effort,
+                executor=executor,
+                credential_loader=lambda: credential,
+                credential_source=credential_source or "operating_system_keyring",
+            )
+        return DeepSeekChatCompletionsProvider.from_environment(
             model=options.model,
             reasoning_effort=options.reasoning_effort,
             executor=executor,
@@ -713,11 +877,12 @@ def probe_account_analysis_provider(
 
     client = executor or UrllibHttpExecutor()
     policy = RetryPolicy(max_retries=1, base_seconds=0.5, timeout_seconds=30)
-    url = (
-        OPENAI_MODELS_URL
-        if provider is AnalysisProviderKind.OPENAI
-        else _bailian_chat_completions_url().removesuffix("/chat/completions") + "/models"
-    )
+    if provider is AnalysisProviderKind.OPENAI:
+        url = OPENAI_MODELS_URL
+    elif provider is AnalysisProviderKind.DEEPSEEK:
+        url = _deepseek_chat_completions_url().removesuffix("/chat/completions") + "/models"
+    else:
+        url = _bailian_chat_completions_url().removesuffix("/chat/completions") + "/models"
     response = request_json(
         client,
         method="GET",
@@ -732,11 +897,12 @@ def probe_account_analysis_provider(
         for item in items
         if isinstance(item, dict) and isinstance(item.get("id"), str)
     }
-    supported = (
-        [model.value for model in OpenAIModel if model.value in visible]
-        if provider is AnalysisProviderKind.OPENAI
-        else [model.value for model in BailianModel if model.value in visible]
-    )
+    if provider is AnalysisProviderKind.OPENAI:
+        supported = [model.value for model in OpenAIModel if model.value in visible]
+    elif provider is AnalysisProviderKind.DEEPSEEK:
+        supported = [model.value for model in DeepSeekModel if model.value in visible]
+    else:
+        supported = [model.value for model in BailianModel if model.value in visible]
     if not supported:
         raise DistillerError(
             ErrorCode.MODEL_UNAVAILABLE,

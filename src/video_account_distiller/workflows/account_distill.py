@@ -15,10 +15,12 @@ from video_account_distiller.collection import (
 )
 from video_account_distiller.doctor import doctor_report
 from video_account_distiller.errors import DistillerError, ErrorCode
+from video_account_distiller.features import CloudChatTextProvider, TextModelProvider
 from video_account_distiller.insights import AnalysisContextService
 from video_account_distiller.knowledge import KnowledgeExportService
 from video_account_distiller.media import (
     AccountMediaEnrichmentService,
+    CloudVisionProvider,
     LlamaCppVisionProvider,
     OllamaVisionProvider,
     VisionModelProvider,
@@ -187,6 +189,14 @@ def _vision_provider(
             timeout_seconds=timeout_seconds,
             api_key=api_key,
         )
+    if provider == "cloud":
+        return CloudVisionProvider(
+            model=model,
+            base_url=base_url,
+            batch_size=batch_size,
+            timeout_seconds=timeout_seconds,
+            api_key=api_key,
+        )
     raise DistillerError(
         ErrorCode.SCHEMA_INVALID,
         "Self-service visual analysis supports local Ollama or llama.cpp",
@@ -216,7 +226,12 @@ class AccountDistillWorkflow:
         whisper_command: Path | None = None,
         vision_provider: str | None = "ollama",
         vision_model: str = "qwen3-vl-8b",
+        text_provider: str | None = None,
         ollama_base_url: str = "http://127.0.0.1:11434",
+        cloud_base_url: str | None = None,
+        cloud_api_key: str | None = None,
+        cloud_text_model: str | None = None,
+        cloud_vision_model: str | None = None,
         vision_batch_size: int = 4,
         vision_timeout_seconds: int = 180,
         strict_media_enrichment: bool = False,
@@ -240,17 +255,34 @@ class AccountDistillWorkflow:
         if vision_provider == "llamacpp":
             local_base_url = config.models.llamacpp_base_url
             local_vision_model = config.models.llamacpp_model or vision_model
+            local_api_key = config.models.llamacpp_api_key
+        elif vision_provider == "cloud":
+            local_base_url = cloud_base_url or config.models.cloud_base_url
+            local_vision_model = cloud_vision_model or vision_model
+            local_api_key = cloud_api_key or config.models.cloud_api_key
         else:
             local_base_url = ollama_base_url
             local_vision_model = vision_model
+            local_api_key = None
         local_vision = _vision_provider(
             provider=vision_provider if media_limit > 0 else None,
             model=local_vision_model,
             base_url=local_base_url,
             batch_size=vision_batch_size,
             timeout_seconds=vision_timeout_seconds,
-            api_key=config.models.llamacpp_api_key,
+            api_key=local_api_key,
         )
+        local_text: TextModelProvider | None = None
+        if text_provider == "cloud":
+            local_text = CloudChatTextProvider(
+                model=cloud_text_model
+                or config.models.cloud_text_model
+                or vision_model
+                or "local",
+                base_url=cloud_base_url or config.models.cloud_base_url,
+                timeout_seconds=vision_timeout_seconds,
+                api_key=cloud_api_key or config.models.cloud_api_key,
+            )
         transcriber = WhisperCliTranscriber(
             command=whisper_command,
             model=whisper_model,
@@ -264,6 +296,7 @@ class AccountDistillWorkflow:
                 dry_run=True,
                 collection_profile=collection_profile,
                 max_provider_calls=max_provider_calls,
+                text_provider=local_text,
             )
             diagnostics = doctor_report(self.project.root).model_dump(mode="json")
             result["workflow_plan"] = {
@@ -319,6 +352,7 @@ class AccountDistillWorkflow:
                 dry_run=False,
                 collection_profile=collection_profile,
                 max_provider_calls=max_provider_calls,
+                text_provider=local_text,
             )
             account_id = str(result["account"]["account_id"])
             checkpoint(
@@ -356,6 +390,7 @@ class AccountDistillWorkflow:
                 self.project,
                 transcriber=transcriber,
                 vision_provider=local_vision,
+                text_provider=local_text,
             ).enrich(
                 account_id=account_id,
                 limit=media_limit,

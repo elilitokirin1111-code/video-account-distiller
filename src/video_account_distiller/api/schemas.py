@@ -203,11 +203,16 @@ class AccountDistillWorkflowParams(CollectionAnalyzeParams):
 
     provider: CollectionProviderKind = CollectionProviderKind.MEDIACRAWLER
     media_limit: int = Field(default=20, ge=0, le=20)
+    text_provider: Literal["llamacpp", "cloud"] | None = None
     whisper_model: str = Field(default="base", min_length=1, max_length=64)
     whisper_command: str | None = Field(default=None, max_length=2048)
     vision_provider: Literal["ollama"] | None = "ollama"
     vision_model: str = Field(default="qwen3-vl-8b", min_length=1, max_length=128)
     ollama_base_url: str = Field(default="http://127.0.0.1:11434", max_length=2048)
+    cloud_base_url: str | None = Field(default=None, max_length=2048)
+    cloud_api_key: str | None = Field(default=None, max_length=2048)
+    cloud_text_model: str | None = Field(default=None, max_length=128)
+    cloud_vision_model: str | None = Field(default=None, max_length=128)
     vision_batch_size: int = Field(default=4, ge=1, le=8)
     vision_timeout_seconds: int = Field(default=180, ge=1, le=1800)
     strict_media_enrichment: bool = False

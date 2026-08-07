@@ -131,7 +131,7 @@ with model_tab:
             "API Key 可在采集任务的云端深度分析页验证并保存到当前 Windows 用户凭据。"
         )
         providers = cloud_payload.get("providers") or {}
-        openai_status, bailian_status = st.columns(2)
+        openai_status, bailian_status, deepseek_status = st.columns(3)
         openai_status.metric(
             "OpenAI",
             "密钥已配置"
@@ -142,6 +142,12 @@ with model_tab:
             "阿里云百炼",
             "密钥已配置"
             if (providers.get("bailian") or {}).get("api_key_configured")
+            else "可在分析页保存",
+        )
+        deepseek_status.metric(
+            "DeepSeek",
+            "密钥已配置"
+            if (providers.get("deepseek") or {}).get("api_key_configured")
             else "可在分析页保存",
         )
         allow_cloud_model_upload = st.toggle(

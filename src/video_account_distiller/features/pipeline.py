@@ -20,6 +20,7 @@ from video_account_distiller.features.prompts import (
     render_prompt,
 )
 from video_account_distiller.features.providers import (
+    CloudChatTextProvider,
     LlamaCppTextProvider,
     ModelSchemaFailure,
     OllamaTextProvider,
@@ -670,6 +671,13 @@ class VideoAnalysisService:
                 base_url=config.models.llamacpp_text_base_url,
                 timeout_seconds=config.models.vision_timeout_seconds,
                 api_key=config.models.llamacpp_api_key,
+            )
+        elif selected_provider is None and config.models.text_provider == "cloud":
+            selected_provider = CloudChatTextProvider(
+                model=config.models.cloud_text_model or config.models.vision_model or "local",
+                base_url=config.models.cloud_base_url,
+                timeout_seconds=config.models.vision_timeout_seconds,
+                api_key=config.models.cloud_api_key,
             )
         attempts = max_attempts or config.models.max_schema_attempts
         effective_strict_model = strict_model or not config.models.allow_degraded_analysis

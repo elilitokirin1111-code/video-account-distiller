@@ -14,6 +14,7 @@ from video_account_distiller.collection.planning import (
 )
 from video_account_distiller.collection.providers import AccountCollectionProvider
 from video_account_distiller.comments import CommentAnalysisService
+from video_account_distiller.features import TextModelProvider
 from video_account_distiller.distillation import AccountDistillationService
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.ingestion import ImportService
@@ -77,6 +78,7 @@ class AccountCollectionService:
         dry_run: bool = False,
         collection_profile: CollectionProfile = CollectionProfile.STANDARD,
         max_provider_calls: int | None = None,
+        text_provider: TextModelProvider | None = None,
     ) -> dict[str, Any]:
         """Collect one homepage and create account-health and distillation artifacts."""
 
@@ -170,7 +172,10 @@ class AccountCollectionService:
         metrics = MetricsService(self.project).calculate(account_id=account_id)
         report = ReportService(self.project).generate_account_health(account_id=account_id)
         comment_analysis = (
-            CommentAnalysisService(self.project).analyze(account_id=account_id)
+            CommentAnalysisService(self.project).analyze(
+                account_id=account_id,
+                provider=text_provider,
+            )
             if batch.comments
             else None
         )

@@ -461,6 +461,7 @@ def _render_gpt_analysis(account_id: str) -> None:
     provider_labels = {
         "OpenAI": "openai",
         "阿里云百炼": "bailian",
+        "DeepSeek": "deepseek",
     }
     models_by_provider = {
         "openai": {
@@ -470,6 +471,10 @@ def _render_gpt_analysis(account_id: str) -> None:
         },
         "bailian": {
             "千问 3.7 Plus": "qwen3.7-plus",
+        },
+        "deepseek": {
+            "DeepSeek Chat": "deepseek-chat",
+            "DeepSeek Reasoner": "deepseek-reasoner",
         },
     }
     template_labels = {
@@ -1104,8 +1109,12 @@ with st.form("self_service_distill_form"):
         with m3:
             vision_choice = st.selectbox(
                 "画面语义分析",
-                ["本地 llama.cpp（推荐）", "仅提取关键帧/镜头"],
-                index=0 if template_vision_choice == "llamacpp" else 1,
+                ["本地 llama.cpp（推荐）", "云端 API（对比）", "仅提取关键帧/镜头"],
+                index=(
+                    0
+                    if template_vision_choice == "llamacpp"
+                    else (1 if template_vision_choice == "cloud" else 2)
+                ),
                 disabled=not analyze_media,
             )
 
@@ -1136,6 +1145,32 @@ with st.form("self_service_distill_form"):
             vision_model = st.text_input(
                 "本地视觉模型（llama.cpp）",
                 value=str(template.get("vision_model") or "qwen3-vl-8b"),
+            )
+            text_source = st.radio(
+                "文本分析来源（对比本地/云端）",
+                ["本地 llama.cpp（qwen3-8b）", "云端 API（OpenAI 兼容）"],
+                index=0 if template.get("text_provider") != "cloud" else 1,
+            )
+            cloud_base_url = st.text_input(
+                "云端服务地址（OpenAI 兼容）",
+                value=str(
+                    template.get("cloud_base_url")
+                    or "https://api.deepseek.com"
+                ),
+                placeholder="https://api.deepseek.com 或 DashScope compatible-mode",
+            )
+            cloud_api_key = st.text_input(
+                "云端 API Key",
+                type="password",
+                value=str(template.get("cloud_api_key") or ""),
+            )
+            cloud_text_model = st.text_input(
+                "云端文本模型",
+                value=str(template.get("cloud_text_model") or "deepseek-chat"),
+            )
+            cloud_vision_model = st.text_input(
+                "云端视觉模型",
+                value=str(template.get("cloud_vision_model") or "qwen-vl-max-latest"),
             )
             export_knowledge = st.checkbox(
                 "生成本地知识包（Obsidian/OpenKB）",
@@ -1237,8 +1272,15 @@ payload = {
     "media_limit": int(media_limit) if analyze_media else 0,
     "whisper_model": whisper_model,
     "vision_provider": (
-        "llamacpp" if analyze_media and vision_choice.startswith("本地") else None
+        "llamacpp"
+        if analyze_media and vision_choice.startswith("本地")
+        else ("cloud" if analyze_media and vision_choice.startswith("云端") else None)
     ),
+    "text_provider": "cloud" if text_source.startswith("云端") else None,
+    "cloud_base_url": cloud_base_url.strip() or None,
+    "cloud_api_key": cloud_api_key.strip() or None,
+    "cloud_text_model": cloud_text_model.strip() or None,
+    "cloud_vision_model": cloud_vision_model.strip() or None,
     "vision_model": vision_model,
     "strict_media_enrichment": strict_media,
     "strict_vision": strict_vision,

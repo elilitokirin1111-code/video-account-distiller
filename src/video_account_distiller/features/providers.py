@@ -421,3 +421,9 @@ class LlamaCppTextProvider(OllamaTextProvider):
                 raise ModelSchemaFailure(
                     f"llama.cpp response failed schema validation: {compact_errors}"
                 ) from exc
+
+
+class CloudChatTextProvider(LlamaCppTextProvider):
+    """Any OpenAI-compatible chat API (DeepSeek, DashScope, OpenAI, etc.)."""
+
+    provider_name = "cloud"

@@ -21,7 +21,7 @@ from pydantic import ValidationError
 
 from video_account_distiller.distillation import AccountDistillationService
 from video_account_distiller.errors import DistillerError, ErrorCode
-from video_account_distiller.features import VideoAnalysisService
+from video_account_distiller.features import TextModelProvider, VideoAnalysisService
 from video_account_distiller.media.backend import MediaBackend
 from video_account_distiller.media.pipeline import (
     MEDIA_ANALYSIS_VERSION,
@@ -590,12 +590,14 @@ class AccountMediaEnrichmentService:
         transcriber: LocalTranscriber | None = None,
         media_backend: MediaBackend | None = None,
         vision_provider: VisionModelProvider | None = None,
+        text_provider: TextModelProvider | None = None,
     ) -> None:
         self.project = project
         self.downloader = downloader or HttpMediaDownloader()
         self.transcriber = transcriber or WhisperCliTranscriber()
         self.media_backend = media_backend
         self.vision_provider = vision_provider
+        self.text_provider = text_provider
 
     def enrich(
         self,
@@ -607,6 +609,7 @@ class AccountMediaEnrichmentService:
         scene_threshold: float | None = None,
         max_keyframes: int | None = None,
         dry_run: bool = False,
+        text_provider: TextModelProvider | None = None,
         progress: EnrichmentProgress = _ignore_enrichment_progress,
     ) -> dict[str, Any]:
         """Enrich a bounded sample using only retained, approved Provider evidence."""
@@ -896,7 +899,10 @@ class AccountMediaEnrichmentService:
                 if item.status == "failed" or item.transcription.status == "failed":
                     continue
                 try:
-                    text_result = VideoAnalysisService(self.project).analyze(video_id=item.video_id)
+                    text_result = VideoAnalysisService(self.project).analyze(
+                        video_id=item.video_id,
+                        provider=text_provider or self.text_provider,
+                    )
                     text_analysis = text_result["analysis"]
                     text_status = str(text_analysis["status"])
                     updated_warnings = list(item.warnings)

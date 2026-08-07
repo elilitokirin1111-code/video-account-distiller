@@ -585,6 +585,63 @@ class LlamaCppVisionProvider(OllamaVisionProvider):
             raise VisionSchemaFailure(f"llama.cpp vision schema invalid: {compact}") from exc
 
 
+class CloudVisionProvider(LlamaCppVisionProvider):
+    """Any OpenAI-compatible vision API (DashScope Qwen-VL, OpenAI, etc.)."""
+
+    provider_name = "cloud"
+
+    def __init__(
+        self,
+        *,
+        model: str = "qwen-vl-max-latest",
+        base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        batch_size: int = 4,
+        timeout_seconds: int = 180,
+        api_key: str | None = None,
+        executor: VisionHttpExecutor | None = None,
+    ) -> None:
+        if not model.strip() or len(model) > 128:
+            raise DistillerError(ErrorCode.SCHEMA_INVALID, "Invalid cloud vision model name")
+        if batch_size < 1 or batch_size > 8:
+            raise DistillerError(ErrorCode.SCHEMA_INVALID, "Vision batch size must be 1 through 8")
+        if timeout_seconds < 1 or timeout_seconds > 1800:
+            raise DistillerError(
+                ErrorCode.SCHEMA_INVALID,
+                "Vision timeout must be 1 through 1800 seconds",
+            )
+        parsed = urlparse(base_url.strip())
+        if (
+            parsed.scheme not in {"http", "https"}
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+            or (parsed.scheme == "http" and parsed.hostname not in {"127.0.0.1", "localhost"})
+        ):
+            raise DistillerError(
+                ErrorCode.SCHEMA_INVALID,
+                "Cloud vision base URL must be an HTTPS origin (or loopback HTTP)",
+            )
+        self.model_name = model.strip()
+        self.base_url = f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+        self.batch_size = batch_size
+        self.timeout_seconds = timeout_seconds
+        self.executor = executor or UrllibVisionHttpExecutor()
+        self.api_key = api_key or os.environ.get("DISTILLER_LLAMACPP_API_KEY")
+        self.raw_responses: list[dict[str, Any]] = []
+        self.input_hash = sha256_json(
+            {
+                "provider": self.provider_name,
+                "model": self.model_name,
+                "base_url": self.base_url,
+                "batch_size": self.batch_size,
+                "contract": "media-vision-v2",
+                "prompt_version": OLLAMA_VISION_PROMPT_VERSION,
+            }
+        )
+
+
 class StructuredVisionFileProvider:
     """Replay one or more schema-targeted visual results from local JSON."""
 
