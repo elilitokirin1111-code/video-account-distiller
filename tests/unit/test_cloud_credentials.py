@@ -86,3 +86,18 @@ def test_keyring_store_does_not_expose_backend_errors(
     monkeypatch.setattr("keyring.get_password", fail)
 
     assert KeyringCloudCredentialStore().get("openai") is None
+
+
+def test_deepseek_environment_fallback_is_supported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-deepseek-environment")
+
+    resolved = resolve_cloud_credential(MemoryStore(), "deepseek")
+
+    assert resolved is not None
+    assert resolved.value == "sk-deepseek-environment"
+    assert resolved.source == "DEEPSEEK_API_KEY"
+    assert cloud_credential_status(MemoryStore(), "deepseek")["environment_fallback"] == (
+        "DEEPSEEK_API_KEY"
+    )

@@ -58,9 +58,12 @@ async def account_gpt_analysis(
     layout = resolve_project(project_path)
     options = body.options()
     RemoteAccountAnalysisService.require_authorization(layout, options)
-    executor_name = (
-        "openai_executor" if options.provider is AnalysisProviderKind.OPENAI else "bailian_executor"
-    )
+    if options.provider is AnalysisProviderKind.OPENAI:
+        executor_name = "openai_executor"
+    elif options.provider is AnalysisProviderKind.DEEPSEEK:
+        executor_name = "deepseek_executor"
+    else:
+        executor_name = "bailian_executor"
     resolved = resolve_cloud_credential(
         request.app.state.cloud_credentials,
         options.provider.value,

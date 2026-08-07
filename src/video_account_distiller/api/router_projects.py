@@ -47,8 +47,11 @@ def _cloud_provider_credentials(store: CloudCredentialStore) -> dict[str, dict[s
 
 
 def _provider_executor(request: Request, provider: AnalysisProviderKind) -> Any:
-    name = "openai_executor" if provider is AnalysisProviderKind.OPENAI else "bailian_executor"
-    return getattr(request.app.state, name, None)
+    if provider is AnalysisProviderKind.OPENAI:
+        return getattr(request.app.state, "openai_executor", None)
+    if provider is AnalysisProviderKind.DEEPSEEK:
+        return getattr(request.app.state, "deepseek_executor", None)
+    return getattr(request.app.state, "bailian_executor", None)
 
 
 @router.put("/cloud-model/credentials/{provider}")

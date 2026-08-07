@@ -206,7 +206,7 @@ class AccountDistillWorkflowParams(CollectionAnalyzeParams):
     text_provider: Literal["llamacpp", "cloud"] | None = None
     whisper_model: str = Field(default="base", min_length=1, max_length=64)
     whisper_command: str | None = Field(default=None, max_length=2048)
-    vision_provider: Literal["ollama"] | None = "ollama"
+    vision_provider: Literal["ollama", "llamacpp", "cloud"] | None = "llamacpp"
     vision_model: str = Field(default="qwen3-vl-8b", min_length=1, max_length=128)
     ollama_base_url: str = Field(default="http://127.0.0.1:11434", max_length=2048)
     cloud_base_url: str | None = Field(default=None, max_length=2048)

@@ -15,6 +15,7 @@ KEYRING_SERVICE = "video-account-distiller"
 CREDENTIAL_ENVIRONMENTS = {
     "openai": "OPENAI_API_KEY",
     "bailian": "DASHSCOPE_API_KEY",
+    "deepseek": "DEEPSEEK_API_KEY",
 }
 
 
