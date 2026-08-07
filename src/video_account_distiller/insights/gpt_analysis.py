@@ -847,6 +847,48 @@ def _prompt(options: GptAnalysisOptions, allowed_refs: list[str]) -> str:
 
 
 def _render_markdown(payload: dict[str, Any]) -> str:
+    classification_zh = {
+        "observed_fact": "已观察事实",
+        "statistical_association": "统计关联",
+        "hypothesis": "假设",
+        "recommendation": "建议",
+        "unknown": "未知",
+    }
+    confidence_zh = {
+        "high": "高",
+        "medium": "中",
+        "low": "低",
+        "unknown": "未知",
+    }
+
+    def _evidence_label(ref: str) -> str:
+        lowered = ref.casefold()
+        if lowered.startswith("context://account"):
+            return "账号快照"
+        if lowered.startswith("context://data-availability"):
+            return "数据可用性"
+        if lowered.startswith("context://growth"):
+            return "增长轨迹"
+        if lowered.startswith("context://limitations"):
+            return "数据局限"
+        if lowered.startswith("context://analysis_contract"):
+            return "分析规范"
+        if lowered.startswith("context://artifacts/"):
+            return f"分析产物（{ref.rsplit('/', 1)[-1]}）"
+        if lowered.endswith("report.json"):
+            return "账号体检报告"
+        if lowered.endswith("distillation.json"):
+            return "账号蒸馏"
+        if lowered.endswith("enrichment.json"):
+            return "媒体增强"
+        if lowered.endswith("profile.json"):
+            return "对标画像"
+        if lowered.endswith("analysis.json"):
+            return "视频分析"
+        if lowered.endswith("sample-manifest.json"):
+            return "抽样清单"
+        return ref
+
     result = GptAccountAnalysis.model_validate(payload["result"])
     lines = [
         "# GPT 账号分析",
@@ -863,9 +905,9 @@ def _render_markdown(payload: dict[str, Any]) -> str:
                 "",
                 finding.statement,
                 "",
-                f"- 类型：{finding.classification}",
-                f"- 置信度：{finding.confidence}",
-                f"- 证据：{', '.join(finding.evidence_refs)}",
+                f"- 类型：{classification_zh.get(str(finding.classification), str(finding.classification))}",
+                f"- 置信度：{confidence_zh.get(str(finding.confidence), str(finding.confidence))}",
+                f"- 证据来源：{'、'.join(_evidence_label(ref) for ref in finding.evidence_refs)}",
                 "",
             ]
         )
@@ -875,7 +917,7 @@ def _render_markdown(payload: dict[str, Any]) -> str:
             [
                 f"{action.priority}. {action.action}",
                 f"   - 理由：{action.rationale}",
-                f"   - 证据：{', '.join(action.evidence_refs)}",
+                f"   - 证据来源：{'、'.join(_evidence_label(ref) for ref in action.evidence_refs)}",
             ]
         )
     lines.extend(["", "## 实验建议", ""])
@@ -887,7 +929,7 @@ def _render_markdown(payload: dict[str, Any]) -> str:
                     f"  - 动作：{experiment.action}",
                     f"  - 主指标：{experiment.primary_metric}",
                     f"  - 观察窗口：{experiment.observation_window}",
-                    f"  - 证据：{', '.join(experiment.evidence_refs)}",
+                    f"  - 证据来源：{'、'.join(_evidence_label(ref) for ref in experiment.evidence_refs)}",
                 ]
             )
     else:

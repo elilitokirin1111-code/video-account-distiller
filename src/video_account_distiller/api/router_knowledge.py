@@ -9,8 +9,10 @@ from fastapi import APIRouter, Request
 from video_account_distiller.api.deps import resolve_project
 from video_account_distiller.api.schemas import (
     KnowledgeExportParams,
+    ObsidianSyncParams,
     OpenKBQueryParams,
     OpenKBSyncParams,
+    WeKnoraSyncParams,
 )
 from video_account_distiller.api.task_jobs import (
     OpenKBQueryJob,
@@ -19,7 +21,9 @@ from video_account_distiller.api.task_jobs import (
 )
 from video_account_distiller.knowledge import (
     KnowledgeExportService,
+    ObsidianVaultExporter,
     OpenKBIntegrationService,
+    WeKnoraSyncService,
     resolve_openkb_target,
 )
 
@@ -52,6 +56,43 @@ async def export_account_knowledge(
         max_video_analyses=body.max_video_analyses,
         max_export_bytes=body.max_export_bytes,
         dry_run=dry_run,
+    )
+
+
+@router.post("/{project_path:path}/knowledge/obsidian/accounts/{account_id}/sync")
+async def sync_account_obsidian(
+    project_path: str,
+    account_id: str,
+    body: ObsidianSyncParams,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Write curated account knowledge into a local Obsidian vault."""
+
+    layout = resolve_project(project_path)
+    return ObsidianVaultExporter(layout).export_account(
+        account_id=account_id,
+        vault_path=body.vault_path,
+        max_video_analyses=body.max_video_analyses,
+        max_export_bytes=body.max_export_bytes,
+        dry_run=dry_run,
+    )
+
+
+@router.post("/{project_path:path}/knowledge/weknora/accounts/{account_id}/sync")
+async def sync_account_weknora(
+    project_path: str,
+    account_id: str,
+    body: WeKnoraSyncParams,
+) -> dict[str, Any]:
+    """Upload the human-readable analysis reports into a WeKnora knowledge base."""
+
+    layout = resolve_project(project_path)
+    return WeKnoraSyncService(layout).sync_account(
+        account_id=account_id,
+        base_url=body.base_url,
+        api_key=body.api_key,
+        kb_name=body.kb_name,
+        max_video_analyses=body.max_video_analyses,
     )
 
 

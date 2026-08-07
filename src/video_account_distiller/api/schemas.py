@@ -206,7 +206,7 @@ class AccountDistillWorkflowParams(CollectionAnalyzeParams):
     whisper_model: str = Field(default="base", min_length=1, max_length=64)
     whisper_command: str | None = Field(default=None, max_length=2048)
     vision_provider: Literal["ollama"] | None = "ollama"
-    vision_model: str = Field(default="qwen3-vl:8b", min_length=1, max_length=128)
+    vision_model: str = Field(default="qwen3-vl-8b", min_length=1, max_length=128)
     ollama_base_url: str = Field(default="http://127.0.0.1:11434", max_length=2048)
     vision_batch_size: int = Field(default=4, ge=1, le=8)
     vision_timeout_seconds: int = Field(default=180, ge=1, le=1800)
@@ -229,6 +229,16 @@ class OpenKBSyncParams(KnowledgeExportParams):
     confirm_model_processing: bool = False
     create_kb: bool = True
     force: bool = False
+
+
+class ObsidianSyncParams(KnowledgeExportParams):
+    vault_path: str | None = Field(default=None, max_length=4096)
+
+
+class WeKnoraSyncParams(KnowledgeExportParams):
+    base_url: str = Field(default="http://127.0.0.1:8080", max_length=2048)
+    api_key: str = Field(min_length=1, max_length=2048)
+    kb_name: str = Field(default="视频账号蒸馏", min_length=1, max_length=128)
 
 
 class OpenKBQueryParams(BaseModel):
