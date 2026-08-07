@@ -292,8 +292,13 @@ class CommentAnalysisService:
             )
         elif selected_provider is None and config.models.text_provider == "llamacpp":
             selected_provider = LlamaCppTextProvider(
-                model=config.models.llamacpp_model or config.models.vision_model or "local",
-                base_url=config.models.llamacpp_base_url,
+                model=(
+                    config.models.llamacpp_text_model
+                    or config.models.llamacpp_model
+                    or config.models.vision_model
+                    or "local"
+                ),
+                base_url=config.models.llamacpp_text_base_url,
                 timeout_seconds=config.models.vision_timeout_seconds,
                 api_key=config.models.llamacpp_api_key,
             )

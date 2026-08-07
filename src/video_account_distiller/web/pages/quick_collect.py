@@ -1078,7 +1078,7 @@ with st.form("self_service_distill_form"):
             whisper_index = (
                 ["tiny", "base", "small", "medium"].index(template_whisper)
                 if template_whisper in ["tiny", "base", "small", "medium"]
-                else 1
+                else 2
             )
             template_vision_choice = template.get("vision_provider")
             media_limit = st.number_input(
