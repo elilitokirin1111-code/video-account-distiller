@@ -20,6 +20,7 @@ from video_account_distiller.features.prompts import (
     render_prompt,
 )
 from video_account_distiller.features.providers import (
+    LlamaCppTextProvider,
     ModelSchemaFailure,
     OllamaTextProvider,
     StructuredFileProvider,
@@ -657,6 +658,13 @@ class VideoAnalysisService:
             selected_provider = OllamaTextProvider(
                 base_url=config.models.ollama_base_url,
                 timeout_seconds=config.models.vision_timeout_seconds,
+            )
+        elif selected_provider is None and config.models.text_provider == "llamacpp":
+            selected_provider = LlamaCppTextProvider(
+                model=config.models.llamacpp_model or config.models.vision_model or "local",
+                base_url=config.models.llamacpp_base_url,
+                timeout_seconds=config.models.vision_timeout_seconds,
+                api_key=config.models.llamacpp_api_key,
             )
         attempts = max_attempts or config.models.max_schema_attempts
         effective_strict_model = strict_model or not config.models.allow_degraded_analysis

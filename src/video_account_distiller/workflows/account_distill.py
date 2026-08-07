@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from video_account_distiller.benchmarking import AccountBenchmarkProfileService
+from video_account_distiller.config import load_config
 from video_account_distiller.collection import (
     AccountCollectionProvider,
     AccountCollectionService,
@@ -18,6 +19,7 @@ from video_account_distiller.insights import AnalysisContextService
 from video_account_distiller.knowledge import KnowledgeExportService
 from video_account_distiller.media import (
     AccountMediaEnrichmentService,
+    LlamaCppVisionProvider,
     OllamaVisionProvider,
     VisionModelProvider,
     WhisperCliTranscriber,
@@ -166,19 +168,28 @@ def _vision_provider(
     base_url: str,
     batch_size: int,
     timeout_seconds: int,
+    api_key: str | None = None,
 ) -> VisionModelProvider | None:
     if provider is None:
         return None
-    if provider != "ollama":
-        raise DistillerError(
-            ErrorCode.SCHEMA_INVALID,
-            "Self-service visual analysis currently supports only local Ollama",
+    if provider == "ollama":
+        return OllamaVisionProvider(
+            model=model,
+            base_url=base_url,
+            batch_size=batch_size,
+            timeout_seconds=timeout_seconds,
         )
-    return OllamaVisionProvider(
-        model=model,
-        base_url=base_url,
-        batch_size=batch_size,
-        timeout_seconds=timeout_seconds,
+    if provider == "llamacpp":
+        return LlamaCppVisionProvider(
+            model=model,
+            base_url=base_url,
+            batch_size=batch_size,
+            timeout_seconds=timeout_seconds,
+            api_key=api_key,
+        )
+    raise DistillerError(
+        ErrorCode.SCHEMA_INVALID,
+        "Self-service visual analysis supports local Ollama or llama.cpp",
     )
 
 
@@ -204,7 +215,7 @@ class AccountDistillWorkflow:
         whisper_model: str = "base",
         whisper_command: Path | None = None,
         vision_provider: str | None = "ollama",
-        vision_model: str = "qwen3-vl:8b",
+        vision_model: str = "qwen3-vl-8b",
         ollama_base_url: str = "http://127.0.0.1:11434",
         vision_batch_size: int = 4,
         vision_timeout_seconds: int = 180,
@@ -225,12 +236,20 @@ class AccountDistillWorkflow:
                 "Video-content enrichment currently requires the MediaCrawler provider",
             )
 
+        config = load_config(self.project.config_path)
+        if vision_provider == "llamacpp":
+            local_base_url = config.models.llamacpp_base_url
+            local_vision_model = config.models.llamacpp_model or vision_model
+        else:
+            local_base_url = ollama_base_url
+            local_vision_model = vision_model
         local_vision = _vision_provider(
             provider=vision_provider if media_limit > 0 else None,
-            model=vision_model,
-            base_url=ollama_base_url,
+            model=local_vision_model,
+            base_url=local_base_url,
             batch_size=vision_batch_size,
             timeout_seconds=vision_timeout_seconds,
+            api_key=config.models.llamacpp_api_key,
         )
         transcriber = WhisperCliTranscriber(
             command=whisper_command,

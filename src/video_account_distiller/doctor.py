@@ -6,6 +6,8 @@ import os
 import platform
 import shutil
 import sys
+import urllib.error
+import urllib.request
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
@@ -73,6 +75,26 @@ def _ollama() -> RuntimeExecutable:
     return RuntimeExecutable(name="ollama", available=path is not None, path=path)
 
 
+def _llamacpp() -> RuntimeExecutable:
+    base_url = os.environ.get(
+        "DISTILLER_LLAMACPP_BASE_URL",
+        "http://127.0.0.1:8080",
+    ).rstrip("/")
+    available = False
+    try:
+        request = urllib.request.Request(f"{base_url}/v1/models")
+        api_key = os.environ.get("DISTILLER_LLAMACPP_API_KEY")
+        if api_key:
+            request.add_header("Authorization", f"Bearer {api_key}")
+        with urllib.request.urlopen(request, timeout=3) as response:
+            available = response.status == 200
+    except urllib.error.HTTPError as exc:
+        available = exc.code == 401
+    except Exception:
+        available = False
+    return RuntimeExecutable(name="llamacpp", available=available, path=base_url)
+
+
 def _project_diagnostic(path: Path) -> ProjectDiagnostic:
     root = path.expanduser().resolve()
     exists = root.is_dir()
@@ -111,6 +133,7 @@ def doctor_report(project: Path | None = None) -> DoctorReport:
         _executable("uv"),
         _whisper(),
         _ollama(),
+        _llamacpp(),
         _chrome(),
     ]
     executable_state = {item.name: item.available for item in executables}
@@ -137,7 +160,7 @@ def doctor_report(project: Path | None = None) -> DoctorReport:
             core=core_ready,
             local_media=executable_state["ffmpeg"] and executable_state["ffprobe"],
             video_transcription=executable_state["whisper"],
-            local_vision=executable_state["ollama"],
+            local_vision=executable_state["ollama"] or executable_state["llamacpp"],
             account_media_enrichment=(
                 executable_state["ffmpeg"]
                 and executable_state["ffprobe"]

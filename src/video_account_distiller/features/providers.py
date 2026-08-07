@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any, Protocol, TypeVar
 from urllib.error import HTTPError, URLError
@@ -331,3 +332,92 @@ class OllamaTextProvider:
             return value
 
         return coerce(data, schema)
+
+
+class LlamaCppTextProvider(OllamaTextProvider):
+    """Local text analysis through a llama.cpp OpenAI-compatible server."""
+
+    provider_name = "llamacpp"
+
+    def __init__(
+        self,
+        *,
+        model: str = "local",
+        base_url: str = "http://127.0.0.1:8080",
+        timeout_seconds: int = 180,
+        api_key: str | None = None,
+    ) -> None:
+        self.model_name = model or "local"
+        self.base_url = base_url.rstrip("/")
+        self.timeout_seconds = timeout_seconds
+        self.api_key = api_key or os.environ.get("DISTILLER_LLAMACPP_API_KEY")
+
+    def generate_structured(
+        self,
+        prompt: str,
+        response_model: type[ResponseT],
+        *,
+        temperature: float = 0.0,
+    ) -> ResponseT:
+        """Call llama.cpp with a prompt and validate the response against the schema."""
+
+        content = self._build_prompt(prompt, response_model)
+        body = json.dumps(
+            {
+                "model": self.model_name,
+                "messages": [{"role": "user", "content": content}],
+                "temperature": temperature,
+                "stream": False,
+            }
+        ).encode()
+        url = f"{self.base_url}/v1/chat/completions"
+        request_headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            request_headers["Authorization"] = f"Bearer {self.api_key}"
+        request = Request(
+            url,
+            data=body,
+            method="POST",
+            headers=request_headers,
+        )
+        try:
+            with urlopen(request, timeout=self.timeout_seconds) as resp:
+                result = json.loads(resp.read().decode("utf-8"))
+        except (HTTPError, URLError, TimeoutError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ModelSchemaFailure(f"llama.cpp text request failed: {type(exc).__name__}") from exc
+        if not isinstance(result, dict):
+            raise ModelSchemaFailure("llama.cpp returned a non-dict response")
+        choices = result.get("choices")
+        message = choices[0].get("message") if isinstance(choices, list) and choices else None
+        raw = message.get("content") if isinstance(message, dict) else None
+        if not raw:
+            raise ModelSchemaFailure("llama.cpp returned an empty text response")
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            start = raw.find("{")
+            if start >= 0:
+                try:
+                    parsed, _ = json.JSONDecoder().raw_decode(raw[start:])
+                except json.JSONDecodeError as exc:
+                    raise ModelSchemaFailure(
+                        f"llama.cpp response is not valid JSON: {raw[:200]}"
+                    ) from exc
+            else:
+                raise ModelSchemaFailure(
+                    f"llama.cpp response is not valid JSON: {raw[:200]}"
+                ) from None
+        try:
+            return response_model.model_validate(parsed)
+        except ValidationError:
+            coerced = self._coerce_to_schema(parsed, response_model.model_json_schema())
+            try:
+                return response_model.model_validate(coerced)
+            except ValidationError as exc:
+                compact_errors = [
+                    {"loc": list(error["loc"]), "type": error["type"]}
+                    for error in exc.errors(include_url=False)
+                ]
+                raise ModelSchemaFailure(
+                    f"llama.cpp response failed schema validation: {compact_errors}"
+                ) from exc

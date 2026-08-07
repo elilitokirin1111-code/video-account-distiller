@@ -19,11 +19,13 @@ from video_account_distiller.media.enrichment import (
 )
 from video_account_distiller.media.pipeline import LocalMediaAnalysisService
 from video_account_distiller.media.providers import (
+    LlamaCppVisionProvider,
     OllamaVisionProvider,
     StructuredVisionFileProvider,
     VisionModelProvider,
     VisionSchemaFailure,
     ollama_model_available,
+    llamacpp_model_available,
 )
 
 __all__ = [
@@ -36,6 +38,7 @@ __all__ = [
     "MediaBackendFailure",
     "LocalMediaAnalysisService",
     "LocalTranscriber",
+    "LlamaCppVisionProvider",
     "MediaDownloader",
     "OllamaVisionProvider",
     "SceneDetectionResult",
@@ -46,4 +49,5 @@ __all__ = [
     "WhisperCliTranscriber",
     "HttpMediaDownloader",
     "ollama_model_available",
+    "llamacpp_model_available",
 ]

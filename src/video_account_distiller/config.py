@@ -73,8 +73,11 @@ class ModelsSection(BaseModel):
     model_config = ConfigDict(extra="forbid")
     text_provider: str | None = None
     vision_provider: str | None = None
-    vision_model: str = "qwen3-vl:8b"
+    vision_model: str = "qwen3-vl-8b"
     ollama_base_url: str = "http://127.0.0.1:11434"
+    llamacpp_base_url: str = "http://127.0.0.1:8080"
+    llamacpp_model: str | None = None
+    llamacpp_api_key: str | None = None
     vision_batch_size: int = Field(default=4, ge=1, le=8)
     vision_timeout_seconds: int = Field(default=180, ge=1, le=1800)
     require_schema_validation: bool = True
@@ -122,6 +125,11 @@ class ReportsSection(BaseModel):
     include_evidence_index: bool = True
 
 
+class KnowledgeSection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    obsidian_vault_path: str | None = Field(default=None, max_length=4096)
+
+
 class DistillerConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     project: ProjectSection
@@ -133,6 +141,7 @@ class DistillerConfig(BaseModel):
     collaboration: CollaborationSection = Field(default_factory=CollaborationSection)
     scoring: ScoringSection = Field(default_factory=ScoringSection)
     reports: ReportsSection = Field(default_factory=ReportsSection)
+    knowledge: KnowledgeSection = Field(default_factory=KnowledgeSection)
 
     def as_yaml(self) -> str:
         """Serialize the validated configuration as stable YAML."""

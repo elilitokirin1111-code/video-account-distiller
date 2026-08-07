@@ -123,12 +123,12 @@ async def init_project(body: ProjectInitRequest) -> dict[str, Any]:
         config_template=template,
     )
     if not already:
-        # Web-created projects default to the local Ollama setup so
+        # Web-created projects default to the local llama.cpp setup so
         # per-account folders work without extra configuration.
         config = load_config(layout.config_path)
         if config.models.text_provider is None and config.models.vision_provider is None:
-            config.models.text_provider = "ollama"
-            config.models.vision_provider = "ollama"
+            config.models.text_provider = "llamacpp"
+            config.models.vision_provider = "llamacpp"
             atomic_write_text(layout.config_path, config.as_yaml())
     return {
         "ok": True,

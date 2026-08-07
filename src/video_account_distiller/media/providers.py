@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 from collections import defaultdict
 from collections.abc import Sequence
 from pathlib import Path
@@ -51,6 +52,7 @@ class VisionHttpExecutor(Protocol):
         method: str,
         payload: dict[str, Any] | None,
         timeout_seconds: int,
+        headers: dict[str, str] | None = None,
     ) -> dict[str, Any]: ...
 
 
@@ -64,13 +66,17 @@ class UrllibVisionHttpExecutor:
         method: str,
         payload: dict[str, Any] | None,
         timeout_seconds: int,
+        headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         body = None if payload is None else json.dumps(payload).encode("utf-8")
+        request_headers = {"Content-Type": "application/json"}
+        if headers:
+            request_headers.update(headers)
         request = Request(
             url,
             data=body,
             method=method,
-            headers={"Content-Type": "application/json"},
+            headers=request_headers,
         )
         try:
             with urlopen(request, timeout=timeout_seconds) as response:
@@ -436,6 +442,147 @@ class OllamaVisionProvider:
             ocr_observations=observations,
             unknowns=list(dict.fromkeys(item for item in unknowns if item)),
         )
+
+
+def _local_llamacpp_base_url(value: str) -> str:
+    parsed = urlparse(value.strip())
+    if (
+        parsed.scheme != "http"
+        or parsed.hostname not in {"127.0.0.1", "localhost"}
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise DistillerError(
+            ErrorCode.SCHEMA_INVALID,
+            "llama.cpp base URL must be a local http://127.0.0.1:<port>",
+        )
+    return f"http://{parsed.hostname}:{parsed.port or 8080}"
+
+
+def llamacpp_model_available(
+    *,
+    base_url: str,
+    model: str,
+    executor: VisionHttpExecutor | None = None,
+    timeout_seconds: int = 5,
+) -> bool:
+    """Check the loopback llama.cpp model registry (OpenAI-compatible endpoint)."""
+
+    local_url = _local_llamacpp_base_url(base_url)
+    transport = executor or UrllibVisionHttpExecutor()
+    headers = _llamacpp_auth_headers()
+    try:
+        payload = transport.request_json(
+            url=f"{local_url}/v1/models",
+            method="GET",
+            payload=None,
+            timeout_seconds=timeout_seconds,
+            headers=headers,
+        )
+    except VisionSchemaFailure:
+        return False
+    data = payload.get("data")
+    if not isinstance(data, list):
+        return False
+    ids = {str(item.get("id") or "") for item in data if isinstance(item, dict)}
+    return bool(ids) and (model in ids or not model)
+
+
+def _llamacpp_auth_headers() -> dict[str, str]:
+    api_key = os.environ.get("DISTILLER_LLAMACPP_API_KEY")
+    if api_key:
+        return {"Authorization": f"Bearer {api_key}"}
+    return {}
+
+
+class LlamaCppVisionProvider(OllamaVisionProvider):
+    """Loopback-only llama.cpp keyframe analysis via the OpenAI-compatible API."""
+
+    provider_name = "llamacpp"
+
+    def __init__(
+        self,
+        *,
+        model: str = "qwen3-vl-8b",
+        base_url: str = "http://127.0.0.1:8080",
+        batch_size: int = 4,
+        timeout_seconds: int = 180,
+        api_key: str | None = None,
+        executor: VisionHttpExecutor | None = None,
+    ) -> None:
+        if not model.strip() or len(model) > 128:
+            raise DistillerError(ErrorCode.SCHEMA_INVALID, "Invalid llama.cpp vision model name")
+        if batch_size < 1 or batch_size > 8:
+            raise DistillerError(ErrorCode.SCHEMA_INVALID, "Vision batch size must be 1 through 8")
+        if timeout_seconds < 1 or timeout_seconds > 1800:
+            raise DistillerError(
+                ErrorCode.SCHEMA_INVALID,
+                "Vision timeout must be 1 through 1800 seconds",
+            )
+        self.model_name = model.strip()
+        self.base_url = _local_llamacpp_base_url(base_url)
+        self.batch_size = batch_size
+        self.timeout_seconds = timeout_seconds
+        self.executor = executor or UrllibVisionHttpExecutor()
+        self.api_key = api_key or os.environ.get("DISTILLER_LLAMACPP_API_KEY")
+        self.raw_responses: list[dict[str, Any]] = []
+        self.input_hash = sha256_json(
+            {
+                "provider": self.provider_name,
+                "model": self.model_name,
+                "base_url": self.base_url,
+                "batch_size": self.batch_size,
+                "contract": "media-vision-v2",
+                "prompt_version": OLLAMA_VISION_PROMPT_VERSION,
+            }
+        )
+
+    def _analyze_batch(self, batch: Sequence[Any]) -> _OllamaVisionResponse:
+        content: list[dict[str, Any]] = [{"type": "text", "text": self._prompt(batch)}]
+        for item in batch:
+            path = Path(item.path)
+            if not path.is_file():
+                raise VisionSchemaFailure(f"keyframe file not found: {item.keyframe_id}")
+            encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{encoded}"},
+                }
+            )
+        payload = self.executor.request_json(
+            url=f"{self.base_url}/v1/chat/completions",
+            method="POST",
+            payload={
+                "model": self.model_name,
+                "messages": [{"role": "user", "content": content}],
+                "temperature": 0,
+                "stream": False,
+            },
+            timeout_seconds=self.timeout_seconds,
+            headers=(
+                {"Authorization": f"Bearer {self.api_key}"}
+                if self.api_key
+                else {}
+            ),
+        )
+        self.raw_responses.append(payload)
+        choices = payload.get("choices")
+        message = choices[0].get("message") if isinstance(choices, list) and choices else None
+        content_text = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(content_text, str) or not content_text.strip():
+            raise VisionSchemaFailure("local llama.cpp response has no message content")
+        try:
+            return _OllamaVisionResponse.model_validate_json(content_text)
+        except ValidationError as exc:
+            compact = [
+                {"loc": list(error["loc"]), "type": error["type"]}
+                for error in exc.errors(include_url=False)
+            ]
+            raise VisionSchemaFailure(f"llama.cpp vision schema invalid: {compact}") from exc
 
 
 class StructuredVisionFileProvider:
