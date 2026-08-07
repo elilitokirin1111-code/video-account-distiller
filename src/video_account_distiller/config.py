@@ -75,7 +75,7 @@ class ModelsSection(BaseModel):
     vision_provider: str | None = None
     vision_model: str = "qwen3-vl-8b"
     ollama_base_url: str = "http://127.0.0.1:11434"
-    llamacpp_base_url: str = "http://127.0.0.1:8080"
+    llamacpp_base_url: str = "http://127.0.0.1:8081"
     llamacpp_model: str | None = None
     llamacpp_api_key: str | None = None
     vision_batch_size: int = Field(default=4, ge=1, le=8)

@@ -459,7 +459,7 @@ def _local_llamacpp_base_url(value: str) -> str:
             ErrorCode.SCHEMA_INVALID,
             "llama.cpp base URL must be a local http://127.0.0.1:<port>",
         )
-    return f"http://{parsed.hostname}:{parsed.port or 8080}"
+    return f"http://{parsed.hostname}:{parsed.port or 8081}"
 
 
 def llamacpp_model_available(
@@ -507,7 +507,7 @@ class LlamaCppVisionProvider(OllamaVisionProvider):
         self,
         *,
         model: str = "qwen3-vl-8b",
-        base_url: str = "http://127.0.0.1:8080",
+        base_url: str = "http://127.0.0.1:8081",
         batch_size: int = 4,
         timeout_seconds: int = 180,
         api_key: str | None = None,

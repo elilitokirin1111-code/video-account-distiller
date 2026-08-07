@@ -343,7 +343,7 @@ class LlamaCppTextProvider(OllamaTextProvider):
         self,
         *,
         model: str = "local",
-        base_url: str = "http://127.0.0.1:8080",
+        base_url: str = "http://127.0.0.1:8081",
         timeout_seconds: int = 180,
         api_key: str | None = None,
     ) -> None:
