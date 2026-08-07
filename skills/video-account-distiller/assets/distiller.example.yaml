@@ -31,7 +31,7 @@ media:
   ffprobe_path: null
   scene_threshold: 0.3
   max_shots: 500
-  max_keyframes: 12
+  max_keyframes: 8
   keyframe_width: 720
   audio_sample_rate: 8000
   audio_window_ms: 100
