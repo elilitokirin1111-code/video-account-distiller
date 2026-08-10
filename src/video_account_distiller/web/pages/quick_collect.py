@@ -1401,21 +1401,11 @@ if isinstance(account_id, str):
             "weknora_base_url",
             "http://127.0.0.1:8080",
         )
-        default_weknora_kb = st.session_state.get("weknora_kb_name") or web_state.get_state(
-            "weknora_kb_name",
-            "视频账号蒸馏",
-        )
         weknora_url = st.text_input(
             "WeKnora 服务地址",
             value=str(default_weknora_url),
             key="weknora_url_input",
             placeholder="http://127.0.0.1:8080",
-        )
-        weknora_kb = st.text_input(
-            "已有知识库名称",
-            value=str(default_weknora_kb),
-            key="weknora_kb_input",
-            help="名称必须与 WeKnora 中已创建、且当前 API Key 可访问的知识库完全一致。",
         )
         weknora_key = st.text_input(
             "WeKnora API Key",
@@ -1424,6 +1414,64 @@ if isinstance(account_id, str):
             placeholder="在 WeKnora 账户页面获取",
             help="密钥只保存在当前会话，不会写入项目文件。",
         )
+        if st.button(
+            "读取此 API Key 可访问的知识库",
+            use_container_width=True,
+            disabled=not weknora_url.strip() or not weknora_key.strip(),
+        ):
+            cleaned_url = weknora_url.strip()
+            discovered = _request(
+                (
+                    f"/api/projects/{_encoded_account_project()}"
+                    "/knowledge/weknora/knowledge-bases"
+                ),
+                "POST",
+                json={"base_url": cleaned_url, "api_key": weknora_key},
+                timeout=60,
+            )
+            if discovered.get("ok"):
+                knowledge_bases = discovered.get("knowledge_bases") or []
+                st.session_state["weknora_knowledge_bases"] = knowledge_bases
+                st.session_state["weknora_base_url"] = cleaned_url
+                web_state.set_state(weknora_base_url=cleaned_url)
+                if knowledge_bases:
+                    st.success(f"已读取 {len(knowledge_bases)} 个可访问知识库")
+                else:
+                    st.warning("此 API Key 当前看不到任何知识库，请检查它的知识库授权范围。")
+            else:
+                st.session_state["weknora_knowledge_bases"] = []
+                message = (discovered.get("error") or {}).get("message") or "读取失败"
+                st.error(f"读取 WeKnora 知识库失败：{message}")
+
+        knowledge_bases = [
+            item
+            for item in st.session_state.get("weknora_knowledge_bases", [])
+            if isinstance(item, dict) and item.get("id") and item.get("name")
+        ]
+        knowledge_base_by_id = {str(item["id"]): item for item in knowledge_bases}
+        knowledge_base_ids = list(knowledge_base_by_id)
+        if knowledge_base_ids:
+            current_kb_id = st.session_state.get("weknora_kb_id_select")
+            if current_kb_id not in knowledge_base_ids:
+                persisted_kb_id = web_state.get_state("weknora_kb_id")
+                st.session_state["weknora_kb_id_select"] = (
+                    persisted_kb_id if persisted_kb_id in knowledge_base_ids else knowledge_base_ids[0]
+                )
+            selected_kb_id = st.selectbox(
+                "选择目标知识库",
+                options=knowledge_base_ids,
+                format_func=lambda kb_id: (
+                    f"{knowledge_base_by_id[kb_id]['name']} · {kb_id}"
+                ),
+                key="weknora_kb_id_select",
+                help="同步请求使用知识库唯一 ID，不会因同名知识库选错目标。",
+            )
+            selected_kb_name = str(knowledge_base_by_id[selected_kb_id]["name"])
+        else:
+            selected_kb_id = ""
+            selected_kb_name = ""
+            st.info("请先输入 API Key 并读取可访问的知识库。")
+
         weknora_max = st.slider(
             "纳入最近视频分析数",
             1,
@@ -1434,17 +1482,17 @@ if isinstance(account_id, str):
         if st.button(
             "同步当前账号到 WeKnora",
             use_container_width=True,
+            disabled=not selected_kb_id,
         ):
             cleaned_url = weknora_url.strip()
-            cleaned_kb = weknora_kb.strip()
             st.session_state["weknora_base_url"] = cleaned_url
-            st.session_state["weknora_kb_name"] = cleaned_kb
             web_state.set_state(
                 weknora_base_url=cleaned_url,
-                weknora_kb_name=cleaned_kb,
+                weknora_kb_id=selected_kb_id,
+                weknora_kb_name=selected_kb_name,
             )
-            if not cleaned_url or not cleaned_kb:
-                st.error("请填写 WeKnora 服务地址和知识库名称")
+            if not cleaned_url:
+                st.error("请填写 WeKnora 服务地址")
             elif not weknora_key.strip():
                 st.error("请填写 WeKnora API Key")
             else:
@@ -1457,7 +1505,7 @@ if isinstance(account_id, str):
                     json={
                         "base_url": cleaned_url,
                         "api_key": weknora_key,
-                        "kb_name": cleaned_kb,
+                        "kb_id": selected_kb_id,
                         "max_video_analyses": weknora_max,
                     },
                     timeout=300,
@@ -1476,7 +1524,7 @@ if isinstance(account_id, str):
                     if sync.get("error_code") == "API_KEY_SCOPE_NOT_ALLOWED":
                         st.info(
                             "在 WeKnora 的 API Key 设置中，将当前 Key 的知识库范围包含“"
-                            f"{cleaned_kb}”（ID：{sync.get('kb_id') or '未返回'}），并启用"
+                            f"{selected_kb_name}”（ID：{selected_kb_id}），并启用"
                             "文档上传或编辑权限，然后重新同步。"
                         )
                     if sync.get("errors"):

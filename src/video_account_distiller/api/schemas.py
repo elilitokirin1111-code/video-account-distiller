@@ -240,10 +240,15 @@ class ObsidianSyncParams(KnowledgeExportParams):
     vault_path: str | None = Field(default=None, max_length=4096)
 
 
+class WeKnoraConnectionParams(BaseModel):
+    base_url: str = Field(default="http://127.0.0.1:8080", max_length=2048)
+    api_key: str = Field(min_length=1, max_length=2048)
+
+
 class WeKnoraSyncParams(KnowledgeExportParams):
     base_url: str = Field(default="http://127.0.0.1:8080", max_length=2048)
     api_key: str = Field(min_length=1, max_length=2048)
-    kb_name: str = Field(default="视频账号蒸馏", min_length=1, max_length=128)
+    kb_id: str = Field(min_length=1, max_length=128)
 
 
 class OpenKBQueryParams(BaseModel):

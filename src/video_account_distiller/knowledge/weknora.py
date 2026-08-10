@@ -30,7 +30,22 @@ class WeKnoraSyncService:
     def __init__(self, project: ProjectLayout) -> None:
         self.project = project
 
-    def _find_kb(self, api: str, headers: dict[str, str], kb_name: str) -> str | None:
+    def list_knowledge_bases(
+        self,
+        *,
+        base_url: str = DEFAULT_WEKNORA_BASE_URL,
+        api_key: str,
+    ) -> list[dict[str, str]]:
+        if not base_url.strip():
+            raise DistillerError(ErrorCode.SCHEMA_INVALID, "WeKnora base URL is required")
+        if not api_key.strip():
+            raise DistillerError(
+                ErrorCode.ADAPTER_AUTH,
+                "WeKnora API Key is required",
+                details={"next": "在 WeKnora API 集成页面获取 API Key"},
+            )
+        api = _api_url(base_url)
+        headers = {"X-API-Key": api_key.strip()}
         response = requests.get(
             f"{api}/knowledge-bases",
             headers=headers,
@@ -49,11 +64,25 @@ class WeKnoraSyncService:
         payload = response.json()
         items = payload.get("data") if isinstance(payload, dict) else None
         if not isinstance(items, list):
-            return None
+            raise DistillerError(
+                ErrorCode.ADAPTER_RESPONSE,
+                "WeKnora knowledge-base list returned an invalid response",
+            )
+        knowledge_bases: list[dict[str, str]] = []
         for item in items:
-            if isinstance(item, dict) and item.get("name") == kb_name:
-                return str(item.get("id") or "")
-        return None
+            if not isinstance(item, dict):
+                continue
+            kb_id = str(item.get("id") or "").strip()
+            kb_name = str(item.get("name") or "").strip()
+            if kb_id and kb_name:
+                knowledge_bases.append(
+                    {
+                        "id": kb_id,
+                        "name": kb_name,
+                        "type": str(item.get("type") or ""),
+                    }
+                )
+        return sorted(knowledge_bases, key=lambda item: (item["name"], item["id"]))
 
     def sync_account(
         self,
@@ -61,34 +90,32 @@ class WeKnoraSyncService:
         account_id: str,
         base_url: str = DEFAULT_WEKNORA_BASE_URL,
         api_key: str,
-        kb_name: str = DEFAULT_WEKNORA_KB_NAME,
+        kb_id: str,
         max_video_analyses: int = 10,
     ) -> dict[str, Any]:
-        if not base_url.strip():
-            raise DistillerError(ErrorCode.SCHEMA_INVALID, "WeKnora base URL is required")
-        if not api_key.strip():
+        selected_kb_id = kb_id.strip()
+        if not selected_kb_id:
             raise DistillerError(
-                ErrorCode.ADAPTER_AUTH,
-                "WeKnora API Key is required",
-                details={"next": "在 WeKnora 账户页面获取 API Key"},
+                ErrorCode.SCHEMA_INVALID,
+                "WeKnora knowledge base ID is required",
             )
-        if not kb_name.strip():
-            kb_name = DEFAULT_WEKNORA_KB_NAME
-        headers = {"X-API-Key": api_key.strip()}
-        api = _api_url(base_url)
-        kb_id = self._find_kb(api, headers, kb_name)
-        if not kb_id:
+        knowledge_bases = self.list_knowledge_bases(base_url=base_url, api_key=api_key)
+        target = next(
+            (item for item in knowledge_bases if item["id"] == selected_kb_id),
+            None,
+        )
+        if target is None:
             raise DistillerError(
                 ErrorCode.SCHEMA_INVALID,
                 "WeKnora target knowledge base was not found or is not visible to this API Key",
                 details={
-                    "kb_name": kb_name,
-                    "next": (
-                        "先在 WeKnora 创建目标知识库，并为当前 API Key 授予该知识库的"
-                        "文档上传/编辑权限，再返回此处导入。"
-                    ),
+                    "kb_id": selected_kb_id,
+                    "next": "重新读取该 API Key 可访问的知识库并选择目标库。",
                 },
             )
+        kb_name = target["name"]
+        headers = {"X-API-Key": api_key.strip()}
+        api = _api_url(base_url)
 
         with tempfile.TemporaryDirectory(prefix="distiller-weknora-") as temporary:
             vault = Path(temporary)
@@ -107,7 +134,7 @@ class WeKnoraSyncService:
                 try:
                     with path.open("rb") as handle:
                         response = requests.post(
-                            f"{api}/knowledge-bases/{kb_id}/knowledge/file",
+                            f"{api}/knowledge-bases/{selected_kb_id}/knowledge/file",
                             headers=headers,
                             files={"file": (path.name, handle, "text/markdown")},
                             data={
@@ -146,7 +173,7 @@ class WeKnoraSyncService:
 
         return {
             "ok": not errors,
-            "kb_id": kb_id,
+            "kb_id": selected_kb_id,
             "kb_name": kb_name,
             "uploaded": uploaded,
             "errors": errors,

@@ -46,37 +46,46 @@ class _Export:
 def test_weknora_scope_rejection_has_actionable_error(
     project: ProjectLayout, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    post_urls: list[str] = []
+
+    def _reject_upload(url: str, *args: Any, **kwargs: Any) -> _Response:
+        post_urls.append(url)
+        return _Response(
+            403,
+            {},
+            '{"error":{"code":1002,"message":"scope denied"},"success":false}',
+        )
+
     monkeypatch.setattr("video_account_distiller.knowledge.weknora.ObsidianVaultExporter", _Export)
     monkeypatch.setattr(
         requests,
         "get",
         lambda *args, **kwargs: _Response(
             200,
-            {"data": [{"id": "kb-1", "name": "target"}]},
+            {
+                "data": [
+                    {"id": "kb-old", "name": "target"},
+                    {"id": "kb-1", "name": "target"},
+                ]
+            },
             "",
         ),
     )
-    monkeypatch.setattr(
-        requests,
-        "post",
-        lambda *args, **kwargs: _Response(
-            403,
-            {},
-            '{"error":{"code":1002,"message":"scope denied"},"success":false}',
-        ),
-    )
+    monkeypatch.setattr(requests, "post", _reject_upload)
 
     result = WeKnoraSyncService(project).sync_account(
         account_id="account-id",
         base_url="http://localhost:8080",
         api_key="sk-test",
-        kb_name="target",
+        kb_id="kb-1",
     )
 
     assert result["ok"] is False
     assert result["kb_id"] == "kb-1"
     assert result["error_code"] == "API_KEY_SCOPE_NOT_ALLOWED"
     assert "API Key" in str(result["message"])
+    assert post_urls
+    assert all("/knowledge-bases/kb-1/" in url for url in post_urls)
 
 
 def test_weknora_requires_an_existing_visible_knowledge_base(
@@ -86,7 +95,11 @@ def test_weknora_requires_an_existing_visible_knowledge_base(
     monkeypatch.setattr(
         requests,
         "get",
-        lambda *args, **kwargs: _Response(200, {"data": []}, ""),
+        lambda *args, **kwargs: _Response(
+            200,
+            {"data": [{"id": "kb-other", "name": "other"}]},
+            "",
+        ),
     )
     monkeypatch.setattr(
         requests,
@@ -99,7 +112,7 @@ def test_weknora_requires_an_existing_visible_knowledge_base(
             account_id="account-id",
             base_url="http://localhost:8080",
             api_key="sk-test",
-            kb_name="missing",
+            kb_id="kb-missing",
         )
 
     assert exc_info.value.code is ErrorCode.SCHEMA_INVALID

@@ -89,6 +89,43 @@ def test_project_init_status_and_validation_contract(tmp_path: Path) -> None:
         assert _json(validation)["ok"] is True
 
 
+def test_weknora_knowledge_base_discovery_uses_unique_ids(
+    project: ProjectLayout,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Response:
+        status_code = 200
+        ok = True
+        text = ""
+
+        @staticmethod
+        def json() -> dict[str, Any]:
+            return {
+                "data": [
+                    {"id": "kb-2", "name": "同名知识库", "type": "document"},
+                    {"id": "kb-1", "name": "同名知识库", "type": "document"},
+                ]
+            }
+
+    monkeypatch.setattr(
+        "video_account_distiller.knowledge.weknora.requests.get",
+        lambda *args, **kwargs: Response(),
+    )
+    encoded = _project_path(project.root)
+
+    with TestClient(create_app(tmp_path / "tasks.sqlite3")) as client:
+        response = client.post(
+            f"/api/projects/{encoded}/knowledge/weknora/knowledge-bases",
+            json={"base_url": "http://localhost:8080", "api_key": "sk-test"},
+        )
+
+    assert response.status_code == 200
+    payload = _json(response)
+    assert payload["ok"] is True
+    assert [item["id"] for item in payload["knowledge_bases"]] == ["kb-1", "kb-2"]
+
+
 def test_collection_dry_run_uses_bounded_default_and_completes_task(
     project: ProjectLayout,
     tmp_path: Path,

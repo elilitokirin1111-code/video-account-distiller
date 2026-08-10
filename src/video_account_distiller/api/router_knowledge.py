@@ -12,6 +12,7 @@ from video_account_distiller.api.schemas import (
     ObsidianSyncParams,
     OpenKBQueryParams,
     OpenKBSyncParams,
+    WeKnoraConnectionParams,
     WeKnoraSyncParams,
 )
 from video_account_distiller.api.task_jobs import (
@@ -91,9 +92,24 @@ async def sync_account_weknora(
         account_id=account_id,
         base_url=body.base_url,
         api_key=body.api_key,
-        kb_name=body.kb_name,
+        kb_id=body.kb_id,
         max_video_analyses=body.max_video_analyses,
     )
+
+
+@router.post("/{project_path:path}/knowledge/weknora/knowledge-bases")
+async def list_weknora_knowledge_bases(
+    project_path: str,
+    body: WeKnoraConnectionParams,
+) -> dict[str, Any]:
+    """List WeKnora knowledge bases visible to the supplied API Key."""
+
+    layout = resolve_project(project_path)
+    knowledge_bases = WeKnoraSyncService(layout).list_knowledge_bases(
+        base_url=body.base_url,
+        api_key=body.api_key,
+    )
+    return {"ok": True, "knowledge_bases": knowledge_bases}
 
 
 @router.post("/{project_path:path}/knowledge/openkb/accounts/{account_id}/sync")

@@ -30,6 +30,7 @@ _KNOWN_KEYS = {
     "last_collection_template",
     "obsidian_vault_path",
     "weknora_base_url",
+    "weknora_kb_id",
     "weknora_kb_name",
     "theme",
 }
