@@ -1394,8 +1394,8 @@ if isinstance(account_id, str):
 
     with weknora_tab:
         st.caption(
-            "把分析报告上传到 WeKnora 知识库（Markdown），"
-            "上传后可在 WeKnora 里检索和问答。"
+            "先在 WeKnora 创建并授权目标知识库；这里仅把分析报告（Markdown）导入已有知识库，"
+            "不会自行创建知识库。"
         )
         default_weknora_url = st.session_state.get("weknora_base_url") or web_state.get_state(
             "weknora_base_url",
@@ -1412,9 +1412,10 @@ if isinstance(account_id, str):
             placeholder="http://127.0.0.1:8080",
         )
         weknora_kb = st.text_input(
-            "知识库名称",
+            "已有知识库名称",
             value=str(default_weknora_kb),
             key="weknora_kb_input",
+            help="名称必须与 WeKnora 中已创建、且当前 API Key 可访问的知识库完全一致。",
         )
         weknora_key = st.text_input(
             "WeKnora API Key",
@@ -1468,8 +1469,16 @@ if isinstance(account_id, str):
                     for path in sync.get("uploaded", []):
                         st.write(f"- `{path}`")
                 else:
-                    message = (sync.get("error") or {}).get("message")
+                    message = sync.get("message") or (sync.get("error") or {}).get("message")
+                    if not message:
+                        message = "请展开下方明细查看失败原因。"
                     st.error(f"WeKnora 同步失败：{message}")
+                    if sync.get("error_code") == "API_KEY_SCOPE_NOT_ALLOWED":
+                        st.info(
+                            "在 WeKnora 的 API Key 设置中，将当前 Key 的知识库范围包含“"
+                            f"{cleaned_kb}”（ID：{sync.get('kb_id') or '未返回'}），并启用"
+                            "文档上传或编辑权限，然后重新同步。"
+                        )
                     if sync.get("errors"):
                         for error in sync["errors"]:
                             st.write(f"- {error}")

@@ -55,29 +55,6 @@ class WeKnoraSyncService:
                 return str(item.get("id") or "")
         return None
 
-    def _create_kb(self, api: str, headers: dict[str, str], kb_name: str) -> str:
-        response = requests.post(
-            f"{api}/knowledge-bases",
-            headers={**headers, "Content-Type": "application/json"},
-            json={"name": kb_name, "type": "document", "description": "视频账号蒸馏分析报告"},
-            timeout=30,
-        )
-        if not response.ok:
-            raise DistillerError(
-                ErrorCode.ADAPTER_RESPONSE,
-                f"WeKnora knowledge-base creation failed: HTTP {response.status_code}",
-                details={"body": response.text[:300]},
-            )
-        payload = response.json()
-        data = payload.get("data") if isinstance(payload, dict) else None
-        kb_id = str((data or {}).get("id") or "") if isinstance(data, dict) else ""
-        if not kb_id:
-            raise DistillerError(
-                ErrorCode.ADAPTER_RESPONSE,
-                "WeKnora knowledge-base creation returned no id",
-            )
-        return kb_id
-
     def sync_account(
         self,
         *,
@@ -100,8 +77,18 @@ class WeKnoraSyncService:
         headers = {"X-API-Key": api_key.strip()}
         api = _api_url(base_url)
         kb_id = self._find_kb(api, headers, kb_name)
-        if kb_id is None:
-            kb_id = self._create_kb(api, headers, kb_name)
+        if not kb_id:
+            raise DistillerError(
+                ErrorCode.SCHEMA_INVALID,
+                "WeKnora target knowledge base was not found or is not visible to this API Key",
+                details={
+                    "kb_name": kb_name,
+                    "next": (
+                        "先在 WeKnora 创建目标知识库，并为当前 API Key 授予该知识库的"
+                        "文档上传/编辑权限，再返回此处导入。"
+                    ),
+                },
+            )
 
         with tempfile.TemporaryDirectory(prefix="distiller-weknora-") as temporary:
             vault = Path(temporary)
@@ -145,10 +132,24 @@ class WeKnoraSyncService:
                 except requests.RequestException as exc:
                     errors.append(f"{path.name}: {exc}")
 
+        error_code: str | None = None
+        message: str | None = None
+        scope_rejected = any(": HTTP 403" in error and '"code":1002' in error for error in errors)
+        if scope_rejected:
+            error_code = "API_KEY_SCOPE_NOT_ALLOWED"
+            message = (
+                "WeKnora API Key 无权向此知识库上传文件。请在 WeKnora 的 API Key 设置中，"
+                "为目标知识库授予文档上传/编辑权限后重试。"
+            )
+        elif errors:
+            message = "WeKnora 未能完成全部文件上传。"
+
         return {
             "ok": not errors,
             "kb_id": kb_id,
             "kb_name": kb_name,
             "uploaded": uploaded,
             "errors": errors,
+            "error_code": error_code,
+            "message": message,
         }
