@@ -21,7 +21,10 @@ DEFAULT_WEKNORA_KB_NAME = "视频账号蒸馏"
 
 
 def _api_url(base_url: str) -> str:
-    return base_url.rstrip("/") + "/api/v1"
+    normalized = base_url.rstrip("/")
+    if normalized.lower().endswith("/api/v1"):
+        return normalized
+    return normalized + "/api/v1"
 
 
 class WeKnoraSyncService:
@@ -55,6 +58,12 @@ class WeKnoraSyncService:
             raise DistillerError(
                 ErrorCode.ADAPTER_AUTH,
                 "WeKnora API Key rejected (401)",
+            )
+        if response.status_code == 502:
+            raise DistillerError(
+                ErrorCode.ADAPTER_RESPONSE,
+                "WeKnora gateway returned HTTP 502; for local Docker use the direct backend "
+                "address http://127.0.0.1:8080",
             )
         if not response.ok:
             raise DistillerError(

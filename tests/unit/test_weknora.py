@@ -8,7 +8,7 @@ import requests
 
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.knowledge.obsidian import HUMAN_DIR_NAME
-from video_account_distiller.knowledge.weknora import WeKnoraSyncService
+from video_account_distiller.knowledge.weknora import WeKnoraSyncService, _api_url
 from video_account_distiller.storage.project import ProjectLayout
 
 
@@ -41,6 +41,41 @@ class _Export:
         report_dir.mkdir(parents=True)
         (report_dir / "report.md").write_text("# report", encoding="utf-8")
         return {"account_folder": "account"}
+
+
+@pytest.mark.parametrize(
+    ("base_url", "expected"),
+    [
+        ("http://localhost", "http://localhost/api/v1"),
+        ("http://localhost/", "http://localhost/api/v1"),
+        ("http://localhost/api/v1", "http://localhost/api/v1"),
+        ("http://localhost/api/v1/", "http://localhost/api/v1"),
+    ],
+)
+def test_weknora_api_url_accepts_root_or_full_api_url(
+    base_url: str,
+    expected: str,
+) -> None:
+    assert _api_url(base_url) == expected
+
+
+def test_weknora_gateway_error_points_to_direct_backend(
+    project: ProjectLayout, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        requests,
+        "get",
+        lambda *args, **kwargs: _Response(502, {}, "Bad Gateway"),
+    )
+
+    with pytest.raises(DistillerError) as exc_info:
+        WeKnoraSyncService(project).list_knowledge_bases(
+            base_url="http://localhost/api/v1",
+            api_key="sk-test",
+        )
+
+    assert exc_info.value.code is ErrorCode.ADAPTER_RESPONSE
+    assert "127.0.0.1:8080" in exc_info.value.message
 
 
 def test_weknora_scope_rejection_has_actionable_error(

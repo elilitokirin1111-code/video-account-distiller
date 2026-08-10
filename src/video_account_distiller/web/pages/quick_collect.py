@@ -1406,6 +1406,7 @@ if isinstance(account_id, str):
             value=str(default_weknora_url),
             key="weknora_url_input",
             placeholder="http://127.0.0.1:8080",
+            help="可填写服务根地址，也可填写以 /api/v1 结尾的完整 API 地址。",
         )
         weknora_key = st.text_input(
             "WeKnora API Key",
