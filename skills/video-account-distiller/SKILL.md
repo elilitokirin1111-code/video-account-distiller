@@ -274,9 +274,15 @@ uv run distiller analyze media --project <dir> --video <video-id> \
 ```
 
 Accept only `http://127.0.0.1:11434` or `http://localhost:11434`. The Provider records scene
-labels, color, composition, camera, lighting, artistic text, motion-graphic traces, branding, and
-OCR against exact keyframes. It must not infer video motion from one still frame or send frames to
-a remote host.
+labels, color, shot scale, best-effort camera motion, composition, camera viewpoint/angle,
+lighting, artistic text, motion-graphic traces, branding, and OCR against exact keyframes. It must
+not infer video motion from one still frame or send frames to a remote host.
+
+After account-level media analysis, `distiller distill` aggregates these labels into a
+`craft_profile` of 拍摄手法与表现形式 (shot scale, camera motion, angle, composition, lighting,
+text styles, motion graphics, branding, opening technique, editing rhythm) with per-tag coverage,
+mines each tag as a `craft` Pattern against account-local S/A versus C/D bands, and carries the
+profile into `benchmark-profile` comparisons.
 
 Use `--max-keyframes <1-100>` to cap evenly distributed keyframes and `--scene-threshold <0-1>` to
 override scene sensitivity. These options, Provider output, and extracted features are part of the

@@ -28,6 +28,17 @@
 - 痛点 / 异议：{{ profile.comment_content.top_pain_points|join("；") if profile.comment_content.top_pain_points else "未提取" }} / {{ profile.comment_content.top_objections|join("；") if profile.comment_content.top_objections else "未提取" }}
 - 内容方向：{{ profile.content_pillars|join("、") if profile.content_pillars else "未知" }}
 - 视听特征：{{ profile.visual_and_audio_identity|join("；") if profile.visual_and_audio_identity else "待补充" }}
+- 拍摄手法与表现形式：{{ profile.craft_identity.signature_style|join("；") if profile.craft_identity and profile.craft_identity.signature_style else "待补充本地视频分析" }}
+{% if profile.craft_identity and profile.craft_identity.editing_rhythm -%}
+- 剪辑节奏：{{ profile.craft_identity.editing_rhythm.pace_label or "未知" }}（镜头时长中位数 {{ "%.1f"|format(profile.craft_identity.editing_rhythm.median_shot_duration_ms / 1000) if profile.craft_identity.editing_rhythm.median_shot_duration_ms is not none else "未知" }} 秒；镜头数中位数 {{ profile.craft_identity.editing_rhythm.shot_count_median or "未知" }}）
+{% endif -%}
+{% if profile.craft_identity and profile.craft_identity.categories -%}
+{% for category, summaries in profile.craft_identity.categories.items() -%}
+{% if summaries -%}
+- 拍摄特征 · {{ craft_labels[category] }}：{% for item in summaries[:4] %}{{ item.tag }}（{{ "%.0f%%"|format(item.coverage * 100) }}）{% if not loop.last %}；{% endif %}{% endfor %}
+{% endif -%}
+{% endfor -%}
+{% endif -%}
 
 | 内容特征 | 视频数 | 点赞中位数 | 评论中位数 | 分享中位数 | 收藏中位数 | 总互动中位数 |
 |---|---:|---:|---:|---:|---:|---:|

@@ -14,13 +14,14 @@ from video_account_distiller.web.ui import (
     section_header,
     setup_page,
     stepper,
+    task_progress_card,
 )
 
 st.set_page_config(
     page_title="账号分析 · Video Account Distiller",
     page_icon=":material/monitoring:",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="auto",
 )
 
 
@@ -51,6 +52,26 @@ def _handle_action_response(response: dict[str, Any], *, label: str) -> None:
     st.error(f"{label}失败: {message or 'API 未返回可用结果'}")
 
 
+def _run_action(
+    path: str,
+    *,
+    label: str,
+    method: str = "POST",
+    **kwargs: Any,
+) -> None:
+    """Submit one analysis action with immediate, visible request feedback."""
+
+    with st.status(f"正在请求{label}…", expanded=False) as activity:
+        response = _api(path, method, **kwargs)
+        succeeded = bool(response.get("task_id")) or response.get("ok") is True
+        activity.update(
+            label=f"{label}{'已提交' if succeeded else '请求失败'}",
+            state="complete" if succeeded else "error",
+            expanded=not succeeded,
+        )
+        _handle_action_response(response, label=label)
+
+
 def _poll_task(task_id: str) -> dict[str, Any] | None:
     placeholder = st.empty()
     for _ in range(120):
@@ -58,7 +79,17 @@ def _poll_task(task_id: str) -> dict[str, Any] | None:
             r = requests.get(f"{api_url}/api/tasks/{task_id}", timeout=10)
             data = r.json()
             status = data.get("status")
-            placeholder.caption(f"⏳ 任务状态: {status}...")
+            progress = float(data.get("progress") or 0.0)
+            stage = str(data.get("stage") or "正在准备")
+            message = str(data.get("message") or f"任务状态：{status}")
+            with placeholder.container():
+                task_progress_card(
+                    stage,
+                    message,
+                    progress=progress,
+                    status=str(status),
+                    meta=f"任务 {task_id} · 每 2 秒自动刷新",
+                )
             if status == "completed":
                 placeholder.success("✅ 任务完成")
                 result = data.get("result")
@@ -136,24 +167,22 @@ with workflow_columns[0]:
             use_container_width=True,
             disabled=not bool(account_id),
         ):
-            response = _api(
+            _run_action(
                 f"/api/projects/{encoded_project}/sample/{account_id}",
-                "POST",
+                label="分层抽样",
                 json={"size": size},
             )
-            _handle_action_response(response, label="分层抽样")
         if st.button(
             "生成分析报告",
             icon=":material/description:",
             use_container_width=True,
             disabled=not bool(account_id),
         ):
-            response = _api(
+            _run_action(
                 f"/api/projects/{encoded_project}/report/{account_id}",
-                "POST",
+                label="报告生成",
                 json={"sample_size": size},
             )
-            _handle_action_response(response, label="报告生成")
 
 with workflow_columns[1]:
     with st.container(border=True):
@@ -172,33 +201,30 @@ with workflow_columns[1]:
             use_container_width=True,
             disabled=not bool(video_id),
         ):
-            response = _api(
+            _run_action(
                 f"/api/projects/{encoded_project}/analyze/video/{video_id}",
-                "POST",
+                label="视频盲标注",
             )
-            _handle_action_response(response, label="视频盲标注")
         if st.button(
             "评论意图分析",
             icon=":material/forum:",
             use_container_width=True,
             disabled=not bool(account_id),
         ):
-            response = _api(
+            _run_action(
                 f"/api/projects/{encoded_project}/analyze/comments/{account_id}",
-                "POST",
+                label="评论意图分析",
             )
-            _handle_action_response(response, label="评论意图分析")
         if st.button(
             "媒体深度分析",
             icon=":material/movie:",
             use_container_width=True,
             disabled=not bool(video_id),
         ):
-            response = _api(
+            _run_action(
                 f"/api/projects/{encoded_project}/analyze/media/{video_id}",
-                "POST",
+                label="媒体分析",
             )
-            _handle_action_response(response, label="媒体分析")
 
 with workflow_columns[2]:
     with st.container(border=True):
@@ -214,22 +240,20 @@ with workflow_columns[2]:
             use_container_width=True,
             disabled=not bool(account_id),
         ):
-            response = _api(
+            _run_action(
                 f"/api/projects/{encoded_project}/distill/{account_id}",
-                "POST",
+                label="账号提炼",
             )
-            _handle_action_response(response, label="账号提炼")
         if st.button(
             "计算指标",
             icon=":material/calculate:",
             use_container_width=True,
             disabled=not bool(account_id),
         ):
-            response = _api(
+            _run_action(
                 f"/api/projects/{encoded_project}/metrics/{account_id}",
-                "POST",
+                label="指标计算",
             )
-            _handle_action_response(response, label="指标计算")
         detail_actions = st.columns(2)
         if detail_actions[0].button(
             "增长轨迹",
@@ -237,7 +261,12 @@ with workflow_columns[2]:
             use_container_width=True,
             disabled=not bool(account_id),
         ):
-            growth = _api(f"/api/projects/{encoded_project}/accounts/{account_id}/growth")
+            with st.status("正在读取账号增长轨迹…", expanded=False) as activity:
+                growth = _api(f"/api/projects/{encoded_project}/accounts/{account_id}/growth")
+                activity.update(
+                    label="增长轨迹读取完成" if growth.get("ok") else "增长轨迹读取失败",
+                    state="complete" if growth.get("ok") else "error",
+                )
             st.session_state["last_growth"] = growth
         if detail_actions[1].button(
             "GPT 上下文",
@@ -245,9 +274,18 @@ with workflow_columns[2]:
             use_container_width=True,
             disabled=not bool(account_id),
         ):
-            analysis_context = _api(
-                f"/api/projects/{encoded_project}/accounts/{account_id}/analysis-context"
-            )
+            with st.status("正在生成 GPT 分析上下文…", expanded=False) as activity:
+                analysis_context = _api(
+                    f"/api/projects/{encoded_project}/accounts/{account_id}/analysis-context"
+                )
+                activity.update(
+                    label=(
+                        "GPT 分析上下文已生成"
+                        if analysis_context.get("ok")
+                        else "GPT 分析上下文生成失败"
+                    ),
+                    state="complete" if analysis_context.get("ok") else "error",
+                )
             st.session_state["last_analysis_context"] = analysis_context
 
 if "last_growth" in st.session_state:

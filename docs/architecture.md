@@ -95,9 +95,8 @@ ReportService → report.json + report.md + evidence index + warnings
                     └── Batch/Team/Snapshot interfaces → collaboration artifacts
         │
         └── bounded AnalysisContext + curated artifacts
-                    └── KnowledgeExportService → knowledge-outbox/openkb/
-                              └── OpenKBIntegrationService → optional OpenKB REST sidecar
-                                        └── derived query answer + Distiller backlinks
+                    └── KnowledgeExportService → knowledge-outbox/local/
+                              └── local package / Obsidian with Distiller backlinks
 ```
 
 The Agent Skill orchestrates the CLI. Deterministic behavior lives in the Python package. Phase 3
@@ -140,9 +139,8 @@ proxy, stealth, automatic-login, CAPTCHA, or platform-control-evasion feature.
   MediaCrawler sidecar, bounded default pagination, explicit full-homepage pagination with emergency
   guards, opt-in bounded comment sampling, public-field mapping, immutable response storage, and
   orchestration into the existing import/analysis kernel.
-- `knowledge/`: privacy-aware account knowledge rendering, canonical content hashes, one-way
-  OpenKB synchronization, separate target validation, explicit model-call confirmation, and
-  derived query contracts.
+- `knowledge/`: privacy-aware local knowledge rendering, canonical content hashes, Obsidian export,
+  optional WeKnora synchronization, and evidence-backlink contracts.
 - `third_party/MediaCrawler`: Git submodule pinned to an audited commit and governed by its own
   non-commercial learning license; it is not relicensed by the root project.
 - `third_party/claude-video`: MIT Git submodule pinned to the audited workflow reference. The
@@ -217,12 +215,10 @@ and routes generated transcript segments through normal import and normalization
 `ame_*` artifacts link source batch hash, media IDs, transcript hashes, text-analysis IDs, and the
 resulting `dst_*` account distillation.
 
-OpenKB exports live under `knowledge-outbox/openkb/`, outside both raw evidence and the validated
+Local exports live under `knowledge-outbox/local/`, outside both raw evidence and the validated
 `knowledge-base/` Rule/Pattern store. The export manifest records a canonical payload hash, bounded
-source paths, redacted fields, and byte size. Identical payloads are not rewritten or re-synced.
-Changed payloads replace only the corresponding document on the same OpenKB target. Tokens remain
-environment-only. OpenKB output is explicitly non-authoritative and cannot update Rule/Rubric
-files automatically.
+source paths, redacted fields, and byte size. Identical payloads are not rewritten. Local packages
+remain non-authoritative and cannot update Rule/Rubric files automatically.
 
 Normalized Parquet is reproducible from staging. Project state is stored in
 `.distiller-state.json`; later rule and task workflows may introduce SQLite without changing the
@@ -252,6 +248,5 @@ and no cloud vision Provider uploads media. Opt-in retained-source downloads and
 local and bounded. The system still
 does not infer visual causality, audience representativeness, or
 automatically validated Level 4 rules.
-OpenKB is optional, runs in a separate environment, and receives only curated Markdown after an
-explicit model-processing confirmation. Its absence or failure does not affect collection,
-normalization, analysis, reports, or the closed loop.
+Local knowledge-package generation has no remote-service dependency. Its failure does not affect
+collection, normalization, analysis, reports, or the closed loop.

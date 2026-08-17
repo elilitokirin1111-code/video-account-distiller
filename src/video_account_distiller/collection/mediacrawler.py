@@ -37,6 +37,8 @@ from video_account_distiller.models.core import StrictModel
 
 MEDIACRAWLER_PINNED_COMMIT = "0625e01a6bc717a3fc9c96d3dac7fb8957043838"
 MEDIACRAWLER_BRIDGE_SCHEMA_VERSION = "1.0"
+WINDOWS_STATUS_DLL_INIT_FAILED = 0xC0000142
+MAX_PROCESS_ERROR_CHARS = 4000
 
 
 @dataclass(frozen=True)
@@ -44,6 +46,7 @@ class ProcessResult:
     """Minimal subprocess result used by the injectable sidecar runner."""
 
     returncode: int
+    stderr: str = ""
 
 
 class ProcessExecutor(Protocol):
@@ -59,7 +62,7 @@ class ProcessExecutor(Protocol):
 
 
 class SubprocessExecutor:
-    """Production process executor that keeps bridge progress on stderr."""
+    """Production process executor that retains bounded bridge diagnostics."""
 
     def run(
         self,
@@ -72,12 +75,16 @@ class SubprocessExecutor:
             command,
             cwd=cwd,
             check=False,
-            stdin=None,
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
-            stderr=None,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout_seconds,
         )
-        return ProcessResult(returncode=completed.returncode)
+        stderr = completed.stderr or ""
+        return ProcessResult(returncode=completed.returncode, stderr=stderr)
 
 
 class MediaCrawlerBridgeRawPage(StrictModel):
@@ -328,6 +335,27 @@ def _read_bridge_payload(path: Path) -> dict[str, Any]:
     return {str(key): item for key, item in value.items()}
 
 
+def _unsigned_returncode(returncode: int) -> int:
+    return returncode & 0xFFFFFFFF
+
+
+def _missing_bridge_details(result: ProcessResult, *, attempts: int) -> dict[str, Any]:
+    unsigned = _unsigned_returncode(result.returncode)
+    details: dict[str, Any] = {
+        "returncode": result.returncode,
+        "returncode_hex": f"0x{unsigned:08X}",
+        "attempts": attempts,
+    }
+    stderr = result.stderr.strip()
+    if stderr:
+        details["stderr"] = stderr[-MAX_PROCESS_ERROR_CHARS:]
+    if unsigned == WINDOWS_STATUS_DLL_INIT_FAILED:
+        details["reason"] = (
+            "Windows could not initialize a required DLL for the MediaCrawler child process"
+        )
+    return details
+
+
 def _bridge_error(payload: dict[str, Any], returncode: int) -> DistillerError:
     bridge_code = str(payload.get("error_code") or "unknown")
     message = str(payload.get("message") or "MediaCrawler collection failed")
@@ -493,12 +521,23 @@ class MediaCrawlerAccountProvider:
         self._validate_runtime()
         with tempfile.TemporaryDirectory(prefix="distiller-mediacrawler-") as temporary:
             output_path = Path(temporary) / "bridge-result.json"
+            attempts = 1
             try:
                 result = self.executor.run(
                     self._command(request, output_path),
                     cwd=self.home,
                     timeout_seconds=self.process_timeout_seconds,
                 )
+                if (
+                    not output_path.is_file()
+                    and _unsigned_returncode(result.returncode) == WINDOWS_STATUS_DLL_INIT_FAILED
+                ):
+                    attempts += 1
+                    result = self.executor.run(
+                        self._command(request, output_path),
+                        cwd=self.home,
+                        timeout_seconds=self.process_timeout_seconds,
+                    )
             except subprocess.TimeoutExpired as exc:
                 raise DistillerError(
                     ErrorCode.COLLECTION_TIMEOUT,
@@ -509,7 +548,7 @@ class MediaCrawlerAccountProvider:
                 raise DistillerError(
                     ErrorCode.MEDIACRAWLER_UNAVAILABLE,
                     "MediaCrawler process ended without a bridge result",
-                    details={"returncode": result.returncode},
+                    details=_missing_bridge_details(result, attempts=attempts),
                 )
             payload = _read_bridge_payload(output_path)
             if payload.get("ok") is not True or result.returncode != 0:

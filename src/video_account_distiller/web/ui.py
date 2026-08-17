@@ -13,6 +13,7 @@ import streamlit as st
 from streamlit.components.v2 import component
 
 from video_account_distiller.web import web_state
+from video_account_distiller.web.loading import task_progress_markup
 
 Theme = Literal["light", "dark"]
 
@@ -27,13 +28,10 @@ class PageContext:
 
 
 _NAV_ITEMS = (
-    ("dashboard", "home.py", "工作台", ":material/home:"),
-    ("collect", "pages/quick_collect.py", "采集任务", ":material/add_task:"),
-    ("analysis", "pages/account_analysis.py", "账号分析", ":material/monitoring:"),
-    ("data", "pages/data_browser.py", "数据中心", ":material/database:"),
-    ("import", "pages/import_data.py", "数据导入", ":material/upload_file:"),
-    ("reports", "pages/reports.py", "分析报告", ":material/description:"),
-    ("settings", "pages/settings.py", "系统设置", ":material/settings:"),
+    ("dashboard", "home.py", "概览", ":material/space_dashboard:"),
+    ("collect", "pages/quick_collect.py", "新建蒸馏", ":material/add_circle:"),
+    ("reports", "pages/reports.py", "报告", ":material/article:"),
+    ("settings", "pages/settings.py", "设置", ":material/settings:"),
 )
 
 _THEME_BRIDGE = component(
@@ -97,7 +95,7 @@ def _inject_design_system(theme: Theme) -> None:
         """
         <style>
         :root {
-          --ds-font: Inter, "SF Pro Display", "PingFang SC", "Microsoft YaHei", sans-serif;
+          --ds-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
           --ds-bg: #f5f7fb;
           --ds-bg-elevated: #fbfcff;
           --ds-surface: #ffffff;
@@ -147,36 +145,36 @@ def _inject_design_system(theme: Theme) -> None:
 
         html[data-distiller-theme="dark"],
         body[data-distiller-theme="dark"] {
-          --ds-bg: #0f1012;
-          --ds-bg-elevated: #131518;
-          --ds-surface: #1a1c20;
-          --ds-surface-soft: #202329;
-          --ds-surface-raised: #24272d;
-          --ds-text: #f3f4f6;
-          --ds-text-soft: #b9bdc7;
-          --ds-text-muted: #858b99;
-          --ds-primary: #d8b65a;
-          --ds-primary-strong: #e4c66f;
-          --ds-primary-soft: rgba(216, 182, 90, 0.12);
-          --ds-accent: #b99b55;
-          --ds-success: #4bc58b;
-          --ds-success-soft: rgba(75, 197, 139, 0.12);
-          --ds-warning: #e3a74b;
-          --ds-warning-soft: rgba(227, 167, 75, 0.12);
-          --ds-danger: #ed7184;
-          --ds-danger-soft: rgba(237, 113, 132, 0.12);
-          --ds-info: #aab7d7;
-          --ds-info-soft: rgba(170, 183, 215, 0.10);
-          --ds-border: #2d3036;
-          --ds-border-strong: #3a3d43;
-          --ds-focus: rgba(216, 182, 90, 0.22);
-          --ds-chart-1: #d8b65a;
-          --ds-chart-2: #eee1b5;
-          --ds-chart-3: #75b7ab;
-          --ds-sidebar: rgba(18, 19, 22, 0.96);
+          --ds-bg: #09090b;
+          --ds-bg-elevated: #0d0d10;
+          --ds-surface: rgba(28, 28, 30, 0.82);
+          --ds-surface-soft: #232326;
+          --ds-surface-raised: #2c2c2e;
+          --ds-text: #f5f5f7;
+          --ds-text-soft: #d1d1d6;
+          --ds-text-muted: #8e8e93;
+          --ds-primary: #0a84ff;
+          --ds-primary-strong: #0071e3;
+          --ds-primary-soft: rgba(10, 132, 255, 0.14);
+          --ds-accent: #bf5af2;
+          --ds-success: #30d158;
+          --ds-success-soft: rgba(48, 209, 88, 0.13);
+          --ds-warning: #ff9f0a;
+          --ds-warning-soft: rgba(255, 159, 10, 0.13);
+          --ds-danger: #ff453a;
+          --ds-danger-soft: rgba(255, 69, 58, 0.13);
+          --ds-info: #64d2ff;
+          --ds-info-soft: rgba(100, 210, 255, 0.12);
+          --ds-border: rgba(255, 255, 255, 0.10);
+          --ds-border-strong: rgba(255, 255, 255, 0.16);
+          --ds-focus: rgba(10, 132, 255, 0.28);
+          --ds-chart-1: #0a84ff;
+          --ds-chart-2: #bf5af2;
+          --ds-chart-3: #30d158;
+          --ds-sidebar: rgba(20, 20, 22, 0.72);
           --ds-overlay: rgba(0, 0, 0, 0.68);
-          --ds-shadow-sm: 0 1px 1px rgba(0, 0, 0, 0.35), 0 12px 28px rgba(0, 0, 0, 0.16);
-          --ds-shadow-md: 0 22px 52px rgba(0, 0, 0, 0.34);
+          --ds-shadow-sm: 0 1px 0 rgba(255, 255, 255, 0.03), 0 12px 32px rgba(0, 0, 0, 0.18);
+          --ds-shadow-md: 0 24px 64px rgba(0, 0, 0, 0.34);
           color-scheme: dark;
         }
 
@@ -188,14 +186,15 @@ def _inject_design_system(theme: Theme) -> None:
         [data-testid="stAppViewContainer"],
         [data-testid="stMain"] {
           background:
-            radial-gradient(circle at 78% 3%, color-mix(in srgb, var(--ds-primary) 7%, transparent) 0, transparent 25rem),
+            radial-gradient(circle at 74% -8%, rgba(10, 132, 255, 0.10) 0, transparent 30rem),
+            radial-gradient(circle at 102% 28%, rgba(191, 90, 242, 0.05) 0, transparent 26rem),
             var(--ds-bg);
           color: var(--ds-text);
         }
 
         [data-testid="stMainBlockContainer"] {
-          max-width: 1480px;
-          padding: 1.25rem 2rem 3.5rem;
+          max-width: 1280px;
+          padding: 2rem 2.4rem 4rem;
         }
 
         [data-testid="stHeader"] {
@@ -208,10 +207,17 @@ def _inject_design_system(theme: Theme) -> None:
           display: none !important;
         }
 
+        [data-testid="stToolbar"],
+        [data-testid="stStatusWidget"],
+        [data-testid="stAppDeployButton"] {
+          display: none !important;
+        }
+
         [data-testid="stSidebar"] {
           background: var(--ds-sidebar);
           border-right: 1px solid var(--ds-border);
-          box-shadow: none;
+          box-shadow: 18px 0 44px rgba(0, 0, 0, 0.12);
+          backdrop-filter: saturate(150%) blur(28px);
         }
 
         [data-testid="stSidebarContent"] {
@@ -226,8 +232,8 @@ def _inject_design_system(theme: Theme) -> None:
           display: flex;
           align-items: center;
           gap: 11px;
-          margin: 0.2rem 0.25rem 1.15rem;
-          padding: 0.55rem 0.35rem;
+          margin: 0.35rem 0.25rem 1.5rem;
+          padding: 0.6rem 0.4rem;
         }
 
         .ds-brand-mark {
@@ -235,8 +241,8 @@ def _inject_design_system(theme: Theme) -> None:
           width: 34px;
           height: 34px;
           flex: 0 0 34px;
-          border-radius: 10px;
-          background: linear-gradient(145deg, var(--ds-primary), var(--ds-accent));
+          border-radius: 11px;
+          background: linear-gradient(145deg, #2997ff, #0066cc 62%, #5856d6);
           box-shadow: 0 9px 24px color-mix(in srgb, var(--ds-primary) 23%, transparent);
         }
 
@@ -258,8 +264,8 @@ def _inject_design_system(theme: Theme) -> None:
 
         .ds-brand-name {
           color: var(--ds-text);
-          font-size: 0.85rem;
-          font-weight: 750;
+          font-size: 0.94rem;
+          font-weight: 680;
           line-height: 1.15;
           letter-spacing: -0.01em;
         }
@@ -280,11 +286,11 @@ def _inject_design_system(theme: Theme) -> None:
         }
 
         [data-testid="stPageLink"] a {
-          min-height: 42px;
-          padding: 0.55rem 0.72rem;
-          margin: 2px 0;
+          min-height: 44px;
+          padding: 0.58rem 0.78rem;
+          margin: 3px 0;
           border: 1px solid transparent;
-          border-radius: var(--ds-radius-sm);
+          border-radius: 11px;
           color: var(--ds-text-soft);
           font-size: 0.84rem;
           font-weight: 560;
@@ -298,10 +304,10 @@ def _inject_design_system(theme: Theme) -> None:
         }
 
         [data-testid="stPageLink"] a[aria-current="page"] {
-          color: var(--ds-primary);
-          background: var(--ds-primary-soft);
+          color: #ffffff;
+          background: rgba(255, 255, 255, 0.10);
           border-color: color-mix(in srgb, var(--ds-primary) 17%, transparent);
-          font-weight: 700;
+          font-weight: 650;
         }
 
         .ds-sidebar-status {
@@ -351,33 +357,32 @@ def _inject_design_system(theme: Theme) -> None:
           align-items: flex-start;
           justify-content: space-between;
           gap: 1.5rem;
-          margin: 0.15rem 0 1rem;
-          min-height: 64px;
+          margin: 0 0 1.4rem;
+          min-height: 72px;
         }
 
         .ds-page-kicker {
-          color: var(--ds-primary);
-          font-size: 0.68rem;
-          font-weight: 750;
-          letter-spacing: 0.12em;
-          margin-bottom: 0.35rem;
-          text-transform: uppercase;
+          color: var(--ds-text-muted);
+          font-size: 0.72rem;
+          font-weight: 600;
+          letter-spacing: 0.01em;
+          margin-bottom: 0.5rem;
         }
 
         .ds-page-title {
           color: var(--ds-text);
-          font-size: clamp(1.45rem, 2vw, 1.9rem);
-          font-weight: 760;
+          font-size: clamp(1.9rem, 3vw, 2.65rem);
+          font-weight: 690;
           line-height: 1.15;
-          letter-spacing: -0.035em;
+          letter-spacing: -0.045em;
           margin: 0;
         }
 
         .ds-page-description {
           color: var(--ds-text-muted);
-          font-size: 0.82rem;
-          line-height: 1.55;
-          margin-top: 0.45rem;
+          font-size: 0.9rem;
+          line-height: 1.6;
+          margin-top: 0.65rem;
           max-width: 760px;
         }
 
@@ -406,8 +411,8 @@ def _inject_design_system(theme: Theme) -> None:
 
         .ds-section-title {
           color: var(--ds-text);
-          font-size: 1rem;
-          font-weight: 720;
+          font-size: 1.08rem;
+          font-weight: 650;
           letter-spacing: -0.015em;
         }
 
@@ -420,31 +425,13 @@ def _inject_design_system(theme: Theme) -> None:
         .ds-metric {
           position: relative;
           overflow: hidden;
-          min-height: 126px;
-          padding: 1.05rem 1.08rem;
+          min-height: 118px;
+          padding: 1.15rem 1.2rem;
           border: 1px solid var(--ds-border);
           border-radius: var(--ds-radius-lg);
           background: var(--ds-surface);
           box-shadow: var(--ds-shadow-sm);
-          transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
-        }
-
-        .ds-metric::after {
-          content: "";
-          position: absolute;
-          right: -34px;
-          bottom: -46px;
-          width: 116px;
-          height: 116px;
-          border-radius: 50%;
-          background: color-mix(in srgb, var(--metric-color, var(--ds-primary)) 9%, transparent);
-          filter: blur(2px);
-        }
-
-        .ds-metric:hover {
-          transform: translateY(-2px);
-          border-color: color-mix(in srgb, var(--metric-color, var(--ds-primary)) 30%, var(--ds-border));
-          box-shadow: var(--ds-shadow-md);
+          backdrop-filter: blur(24px);
         }
 
         .ds-metric-label {
@@ -455,8 +442,8 @@ def _inject_design_system(theme: Theme) -> None:
 
         .ds-metric-value {
           color: var(--ds-text);
-          font-size: 1.65rem;
-          font-weight: 760;
+          font-size: 1.9rem;
+          font-weight: 680;
           line-height: 1.15;
           letter-spacing: -0.04em;
           margin-top: 0.55rem;
@@ -619,6 +606,156 @@ def _inject_design_system(theme: Theme) -> None:
           background: var(--ds-primary);
         }
 
+        .ds-live-task {
+          position: relative;
+          overflow: hidden;
+          display: grid;
+          grid-template-columns: 42px minmax(0, 1fr) auto;
+          align-items: center;
+          gap: 0.9rem;
+          padding: 1rem 1.05rem;
+          border: 1px solid color-mix(in srgb, var(--ds-primary) 28%, var(--ds-border));
+          border-radius: var(--ds-radius-lg);
+          background:
+            radial-gradient(circle at 96% 4%, rgba(100, 210, 255, 0.11), transparent 38%),
+            color-mix(in srgb, var(--ds-primary-soft) 62%, var(--ds-surface));
+          box-shadow: 0 12px 34px rgba(0, 0, 0, 0.16);
+        }
+
+        .ds-live-task::before {
+          position: absolute;
+          inset: 0;
+          content: "";
+          pointer-events: none;
+          background: linear-gradient(
+            105deg,
+            transparent 22%,
+            rgba(255, 255, 255, 0.055) 46%,
+            transparent 70%
+          );
+          transform: translateX(-105%);
+        }
+
+        .ds-live-task.active::before { animation: ds-card-sheen 2.8s ease-in-out infinite; }
+
+        .ds-live-orbit {
+          position: relative;
+          display: grid;
+          place-items: center;
+          width: 38px;
+          height: 38px;
+          border: 2px solid color-mix(in srgb, var(--ds-primary) 18%, transparent);
+          border-radius: 50%;
+        }
+
+        .ds-live-orbit::before {
+          position: absolute;
+          inset: -2px;
+          content: "";
+          border: 2px solid transparent;
+          border-top-color: var(--ds-primary);
+          border-right-color: color-mix(in srgb, var(--ds-primary) 38%, transparent);
+          border-radius: 50%;
+        }
+
+        .ds-live-task.active .ds-live-orbit::before { animation: ds-orbit 1.05s linear infinite; }
+
+        .ds-live-core {
+          width: 9px;
+          height: 9px;
+          border-radius: 50%;
+          background: var(--ds-primary);
+          box-shadow: 0 0 0 5px color-mix(in srgb, var(--ds-primary) 14%, transparent);
+        }
+
+        .ds-live-task.active .ds-live-core { animation: ds-core-pulse 1.45s ease-in-out infinite; }
+        .ds-live-content { min-width: 0; }
+        .ds-live-title { color: var(--ds-text); font-size: 0.82rem; font-weight: 700; }
+        .ds-live-detail {
+          overflow: hidden;
+          margin-top: 0.22rem;
+          color: var(--ds-text-soft);
+          font-size: 0.72rem;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .ds-live-meta {
+          margin-top: 0.38rem;
+          color: var(--ds-text-muted);
+          font-size: 0.63rem;
+        }
+
+        .ds-live-percent {
+          min-width: 3.2rem;
+          color: var(--ds-primary);
+          font-size: 0.84rem;
+          font-variant-numeric: tabular-nums;
+          font-weight: 720;
+          text-align: right;
+        }
+
+        .ds-live-track {
+          grid-column: 2 / 4;
+          position: relative;
+          overflow: hidden;
+          height: 7px;
+          border-radius: 999px;
+          background: color-mix(in srgb, var(--ds-surface-soft) 78%, transparent);
+        }
+
+        .ds-live-track > span {
+          position: relative;
+          display: block;
+          height: 100%;
+          min-width: 5px;
+          overflow: hidden;
+          border-radius: inherit;
+          background: linear-gradient(90deg, var(--ds-primary), #64d2ff);
+          transition: width 420ms ease;
+        }
+
+        .ds-live-task.active .ds-live-track > span::after {
+          position: absolute;
+          inset: 0;
+          content: "";
+          background: linear-gradient(90deg, transparent, rgba(255,255,255,0.62), transparent);
+          transform: translateX(-100%);
+          animation: ds-progress-sheen 1.65s ease-in-out infinite;
+        }
+
+        .ds-live-track.indeterminate > span {
+          width: 34% !important;
+          animation: ds-indeterminate 1.55s ease-in-out infinite;
+        }
+
+        @keyframes ds-orbit { to { transform: rotate(360deg); } }
+        @keyframes ds-core-pulse {
+          0%, 100% { opacity: 0.72; transform: scale(0.82); }
+          50% { opacity: 1; transform: scale(1); }
+        }
+        @keyframes ds-card-sheen {
+          0%, 18% { transform: translateX(-105%); }
+          72%, 100% { transform: translateX(105%); }
+        }
+        @keyframes ds-progress-sheen {
+          0% { transform: translateX(-100%); }
+          72%, 100% { transform: translateX(100%); }
+        }
+        @keyframes ds-indeterminate {
+          0% { transform: translateX(-105%); }
+          55% { transform: translateX(155%); }
+          100% { transform: translateX(310%); }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .ds-live-task.active::before,
+          .ds-live-task.active .ds-live-orbit::before,
+          .ds-live-task.active .ds-live-core,
+          .ds-live-task.active .ds-live-track > span::after,
+          .ds-live-track.indeterminate > span { animation: none !important; }
+        }
+
         .ds-empty {
           display: grid;
           place-items: center;
@@ -651,6 +788,7 @@ def _inject_design_system(theme: Theme) -> None:
           border-radius: var(--ds-radius-lg) !important;
           background: var(--ds-surface);
           box-shadow: var(--ds-shadow-sm);
+          backdrop-filter: blur(24px);
         }
 
         div[data-testid="stVerticalBlockBorderWrapper"] > div {
@@ -687,12 +825,12 @@ def _inject_design_system(theme: Theme) -> None:
         .stDownloadButton > button,
         [data-testid="stFormSubmitButton"] > button,
         [data-testid="stPopover"] > button {
-          min-height: 40px;
+          min-height: 44px;
           border: 1px solid var(--ds-border-strong);
-          border-radius: var(--ds-radius-sm);
+          border-radius: 11px;
           background: var(--ds-surface);
           color: var(--ds-text-soft);
-          font-weight: 650;
+          font-weight: 600;
           box-shadow: none;
           transition: all 150ms ease;
         }
@@ -711,7 +849,6 @@ def _inject_design_system(theme: Theme) -> None:
           color: var(--ds-primary);
           border-color: color-mix(in srgb, var(--ds-primary) 46%, var(--ds-border));
           background: var(--ds-primary-soft);
-          transform: translateY(-1px);
         }
 
         .stButton > button:focus-visible,
@@ -724,13 +861,8 @@ def _inject_design_system(theme: Theme) -> None:
         [data-testid="stFormSubmitButton"] > button[kind="primary"] {
           color: white;
           border-color: var(--ds-primary);
-          background: linear-gradient(135deg, var(--ds-primary), var(--ds-primary-strong));
+          background: var(--ds-primary-strong);
           box-shadow: 0 8px 20px color-mix(in srgb, var(--ds-primary) 20%, transparent);
-        }
-
-        html[data-distiller-theme="dark"] .stButton > button[kind="primary"],
-        html[data-distiller-theme="dark"] [data-testid="stFormSubmitButton"] > button[kind="primary"] {
-          color: #17140d;
         }
 
         button:disabled {
@@ -813,6 +945,10 @@ def _inject_design_system(theme: Theme) -> None:
           color: var(--ds-primary);
         }
 
+        [data-baseweb="tab-highlight"] {
+          background-color: var(--ds-primary) !important;
+        }
+
         [data-testid="stForm"] {
           border: 0;
           padding: 0;
@@ -820,6 +956,124 @@ def _inject_design_system(theme: Theme) -> None:
 
         [data-testid="stIFrame"] {
           min-height: 0 !important;
+        }
+
+        .ds-workspace-card {
+          margin: 1.25rem 0.15rem 0;
+          padding: 0.85rem 0.9rem;
+          border: 1px solid var(--ds-border);
+          border-radius: 13px;
+          background: rgba(255, 255, 255, 0.035);
+        }
+
+        .ds-workspace-label {
+          color: var(--ds-text-muted);
+          font-size: 0.64rem;
+          font-weight: 600;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+        }
+
+        .ds-workspace-name {
+          overflow: hidden;
+          color: var(--ds-text-soft);
+          font-size: 0.73rem;
+          font-weight: 620;
+          margin-top: 0.38rem;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .ds-local-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.42rem;
+          margin-top: 0.7rem;
+          color: var(--ds-text-muted);
+          font-size: 0.66rem;
+        }
+
+        .ds-hero {
+          position: relative;
+          overflow: hidden;
+          padding: clamp(1.4rem, 3vw, 2.2rem);
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          border-radius: 22px;
+          background:
+            radial-gradient(circle at 88% 18%, rgba(100, 210, 255, 0.20), transparent 25%),
+            linear-gradient(135deg, rgba(10, 132, 255, 0.17), rgba(28, 28, 30, 0.76) 58%);
+          box-shadow: var(--ds-shadow-md);
+          backdrop-filter: saturate(145%) blur(28px);
+        }
+
+        .ds-hero-eyebrow {
+          color: #64d2ff;
+          font-size: 0.72rem;
+          font-weight: 650;
+          letter-spacing: 0.02em;
+        }
+
+        .ds-hero-title {
+          max-width: 720px;
+          color: var(--ds-text);
+          font-size: clamp(1.45rem, 2.8vw, 2.25rem);
+          font-weight: 680;
+          line-height: 1.18;
+          letter-spacing: -0.035em;
+          margin-top: 0.55rem;
+        }
+
+        .ds-hero-copy {
+          max-width: 680px;
+          color: var(--ds-text-soft);
+          font-size: 0.86rem;
+          line-height: 1.65;
+          margin-top: 0.72rem;
+        }
+
+        .ds-hero-meta {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.5rem;
+          margin-top: 1.15rem;
+        }
+
+        .ds-hero-meta span {
+          padding: 0.3rem 0.62rem;
+          border: 1px solid rgba(255, 255, 255, 0.10);
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.06);
+          color: var(--ds-text-soft);
+          font-size: 0.66rem;
+          font-weight: 580;
+        }
+
+        .ds-runtime-strip {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 1rem;
+          padding: 0.8rem 0.95rem;
+          border: 1px solid var(--ds-border);
+          border-radius: 13px;
+          background: rgba(255, 255, 255, 0.035);
+          color: var(--ds-text-muted);
+          font-size: 0.7rem;
+        }
+
+        .ds-form-intro {
+          padding: 1rem 1.05rem;
+          border: 1px solid rgba(10, 132, 255, 0.22);
+          border-radius: 14px;
+          background: rgba(10, 132, 255, 0.08);
+          color: var(--ds-text-soft);
+          font-size: 0.78rem;
+          line-height: 1.6;
+          margin-bottom: 1rem;
+        }
+
+        .ds-mobile-nav {
+          display: none;
         }
 
         @media (max-width: 980px) {
@@ -831,10 +1085,47 @@ def _inject_design_system(theme: Theme) -> None:
         }
 
         @media (max-width: 640px) {
+          [data-testid="stMainBlockContainer"] { padding: 4.25rem 0.8rem 3rem; }
           .ds-page-header { display: block; }
           .ds-page-description { max-width: none; }
           .ds-stepper { grid-template-columns: 1fr; }
           .ds-step::after { display: none !important; }
+          .ds-hero { border-radius: 18px; }
+
+          .ds-mobile-nav {
+            position: fixed;
+            z-index: 999999;
+            right: 10px;
+            bottom: 10px;
+            left: 10px;
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 4px;
+            padding: 6px 7px calc(6px + env(safe-area-inset-bottom));
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 18px;
+            background: rgba(28, 28, 30, 0.82);
+            box-shadow: 0 14px 44px rgba(0, 0, 0, 0.42);
+            backdrop-filter: saturate(170%) blur(28px);
+          }
+
+          .ds-mobile-nav a {
+            display: grid;
+            place-items: center;
+            min-height: 42px;
+            border-radius: 12px;
+            color: var(--ds-text-muted);
+            font-size: 0.69rem;
+            font-weight: 590;
+            text-decoration: none;
+          }
+
+          .ds-mobile-nav a.active {
+            background: var(--ds-primary-soft);
+            color: var(--ds-primary);
+          }
+
+          [data-testid="stMain"] { padding-bottom: 5.5rem; }
         }
         </style>
         """,
@@ -844,18 +1135,33 @@ def _inject_design_system(theme: Theme) -> None:
 
 
 def _render_sidebar(current_page: str) -> tuple[str, str]:
-    if "global_api_url" not in st.session_state or not str(
-        st.session_state.get("global_api_url") or ""
-    ).strip():
+    if (
+        "global_api_url" not in st.session_state
+        or not str(st.session_state.get("global_api_url") or "").strip()
+    ):
         st.session_state["global_api_url"] = str(
             st.session_state.get("api_url") or _default_api_url()
         ).rstrip("/")
-    if "global_project_path" not in st.session_state or not str(
-        st.session_state.get("global_project_path") or ""
-    ).strip():
+    if (
+        "global_project_path" not in st.session_state
+        or not str(st.session_state.get("global_project_path") or "").strip()
+    ):
         st.session_state["global_project_path"] = str(
             st.session_state.get("project_path") or _default_project_path()
         )
+
+    api_value = str(st.session_state["global_api_url"]).rstrip("/")
+    project_value = str(st.session_state["global_project_path"]).strip()
+    st.session_state["api_url"] = api_value
+    st.session_state["project_path"] = project_value
+    if api_value and project_value:
+        web_state.set_state(api_url=api_value, project_path=project_value)
+
+    try:
+        api_ready = requests.get(f"{api_value}/api/health", timeout=1.5).ok
+    except requests.RequestException:
+        api_ready = False
+    project_name = Path(project_value).name if project_value else "未选择工作区"
 
     with st.sidebar:
         st.markdown(
@@ -863,15 +1169,13 @@ def _render_sidebar(current_page: str) -> tuple[str, str]:
             <div class="ds-brand">
               <div class="ds-brand-mark"></div>
               <div>
-                <div class="ds-brand-name">Video Account<br>Distiller</div>
-                <div class="ds-brand-subtitle">视频账号蒸馏平台</div>
+                <div class="ds-brand-name">Distiller</div>
+                <div class="ds-brand-subtitle">账号内容智能</div>
               </div>
             </div>
-            <div class="ds-nav-label">产品导航</div>
             """,
             unsafe_allow_html=True,
         )
-
         for _page_key, path, label, icon in _NAV_ITEMS:
             st.page_link(
                 path,
@@ -881,84 +1185,39 @@ def _render_sidebar(current_page: str) -> tuple[str, str]:
                 disabled=False,
             )
 
-        st.markdown('<div class="ds-nav-label">工作区</div>', unsafe_allow_html=True)
-        with st.expander("连接与项目", expanded=False, icon=":material/tune:"):
-            if "global_api_url" not in st.session_state:
-                st.session_state["global_api_url"] = web_state.get_state(
-                    "api_url", "http://127.0.0.1:8000"
-                )
-            if "global_project_path" not in st.session_state:
-                st.session_state["global_project_path"] = web_state.get_state(
-                    "project_path",
-                    str(Path.home() / "video-account-distiller-projects" / "workspace"),
-                )
-            api_url = st.text_input("API 地址", key="global_api_url")
-            project_path = st.text_input("项目路径", key="global_project_path")
-            api_value = api_url.rstrip("/")
-            project_value = project_path.strip()
-            st.session_state["api_url"] = api_value
-            st.session_state["project_path"] = project_value
-            # Persist so reloads / theme toggles / reconnects restore them.
-            # Never persist blank values: they make later requests lose their scheme.
-            if api_value and project_value:
-                web_state.set_state(api_url=api_value, project_path=project_value)
-
-            action_a, action_b = st.columns(2)
-            if action_a.button(
-                "检测",
-                key=f"check_connection_{current_page}",
-                icon=":material/cable:",
-                use_container_width=True,
-            ):
-                try:
-                    response = requests.get(f"{api_url.rstrip('/')}/api/health", timeout=5)
-                    st.session_state["sidebar_api_status"] = (
-                        "正常" if response.ok else f"HTTP {response.status_code}"
-                    )
-                except requests.RequestException:
-                    st.session_state["sidebar_api_status"] = "未连接"
-            if action_b.button(
-                "初始化",
-                key=f"init_project_{current_page}",
-                icon=":material/create_new_folder:",
-                use_container_width=True,
-                disabled=not bool(project_path.strip()),
-            ):
-                try:
-                    response = requests.post(
-                        f"{api_url.rstrip('/')}/api/projects/init",
-                        json={"path": project_path, "name": Path(project_path).name},
-                        timeout=10,
-                    )
-                    payload = response.json()
-                    if response.ok and payload.get("ok"):
-                        st.session_state["sidebar_project_status"] = "已就绪"
-                        st.toast("项目工作区已就绪")
-                    else:
-                        st.session_state["sidebar_project_status"] = "需检查"
-                except (requests.RequestException, ValueError):
-                    st.session_state["sidebar_project_status"] = "未连接"
-
-        api_status = str(st.session_state.get("sidebar_api_status", "待检测"))
-        project_status = str(st.session_state.get("sidebar_project_status", "待检测"))
-        api_tone = "success" if api_status == "正常" else "warning"
-        project_tone = "success" if project_status == "已就绪" else "warning"
         st.markdown(
             f"""
-            <div class="ds-sidebar-status">
-              <div class="ds-status-title">运行状态</div>
-              <div class="ds-status-row">
-                <span><i class="ds-dot {api_tone}"></i>API 服务</span>
-                <span class="ds-status-value">{html.escape(api_status)}</span>
+            <div class="ds-workspace-card">
+              <div class="ds-workspace-label">当前工作区</div>
+              <div class="ds-workspace-name" title="{html.escape(project_value)}">
+                {html.escape(project_name)}
               </div>
-              <div class="ds-status-row">
-                <span><i class="ds-dot {project_tone}"></i>当前项目</span>
-                <span class="ds-status-value">{html.escape(project_status)}</span>
+              <div class="ds-local-badge">
+                <i class="ds-dot {"success" if api_ready else "warning"}"></i>
+                {"本地服务已连接" if api_ready else "本地服务未连接"}
               </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
+
+    mobile_items = (
+        ("dashboard", "/", "概览"),
+        ("collect", "/quick_collect", "蒸馏"),
+        ("reports", "/reports", "报告"),
+        ("settings", "/settings", "设置"),
+    )
+    mobile_links = "".join(
+        (
+            f'<a class="{"active" if page_key == current_page else ""}" '
+            f'href="{path}" target="_self">{label}</a>'
+        )
+        for page_key, path, label in mobile_items
+    )
+    st.markdown(
+        f'<nav class="ds-mobile-nav" aria-label="移动端主导航">{mobile_links}</nav>',
+        unsafe_allow_html=True,
+    )
 
     return (
         str(st.session_state["api_url"]).rstrip("/"),
@@ -974,49 +1233,20 @@ def _render_header(
     eyebrow: str,
     theme: Theme,
 ) -> Theme:
-    title_column, actions_column = st.columns([6.4, 3.6], vertical_alignment="top")
-    with title_column:
-        st.markdown(
-            f"""
-            <div class="ds-page-header">
-              <div>
-                <div class="ds-page-kicker">{html.escape(eyebrow)}</div>
-                <h1 class="ds-page-title">{html.escape(title)}</h1>
-                <div class="ds-page-description">{html.escape(description)}</div>
-              </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    with actions_column:
-        button_help, button_notice, theme_column, avatar_column = st.columns([1, 1, 1.45, 0.52])
-        with button_help:
-            if st.button(
-                "帮助",
-                key=f"header_help_{page_key}",
-                icon=":material/help:",
-                use_container_width=True,
-            ):
-                st.toast("帮助中心正在整理中；当前可在系统设置中查看 API 文档。")
-        with button_notice:
-            if st.button(
-                "通知",
-                key=f"header_notice_{page_key}",
-                icon=":material/notifications:",
-                use_container_width=True,
-            ):
-                st.toast("暂无新的系统通知")
-
-        with theme_column:
-            st.markdown("深色模式")
-        with avatar_column:
-            st.markdown(
-                '<div class="ds-avatar" title="当前用户">DA</div>',
-                unsafe_allow_html=True,
-            )
-        selected_theme: Theme = "dark"
-    return selected_theme
+    del page_key, theme
+    st.markdown(
+        f"""
+        <div class="ds-page-header">
+          <div>
+            <div class="ds-page-kicker">{html.escape(eyebrow)}</div>
+            <h1 class="ds-page-title">{html.escape(title)}</h1>
+            <div class="ds-page-description">{html.escape(description)}</div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    return "dark"
 
 
 def setup_page(
@@ -1134,4 +1364,26 @@ def task_row(
         "</div>"
         f'<div class="ds-progress"><span style="width:{progress_value:.0%}"></span></div>'
         f"<div>{badge(status, tone)}</div></div>"
+    )
+
+
+def task_progress_card(
+    title: str,
+    detail: str,
+    *,
+    progress: float,
+    status: str,
+    meta: str = "每 2 秒自动刷新 · 可安全离开本页",
+) -> None:
+    """Render a prominent live task card with determinate or pending progress."""
+
+    st.markdown(
+        task_progress_markup(
+            title,
+            detail,
+            progress=progress,
+            status=status,
+            meta=meta,
+        ),
+        unsafe_allow_html=True,
     )

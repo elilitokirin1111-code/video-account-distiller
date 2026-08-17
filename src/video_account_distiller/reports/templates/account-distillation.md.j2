@@ -15,6 +15,28 @@
 - 视听风格：{{ distillation.positioning.visual_and_audio_identity|join("；") or "待补充本地视频分析" }}
 - 仍未知：{{ distillation.positioning.unknowns|join("；") or "无" }}
 
+## 拍摄手法与表现形式画像
+
+{% if distillation.craft_profile -%}
+- 分析媒体：{{ distillation.craft_profile.analyzed_media_count }} 条；完成画面语义标注：{{ distillation.craft_profile.annotated_media_count }} 条
+{% if distillation.craft_profile.editing_rhythm -%}
+- 剪辑节奏：{{ distillation.craft_profile.editing_rhythm.pace_label or "未知" }}；镜头时长中位数 {{ "%.1f"|format(distillation.craft_profile.editing_rhythm.median_shot_duration_ms / 1000) if distillation.craft_profile.editing_rhythm.median_shot_duration_ms is not none else "未知" }} 秒；镜头数中位数 {{ distillation.craft_profile.editing_rhythm.shot_count_median or "未知" }}
+{% endif -%}
+{% for category, summaries in distillation.craft_profile.categories.items() -%}
+{% if summaries -%}
+- **{{ craft_labels[category] }}**：{% for item in summaries[:5] %}{{ item.tag }}（{{ "%.0f%%"|format(item.coverage * 100) }}、{{ item.video_count }} 条）{% if not loop.last %}；{% endif %}{% endfor %}
+{% endif -%}
+{% endfor -%}
+{% if distillation.craft_profile.signature_style -%}
+- 招牌风格：{{ distillation.craft_profile.signature_style|join("；") }}
+{% endif -%}
+{% if distillation.craft_profile.unknowns -%}
+- 画像未知项：{{ distillation.craft_profile.unknowns|join("；") }}
+{% endif -%}
+{% else -%}
+- 尚未生成本地媒体分析，无法蒸馏拍摄手法与表现形式。
+{% endif -%}
+
 ## 内容簇
 
 {% for cluster in distillation.content_clusters -%}

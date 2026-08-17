@@ -45,11 +45,7 @@ from video_account_distiller.features import VideoAnalysisService
 from video_account_distiller.growth import AccountGrowthService
 from video_account_distiller.ingestion import ImportService
 from video_account_distiller.insights import AnalysisContextService
-from video_account_distiller.knowledge import (
-    KnowledgeExportService,
-    OpenKBIntegrationService,
-    resolve_openkb_target,
-)
+from video_account_distiller.knowledge import KnowledgeExportService
 from video_account_distiller.media import (
     AccountMediaEnrichmentService,
     LocalMediaAnalysisService,
@@ -92,11 +88,11 @@ account_app = typer.Typer(
     help="Collect and distill an authorized public account homepage.", no_args_is_help=True
 )
 knowledge_app = typer.Typer(
-    help="Export curated evidence-backed knowledge for optional external tools.",
+    help="Export curated evidence-backed knowledge for local tools.",
     no_args_is_help=True,
 )
-openkb_app = typer.Typer(
-    help="Synchronize curated analysis artifacts with a separate OpenKB service.",
+package_app = typer.Typer(
+    help="Build local, privacy-aware knowledge packages.",
     no_args_is_help=True,
 )
 app.add_typer(import_app, name="import")
@@ -110,7 +106,7 @@ app.add_typer(knowledge_app, name="knowledge")
 app.add_typer(backup_app, name="backup")
 app.add_typer(release_app, name="release")
 app.add_typer(gpt_evaluation_app, name="gpt-eval")
-knowledge_app.add_typer(openkb_app, name="openkb")
+knowledge_app.add_typer(package_app, name="package")
 
 
 def _vision_provider(
@@ -240,14 +236,14 @@ def account_analyze_command(
         None,
         "--comments-per-video",
         min=0,
-        max=20,
+        max=100,
         help="Public top-level comment sample; profile default applies when omitted.",
     ),
     comment_video_limit: int = typer.Option(
         3,
         "--comment-video-limit",
         min=1,
-        max=200,
+        max=20_000,
         help="Maximum high-comment videos sampled when comment collection is enabled.",
     ),
     provider: CollectionProviderKind = typer.Option(
@@ -271,7 +267,7 @@ def account_analyze_command(
         0,
         "--media-limit",
         min=0,
-        max=20,
+        max=20_000,
         help=(
             "Also download, transcribe, and analyze this many retained public videos. "
             "0 keeps collection metadata-only."
@@ -595,7 +591,7 @@ def account_context_command(
         10,
         "--max-video-analyses",
         min=1,
-        max=50,
+        max=1_000,
     ),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
@@ -618,32 +614,11 @@ def account_context_command(
     )
 
 
-def _openkb_integration(
-    *,
-    project: Path,
-    base_url: str | None,
-    kb: str | None,
-    token_env: str,
-    timeout_seconds: int,
-    require_remote_token: bool = True,
-) -> OpenKBIntegrationService:
-    layout = ProjectLayout.open(project)
-    target, token = resolve_openkb_target(
-        layout,
-        base_url=base_url,
-        kb=kb,
-        token_env=token_env,
-        timeout_seconds=timeout_seconds,
-        require_remote_token=require_remote_token,
-    )
-    return OpenKBIntegrationService.from_target(layout, target, token=token)
-
-
-@openkb_app.command("export")
-def openkb_export_command(
+@package_app.command("export")
+def knowledge_package_export_command(
     project: Path = typer.Option(..., "--project"),
     account: str = typer.Option(..., "--account"),
-    max_video_analyses: int = typer.Option(10, "--max-video-analyses", min=1, max=25),
+    max_video_analyses: int = typer.Option(100, "--max-video-analyses", min=1, max=1_000),
     max_export_bytes: int = typer.Option(
         1_000_000,
         "--max-export-bytes",
@@ -671,126 +646,6 @@ def openkb_export_command(
             f"{account}: {result['document_path']}"
         ),
     )
-
-
-@openkb_app.command("sync")
-def openkb_sync_command(
-    project: Path = typer.Option(..., "--project"),
-    account: str = typer.Option(..., "--account"),
-    base_url: str | None = typer.Option(None, "--base-url"),
-    kb: str | None = typer.Option(None, "--kb"),
-    token_env: str = typer.Option("DISTILLER_OPENKB_API_TOKEN", "--token-env"),
-    timeout_seconds: int = typer.Option(600, "--timeout-seconds", min=1, max=1800),
-    confirm_model_processing: bool = typer.Option(
-        False,
-        "--confirm-model-processing",
-        help="Confirm that OpenKB compilation may invoke a paid or remote model.",
-    ),
-    create_kb: bool = typer.Option(True, "--create-kb/--no-create-kb"),
-    force: bool = typer.Option(False, "--force"),
-    max_video_analyses: int = typer.Option(10, "--max-video-analyses", min=1, max=25),
-    max_export_bytes: int = typer.Option(
-        1_000_000,
-        "--max-export-bytes",
-        min=10_000,
-        max=5_000_000,
-    ),
-    json_output: bool = typer.Option(False, "--json"),
-    dry_run: bool = typer.Option(False, "--dry-run"),
-) -> None:
-    """One-way sync a curated account document into OpenKB."""
-    result = _execute(
-        lambda: _openkb_integration(
-            project=project,
-            base_url=base_url,
-            kb=kb,
-            token_env=token_env,
-            timeout_seconds=timeout_seconds,
-            require_remote_token=not dry_run,
-        ).sync_account(
-            account_id=account,
-            confirm_model_processing=confirm_model_processing,
-            create_kb=create_kb,
-            force=force,
-            max_video_analyses=max_video_analyses,
-            max_export_bytes=max_export_bytes,
-            dry_run=dry_run,
-        ),
-        json_output=json_output,
-    )
-    _emit(
-        result,
-        json_output=json_output,
-        human=(
-            f"{'OpenKB sync plan' if dry_run else 'OpenKB sync'} for {account}: "
-            f"{result.get('status', 'ready')}"
-        ),
-    )
-
-
-@openkb_app.command("status")
-def openkb_status_command(
-    project: Path = typer.Option(..., "--project"),
-    account: str = typer.Option(..., "--account"),
-    base_url: str | None = typer.Option(None, "--base-url"),
-    kb: str | None = typer.Option(None, "--kb"),
-    token_env: str = typer.Option("DISTILLER_OPENKB_API_TOKEN", "--token-env"),
-    timeout_seconds: int = typer.Option(60, "--timeout-seconds", min=1, max=1800),
-    remote: bool = typer.Option(False, "--remote"),
-    json_output: bool = typer.Option(False, "--json"),
-) -> None:
-    """Inspect local sync state and optionally the remote OpenKB status."""
-    result = _execute(
-        lambda: _openkb_integration(
-            project=project,
-            base_url=base_url,
-            kb=kb,
-            token_env=token_env,
-            timeout_seconds=timeout_seconds,
-            require_remote_token=remote,
-        ).status(account_id=account, remote=remote),
-        json_output=json_output,
-    )
-    state = "not synced" if result["sync"] is None else "synced"
-    _emit(
-        result,
-        json_output=json_output,
-        human=f"OpenKB knowledge for {account}: {state}",
-    )
-
-
-@openkb_app.command("query")
-def openkb_query_command(
-    question: str = typer.Argument(..., help="Question for the compiled knowledge base."),
-    project: Path = typer.Option(..., "--project"),
-    base_url: str | None = typer.Option(None, "--base-url"),
-    kb: str | None = typer.Option(None, "--kb"),
-    token_env: str = typer.Option("DISTILLER_OPENKB_API_TOKEN", "--token-env"),
-    timeout_seconds: int = typer.Option(600, "--timeout-seconds", min=1, max=1800),
-    confirm_model_processing: bool = typer.Option(
-        False,
-        "--confirm-model-processing",
-        help="Confirm that the query may invoke a paid or remote model.",
-    ),
-    save: bool = typer.Option(False, "--save"),
-    json_output: bool = typer.Option(False, "--json"),
-) -> None:
-    """Query derived OpenKB knowledge while preserving Distiller as source of truth."""
-    result = _execute(
-        lambda: _openkb_integration(
-            project=project,
-            base_url=base_url,
-            kb=kb,
-            token_env=token_env,
-            timeout_seconds=timeout_seconds,
-        ).query(
-            question=question,
-            confirm_model_processing=confirm_model_processing,
-            save=save,
-        ),
-        json_output=json_output,
-    )
-    _emit(result, json_output=json_output, human=str(result["answer"]))
 
 
 def _import_command(

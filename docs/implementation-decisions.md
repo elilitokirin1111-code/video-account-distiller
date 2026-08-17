@@ -707,3 +707,143 @@ requirements from later phases.
   and account without forking the distillation pipeline. Operating-system credential storage avoids
   repeated local environment edits while keeping secrets outside projects and task records. Endpoint
   trust and shared validation prevent a compatibility API from weakening the evidence contract.
+
+## ID-082 — Separate evidence readiness from knowledge distillation
+
+- **Decision:** Always rebuild deterministic account patterns after media analysis, but report the
+  workflow as only `evidence_ready` until an explicitly authorized account-level synthesis runs.
+  Make DeepSeek V4 Flash with thinking enabled and high reasoning effort the default synthesis
+  configuration. Keep the paid call optional, privacy-gated, mockable, and secret-free in durable
+  task payloads; resolve credentials from the operating-system keyring or environment in the worker.
+- **Reason:** A template-rendered report is not evidence that the system has formed reusable
+  knowledge. Distinguishing the two states prevents the product from claiming “distillation
+  complete” when it has only normalized and summarized evidence, while preserving an offline path.
+
+## ID-083 — Persist model learning as candidate knowledge cards, never validated rules
+
+- **Decision:** Require account synthesis to emit falsifiable knowledge cards containing a claim,
+  mechanism, competing explanations, scope, boundary conditions, decision, trade-off, target metric,
+  success condition, and stop condition. Persist them under `knowledge-base/claims/` as candidate or
+  experimental records with evidence backlinks and mandatory human review. A single model run may
+  assign maturity Level 0–3 only and cannot write or promote a Level-4 Rule or alter a Rubric.
+- **Reason:** The durable asset is a testable operating proposition, not a metric inventory or a
+  fluent report. Candidate isolation supports learning and later experiment-driven promotion without
+  allowing one model response to bypass the existing evidence and governance lifecycle.
+
+## ID-084 — Retire OpenKB and keep knowledge artifacts local
+
+- **Decision:** Remove OpenKB from the Web, API, CLI, durable job registry, environment template,
+  and automatic workflow language. Write new curated knowledge packages to
+  `knowledge-outbox/local/` for local archival and Obsidian use. Preserve existing historical
+  `knowledge-outbox/openkb/` files without migrating or deleting them.
+- **Reason:** The durable product asset is the evidence-linked knowledge card and local knowledge
+  package, not a dependency on a separate knowledge sidecar. Retiring the integration removes an
+  unnecessary synchronization, credential, and model-processing surface while preserving history.
+
+## ID-085 — Expand acquisition separately from selective media reparsing
+
+- **Decision:** Increase the standard public-video acquisition window from 20 to 50 and the
+  operator-selected media-enrichment ceiling from 20 to 100. Add a durable account-level reparse
+  task that can target only failed/degraded videos, explicit retained video IDs, or the current
+  retained batch. Preserve successful transcripts by default, optionally refresh media analysis,
+  keep prior immutable artifacts, and rebuild account distillation after a successful retry.
+- **Reason:** Metadata collection and multimodal parsing have different cost and failure profiles.
+  A larger evidence window improves representativeness, while bounded selective retries prevent one
+  transient download, transcription, or vision failure from forcing another account collection or
+  overwriting prior evidence.
+
+## ID-086 — Replace avoidable unknowns with bounded proxies, not invented facts
+
+- **Decision:** During account distillation, prefer validated performance bands when available. If
+  a public provider omits views but at least five videos retain public likes/comments/shares/saves,
+  derive an explicitly labelled account-local public-interaction percentile solely for pattern and
+  counterexample mining. Treat absence of an explicit CTA as an analyzable strategy category, infer
+  a public-scale account stage from observed followers and published-video count, and render true
+  evidence gaps as specific Chinese explanations instead of generic `unknown`/`none` tokens.
+- **Reason:** Generic missing labels conceal whether the system lacks data, lacks taxonomy coverage,
+  or observed a meaningful absence. A transparent proxy recovers useful comparisons without
+  pretending that views, completion, conversion, causality, or business lifecycle are known.
+
+## ID-087 — Carry the declared collection scope through downstream analysis
+
+- **Decision:** Default comment coverage and media understanding to the operator's finite collection
+  scope instead of independently resetting them to 20. Allow collection, media enrichment, and
+  selective reparsing to share the 20,000-video safety ceiling. Aggregate every completed video
+  analysis in deterministic distillation, then provide cloud/local knowledge synthesis with up to
+  1,000 compact per-video evidence rows alongside the full-corpus clusters and patterns. Preserve
+  immutable full analysis artifacts on disk and disclose whether the model context contains full
+  detail or full-corpus aggregation plus a compact detail sample.
+- **Reason:** Increasing acquisition alone creates false coverage when later stages silently truncate
+  the corpus. Compact evidence rows remove the historical 25/50-item context bottleneck without
+  duplicating long transcripts or exceeding the existing upload-size guard, while full-corpus
+  deterministic aggregation retains information from accounts larger than the model detail cap.
+
+## ID-088 — Treat a valid empty speech result as evidence, not a runtime failure
+
+- **Decision:** When Whisper completes successfully and returns a valid segment list containing no
+  usable speech, record transcription as complete with zero segments and the stable warning
+  `no_speech_detected`. Continue media, visual, text, and account analysis even in strict workflows.
+  Preserve hard failures for process errors, timeouts, malformed output, and unavailable runtimes.
+- **Reason:** Music-only, ambient, and montage videos are valid account evidence. Retrying the same
+  semantic result on CPU wastes time, while aborting a whole account batch confuses “no speech” with
+  an infrastructure failure and discards usable visual and metadata evidence.
+
+## ID-089 — Recover media sources from every retained provider response shape
+
+- **Decision:** Build each video's allowlisted download candidates by merging immutable evidence from
+  single-video detail payloads, wrapped detail payloads, and `aweme_list` account-list payloads.
+  Deduplicate URLs without refreshing or inventing signed sources. If all retained shapes genuinely
+  lack a source, record that video as failed with `retained_source_unavailable` and continue the
+  account batch even when strict media processing is enabled; actual download and decode failures
+  retain strict failure behavior.
+- **Reason:** Public detail calls may degrade while the already-retained account listing still
+  contains valid play addresses. Ignoring that evidence creates a false download failure. A truly
+  unavailable, deleted, or restricted video is a per-item evidence gap and should not discard the
+  rest of an otherwise valid account analysis.
+
+## ID-090 — Bound local vision JSON before increasing its generation budget
+
+- **Decision:** Keep llama.cpp vision output under the strict Pydantic-derived JSON Schema, while
+  adding explicit maximum lengths for summaries, labels, OCR text, arrays, and bounding boxes.
+  Increase the single-frame completion budget from 2,048 to 4,096 tokens. When llama.cpp reports a
+  length-truncated completion, retry from the original image with a compact instruction instead of
+  feeding the incomplete assistant JSON back into the conversation. Continue to reject any final
+  response that does not validate; never persist truncated or repaired-by-guesswork model JSON.
+- **Reason:** A visually dense frame can make Qwen enumerate unconstrained arrays until the token
+  ceiling, leaving syntactically incomplete JSON. Raising the ceiling alone only delays that failure,
+  while replaying a truncated response encourages continuation of an invalid object. Schema bounds
+  make generation finite and the clean retry preserves both evidence grounding and strict validation.
+
+## ID-091 — Do not treat image-post background audio as a video source
+
+- **Decision:** Detect retained Douyin image posts from their non-empty `images` collection and
+  zero-duration video envelope before extracting media candidates. Do not download the associated
+  `video.play_addr`, because it is the slideshow background audio rather than a video stream. Record
+  the item as `retained_non_video_post`, continue strict account enrichment, preserve its metadata and
+  comments for downstream account analysis, and do not recommend reparsing against the same retained
+  batch.
+- **Reason:** Douyin type-68 carousel posts use the same response envelope as videos and may expose
+  `audio/mp4` or MP3 URLs under `video.play_addr`. Passing those URLs to the video decoder produces a
+  false media-download or no-video-stream failure and can abort an otherwise valid account batch.
+  Explicit classification preserves the evidence boundary without pretending that background audio
+  is visual footage.
+
+## ID-092 — Distill shooting techniques and expression forms as labeled craft patterns
+
+- **Decision:** Extend the vision contract (prompt 1.4.0) with explicit `shot_scale` and
+  `camera_movement` fields while keeping the legacy `camera` field for viewpoint/angle; mirror the
+  angle into `ShotVisualAnnotation.camera_angle`. Aggregate per-shot labels into per-video
+  `MediaFeatureRecord` craft tags (`shot_scale_tags`, `camera_movement_tags`, `camera_angle_tags`,
+  `composition_tags`, `lighting_tags`) plus deterministic `opening_technique_tags` (from the first
+  shot) and `pacing_tags` (from measured shot duration). At account level, build one `CraftProfile`
+  whose per-tag coverage denominators are explicit (vision-annotated media for visual categories,
+  shot-bearing media for pacing), promote a `signature_style`, mine each tag as a `craft` Pattern
+  against account-local S/A versus C/D bands, and carry `craft_identity` into benchmark profiles.
+  All new model fields default to empty so pre-existing artifacts and replays stay readable.
+- **Reason:** The account previously summarized vision labels only as merged, coverage-free text
+  lines, so recurring shooting techniques and expression forms could not be compared, mined against
+  performance, or transferred between accounts. Craft tags stay deterministic aggregations of model
+  labels: camera motion is best-effort from still frames and must not be presented as measured fact,
+  so unknowns and low-coverage warnings remain explicit, and craft Patterns are Level 0/1
+  observations exactly like text Patterns.
+

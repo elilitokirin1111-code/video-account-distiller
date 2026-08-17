@@ -70,8 +70,30 @@ distiller analyze media --project <dir> --video <video-id> --file <video.mp4> \
 ```
 
 Only loopback port 11434 is accepted. Still frames can establish visible objects, scenes, color,
-composition, lighting, text styles, branding, and OCR; they cannot prove motion, edit causality, or
-performance impact.
+shot scale, best-effort camera motion, camera angle, composition, lighting, text styles,
+branding, and OCR; they cannot prove motion, edit causality, or performance impact.
+
+### Shooting-technique and expression-form fields
+
+The vision contract (prompt `1.4.0`) adds three dedicated craft fields per frame on top of the
+existing composition/camera/lighting labels:
+
+- `shot_scale`: visible shot scale such as 特写/近景/中景/全景/远景.
+- `camera_movement`: best-effort camera motion such as 固定机位/手持/推镜/摇镜/移镜/跟拍.
+- `camera` (legacy field kept): viewpoint/angle such as 平视/俯视/仰视/斜角; it is mirrored into
+  `ShotVisualAnnotation.camera_angle`.
+
+Field-name echoes and “无/未知/未确认” tokens are filtered out. Each `MediaFeatureRecord` row
+aggregates the per-shot labels into `shot_scale_tags`, `camera_movement_tags`, `camera_angle_tags`,
+`composition_tags`, `lighting_tags` (old rows keep the merged `visual_style_tags`), plus two
+deterministic derived lists:
+
+- `opening_technique_tags`: readable opening tags from the first shot, e.g.
+  特写开场 / 固定机位开场 / 开场大字标题 / 开场即出字幕.
+- `pacing_tags`: 快节奏剪辑 (<1.5 s average shot) / 中等节奏剪辑 (≤3.5 s) / 慢节奏剪辑.
+
+The account-level distillation aggregates these into a `craft_profile`; see
+`comment-and-account-distillation.md`.
 
 ## Privacy boundary
 

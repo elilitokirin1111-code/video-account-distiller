@@ -1,5 +1,6 @@
 """Local Obsidian vault export for curated account knowledge."""
 
+# ruff: noqa: E501
 from __future__ import annotations
 
 import copy
@@ -14,19 +15,22 @@ import yaml
 
 from video_account_distiller.config import load_config
 from video_account_distiller.errors import DistillerError, ErrorCode
-from video_account_distiller.insights import AnalysisContextService
+from video_account_distiller.insights import (
+    AnalysisContextService,
+    render_account_learning_report,
+)
 from video_account_distiller.knowledge.exporter import (
     ACCOUNT_REDACT_FIELDS,
     DEFAULT_MAX_EXPORT_BYTES,
     KnowledgeExportService,
     _safe_source_path,
 )
-from video_account_distiller.storage.project import ProjectLayout
+from video_account_distiller.models import Video
 from video_account_distiller.storage.parquet import read_models
+from video_account_distiller.storage.project import ProjectLayout
 from video_account_distiller.utils.hashing import sha256_json
 from video_account_distiller.utils.ids import stable_id
 from video_account_distiller.utils.io import atomic_write_json, atomic_write_text, read_json
-from video_account_distiller.models import Video
 
 OBSIDIAN_SCHEMA_VERSION = "1.0.0"
 VAULT_SUBFOLDER = "视频账号蒸馏"
@@ -48,7 +52,6 @@ _OBSIDIAN_ZH = {
     "question": "提问",
     "other": "其他",
     "pain_point": "痛点",
-    "story_suspense": "悬念",
     "question_challenge": "提问挑战",
     "loss_aversion": "损失厌恶",
     "curiosity": "好奇",
@@ -67,6 +70,7 @@ _OBSIDIAN_ZH = {
     "insufficient_history": "历史快照不足",
     "no_observed_counterexample_in_current_sample": "当前样本中未见反例",
     "failure": "失败规律",
+    "craft": "拍摄手法与表现形式",
     "提问_evidence": "证据质疑",
     "evidence": "证据",
     "Entertainment": "娱乐",
@@ -103,10 +107,13 @@ _OBSIDIAN_ZH = {
     "joke": "玩梗互动",
     "question_evidence": "证据质疑",
     "share_experience": "经验分享",
+    "suggestion": "改进建议",
+    "knowledge_contribution": "专业信息补充",
     "support": "支持认可",
     "story_suspense": "悬念钩子",
     "morning": "上午发布",
     "performance_score": "表现分",
+    "public_interaction_proxy": "账号内公开互动代理层级",
     "account_stage": "账号阶段",
     "commercial_conversion_path": "商业化转化路径",
     "small_video_sample_no_strong_account_rule": "样本量较小，暂不构成强账号规律",
@@ -114,11 +121,18 @@ _OBSIDIAN_ZH = {
     "platform_ranking_and_pinning_can_bias_visible_comments": "平台排序与置顶可能使可见评论有偏",
     "deleted_or_unexported_comments_can_bias_the_sample": "已删除或未导出的评论可能使样本有偏",
     "direct_identifiers_redacted_from_analysis_copy": "分析副本已对直接标识信息脱敏",
+    "comment_labels_include_low_confidence_fallbacks": "评论标签来自低置信度降级识别，需抽样复核",
+    "comment_unknown_intent_rate_high": "评论意图未识别比例偏高，需补充模型或人工复核",
+    "semantic_unknown_values_excluded_from_strategy": "未识别的视频语义已排除在策略结论之外",
+    "comment_unknown_clusters_excluded_from_strategy": "未识别评论簇已排除在策略结论之外",
     "patterns_are_observations_or_associations_not_causal_rules": "模式属于观察或统计关联，不代表因果",
     "no_phase4_pattern_is_a_level4_validated_rule": "尚无达到最高验证等级的模式",
-    "high": "高",
-    "medium": "中",
-    "low": "低",
+    "patterns_use_public_interaction_proxy_not_view_efficiency": (
+        "缺少播放量时，模式使用账号内公开互动排序；它不是播放效率或因果结论"
+    ),
+    "pattern_performance_basis_unavailable": "缺少足够公开互动字段，暂不能形成强弱样本对照",
+    "views_unavailable_proxy_is_not_view_efficiency": "公开互动代理不等于播放效率",
+    "publication_age_not_normalized": "公开互动代理未消除作品发布时间差异",
 }
 
 
@@ -168,7 +182,9 @@ def _video_ref_text(video_ids: list[str], video_meta: dict[str, dict[str, Any]])
         if meta is None:
             refs.append(str(video_id))
             continue
-        refs.append(f"《{meta.get('title') or video_id}》（{meta.get('short_id') or video_id[-8:]}）")
+        refs.append(
+            f"《{meta.get('title') or video_id}》（{meta.get('short_id') or video_id[-8:]}）"
+        )
     return "；".join(refs)
 
 
@@ -287,6 +303,8 @@ _LEGACY_ZH = {
     "joke": "玩梗互动",
     "question_evidence": "证据质疑",
     "share_experience": "经验分享",
+    "suggestion": "改进建议",
+    "knowledge_contribution": "专业信息补充",
     "support": "支持认可",
     "story_suspense": "悬念钩子",
     "morning": "上午发布",
@@ -303,7 +321,6 @@ def _legacy_report_zh(text: str) -> str:
         result = re.sub(rf"\b{re.escape(key)}\b", value, result)
     result = re.sub(r"evi_[0-9a-f]{6,}", "[证据]", result)
     result = re.sub(r"(-?\d+\.\d{4,})", lambda m: f"{float(m.group(1)):.2f}", result)
-    result = re.sub(r"\s{2,}", " ", result)
     return result
 
 
@@ -411,9 +428,6 @@ class ObsidianVaultExporter:
         gpt_payload: dict[str, Any] | None = None,
         report_stems: list[str] | None = None,
     ) -> str:
-        availability = payload.get("data_availability") or {}
-        video_analyses = payload.get("artifacts", {}).get("video_analyses") or []
-        patterns = self._load_patterns()
         metadata = {
             "aliases": [folder_name],
             "tags": ["视频账号蒸馏", "账号"],
@@ -425,91 +439,33 @@ class ObsidianVaultExporter:
             _frontmatter(metadata),
             f"# {folder_name}",
             "",
-            "> 本笔记由 Video Account Distiller 从公开账号分析产物生成，"
-            "仅包含经筛选的派生知识，不含原始评论、签名视频地址或凭据。",
+            "> 默认先读运营学习报告；复杂统计、结构化字段与证据路径已单独收纳。",
             "",
-            "## 数据可用性",
+            "## 从这里开始",
             "",
-            _table(
-                ["项目", "数量"],
-                [
-                    ["账号视频", availability.get("account_videos", 0)],
-                    ["指标快照", availability.get("metric_snapshots", 0)],
-                    ["公开评论", availability.get("public_comments", 0)],
-                    ["已分析视频（上下文内）", availability.get("analyzed_videos_in_context", 0)],
-                ],
-            ),
+            "- [[00-运营学习报告]]：结论、可模仿打法、运营启发、延伸创意和行动实验。",
             "",
-            "## 仓库结构说明",
-            "",
-            "| 目录 | 内容 |",
-            "|---|---|",
-            "| `分析报告/` | 运营可读的笔记与报告（当前目录） |",
-            "| `AI学习沉淀知识库/` | 知识包、模式、单条视频明细、原始 JSON 等结构化沉淀 |",
-            "",
-            "## AI 学习沉淀知识库",
-            "",
-            "- [[知识包]]",
-            "- [[蒸馏原始数据]]",
-            "- [[05-模式与规律]]",
-            "- [[视频分析明细]]",
-            "",
-            "## 笔记导航",
+            "## 辅助阅读",
             "",
             "- [[01-账号快照]]",
-            "- [[03-媒体分析]]",
-            "- [[04-视频分析]]",
-            "",
         ]
         if report_stems:
-            lines.extend(["- [[报告-账号体检]]", "- [[报告-账号蒸馏]]", "- [[报告-深度运营分析]]", ""])
+            lines.extend(f"- [[{report_stem}]]" for report_stem in report_stems)
+            lines.append("")
         if gpt_payload is not None:
-            lines.extend(
-                [
-                    "- [[06-云端深度分析]]",
-                    "",
-                ]
-            )
+            lines.extend(["- [[06-云端深度分析]]", ""])
         lines.extend(
             [
-                f"## 已分析视频（{len(video_analyses)}）",
+                "## 数据与证据（通常无需逐项阅读）",
                 "",
+                f"- [[../{MACHINE_DIR_NAME}/数据与证据附件|数据与证据附件]]",
+                f"- [[../{MACHINE_DIR_NAME}/蒸馏原始数据|蒸馏原始数据]]",
+                f"- [[../{MACHINE_DIR_NAME}/05-模式与规律|模式与规律]]",
+                f"- [[../{MACHINE_DIR_NAME}/视频分析明细|单条视频分析明细]]",
+                "",
+                "报告中的热点属性只有在现有证据能证明时间性时才会标为“近期热点”；否则会明确提示执行前复核。",
             ]
         )
-        lines.append("- 单条视频的模型分析明细见「AI学习沉淀知识库/视频分析明细」。")
-        if gpt_payload is not None:
-            result = gpt_payload.get("result") or {}
-            lines.extend(
-                [
-                    "",
-                    "## 云端深度分析",
-                    "",
-                    (
-                        "- 模型："
-                        f"{gpt_payload.get('returned_model') or gpt_payload.get('requested_model')}"
-                    ),
-                    f"- 模板：{gpt_payload.get('template')}",
-                    f"- 生成时间：{gpt_payload.get('generated_at')}",
-                    f"- 摘要：{str(result.get('executive_summary') or '-')[:120]}",
-                    "",
-                ]
-            )
-        if report_stems:
-            lines.extend(
-                [
-                    "",
-                    "## 报告",
-                    "",
-                ]
-            )
-            lines.extend(f"- [[{stem}]]" for stem in report_stems)
-            lines.append("")
-        lines.extend(["", f"## 模式与规律（{len(patterns)}）", ""])
-        lines.append("- 模式与规律的结构化明细见「AI学习沉淀知识库/05-模式与规律」。")
-        lines.extend(["", "## 局限", ""])
-        lines.extend(f"- {item}" for item in payload.get("limitations", []))
-        lines.extend(["", "## 证据溯源", ""])
-        lines.extend(f"- `{item}`" for item in payload.get("source_paths", []))
         return "\n".join(lines).rstrip() + "\n"
 
     def _latest_gpt_analysis(self, account_id: str) -> dict[str, Any] | None:
@@ -527,9 +483,7 @@ class ObsidianVaultExporter:
             candidates.append((str(payload.get("generated_at") or ""), payload))
         if not candidates:
             return None
-        return max(candidates, key=lambda item: (item[0], str(item[1].get("analysis_id") or "")))[
-            1
-        ]
+        return max(candidates, key=lambda item: (item[0], str(item[1].get("analysis_id") or "")))[1]
 
     def _latest_report_path(
         self,
@@ -599,6 +553,31 @@ class ObsidianVaultExporter:
                 )
         else:
             lines.append("- 无发现。")
+        cards = result.get("knowledge_cards") or []
+        lines.extend(["", "## 可复用经营知识卡", ""])
+        if cards:
+            for card in cards:
+                lines.extend(
+                    [
+                        f"### {card.get('title')}",
+                        "",
+                        f"- 命题：{card.get('claim')}",
+                        f"- 类型 / 成熟度：{card.get('knowledge_type')} / Level {card.get('maturity_level')}",
+                        f"- 机制：{card.get('mechanism')}",
+                        f"- 竞争解释：{'；'.join(card.get('competing_explanations') or [])}",
+                        f"- 反证条件：{card.get('falsifier')}",
+                        f"- 决策：{card.get('decision')}",
+                        f"- 适用范围：{'；'.join(card.get('scope') or [])}",
+                        f"- 边界条件：{'；'.join(card.get('boundary_conditions') or [])}",
+                        f"- 成功标准：{card.get('success_condition')}",
+                        f"- 停止标准：{card.get('stop_condition')}",
+                        f"- 目标指标：{card.get('target_metric')}",
+                        f"- 证据：{', '.join(card.get('evidence_refs') or [])}",
+                        "",
+                    ]
+                )
+        else:
+            lines.append("- 本次证据不足，未形成经营知识卡。")
         actions = result.get("priority_actions") or []
         lines.extend(["## 优先行动", ""])
         if actions:
@@ -650,7 +629,7 @@ class ObsidianVaultExporter:
                 return "未知"
             return str(value).replace("\r\n", " ").replace("\n", " ")
 
-        account_rows = [
+        account_rows: list[list[Any]] = [
             ["显示名称", source.get("display_name")],
             ["账号", source.get("handle")],
             ["简介", source.get("bio")],
@@ -685,10 +664,15 @@ class ObsidianVaultExporter:
                         "指标快照记录（累计）",
                         (payload.get("data_availability") or {}).get("metric_snapshots", 0),
                     ],
-                    ["公开评论", (payload.get("data_availability") or {}).get("public_comments", 0)],
+                    [
+                        "公开评论",
+                        (payload.get("data_availability") or {}).get("public_comments", 0),
+                    ],
                     [
                         "已分析视频",
-                        (payload.get("data_availability") or {}).get("analyzed_videos_in_context", 0),
+                        (payload.get("data_availability") or {}).get(
+                            "analyzed_videos_in_context", 0
+                        ),
                     ],
                 ],
             ),
@@ -781,10 +765,7 @@ class ObsidianVaultExporter:
         statement = _pattern_name_zh_obs(positioning.get("statement") or "暂无定位描述")
         persona = [_zh_text(item) for item in positioning.get("persona_signals", [])][:3]
         visual = positioning.get("visual_and_audio_identity") or []
-        visual_short = [
-            item.split("；", 1)[0][:24].lstrip("以")
-            for item in visual[:2]
-        ]
+        visual_short = [item.split("；", 1)[0][:24].lstrip("以") for item in visual[:2]]
         clusters = data.get("content_clusters") or []
         best = max(
             clusters,
@@ -846,10 +827,7 @@ class ObsidianVaultExporter:
                     or "待补充本地视频分析"
                 ),
                 "- 仍未知："
-                + (
-                    "；".join(_zh_text(item) for item in positioning.get("unknowns", []))
-                    or "无"
-                ),
+                + ("；".join(_zh_text(item) for item in positioning.get("unknowns", [])) or "无"),
                 "",
                 "## 内容簇深度解读",
                 "",
@@ -967,7 +945,9 @@ class ObsidianVaultExporter:
         )
         learning: list[str] = []
         if best:
-            learning.append(f"第一步：把「{_zh_text(best.get('name'))}」方向系列化，优先复刻其中的高表现视频")
+            learning.append(
+                f"第一步：把「{_zh_text(best.get('name'))}」方向系列化，优先复刻其中的高表现视频"
+            )
         if top_needs:
             learning.append(
                 f"第二步：围绕「{_zh_text(top_needs[0].get('name'))}」评论需求策划 3 条选题"
@@ -979,27 +959,15 @@ class ObsidianVaultExporter:
             lines.append(f"{index}. {step}")
         lines.append("")
 
-        strengths = [
-            _pattern_name_zh_obs(item)
-            for item in (data.get("strengths") or [])
-        ]
-        weaknesses = [
-            _pattern_name_zh_obs(item)
-            for item in (data.get("weaknesses") or [])
-        ]
-        copyable = [
-            _pattern_name_zh_obs(item)
-            for item in (data.get("copyable_factors") or [])
-        ]
+        strengths = [_pattern_name_zh_obs(item) for item in (data.get("strengths") or [])]
+        weaknesses = [_pattern_name_zh_obs(item) for item in (data.get("weaknesses") or [])]
+        copyable = [_pattern_name_zh_obs(item) for item in (data.get("copyable_factors") or [])]
         actions: list[str] = []
         for item in data.get("action_recommendations") or []:
             translated = _pattern_name_zh_obs(item).strip()
             if _has_chinese(translated) and translated not in actions:
                 actions.append(translated)
-        experiments = [
-            _pattern_name_zh_obs(item)
-            for item in (data.get("experiment_plan") or [])
-        ]
+        experiments = [_pattern_name_zh_obs(item) for item in (data.get("experiment_plan") or [])]
         if strengths:
             lines.extend(["## 可借鉴优势", ""])
             lines.extend(f"- {item}" for item in strengths)
@@ -1250,7 +1218,26 @@ class ObsidianVaultExporter:
         pattern_dir = self.project.root / "knowledge-base" / "patterns"
         if not pattern_dir.is_dir():
             return patterns
-        for path in sorted(pattern_dir.glob("*.json")):
+        index_path = self.project.root / "knowledge-base" / "index.json"
+        paths: list[Path] = []
+        if index_path.is_file():
+            try:
+                index = read_json(index_path)
+                paths = [
+                    self.project.root / str(relative)
+                    for relative in (index.get("patterns") or {}).values()
+                ]
+            except (OSError, ValueError, TypeError, AttributeError):
+                paths = []
+        if not paths:
+            paths = list(pattern_dir.glob("*.json"))
+        pattern_root = pattern_dir.resolve()
+        for path in sorted(paths):
+            try:
+                if not path.resolve().is_relative_to(pattern_root):
+                    continue
+            except OSError:
+                continue
             try:
                 value = read_json(path)
             except (OSError, ValueError, TypeError):
@@ -1338,10 +1325,10 @@ class ObsidianVaultExporter:
         max_export_bytes: int = DEFAULT_MAX_EXPORT_BYTES,
         dry_run: bool = False,
     ) -> dict[str, Any]:
-        if max_video_analyses < 1 or max_video_analyses > 25:
+        if max_video_analyses < 1 or max_video_analyses > 1_000:
             raise DistillerError(
                 ErrorCode.SCHEMA_INVALID,
-                "max_video_analyses must be between 1 and 25",
+                "max_video_analyses must be between 1 and 1000",
             )
         payload, account, safe_sources, folder_hint, original_account = self._payload(
             account_id=account_id,
@@ -1357,6 +1344,12 @@ class ObsidianVaultExporter:
             ("报告-账号体检", "rpt", "report.md", ["报告", "账号体检"]),
             ("报告-账号蒸馏", "dst", "report.md", ["报告", "蒸馏"]),
             ("报告-深度运营分析", "narr", "narrative.md", ["报告", "深度运营分析"]),
+            (
+                "报告-账号深度学习长文",
+                "narr",
+                "longform.md",
+                ["报告", "长文", "深度解读", "学习"],
+            ),
         ]
         for stem, prefix, filename, tags in report_specs:
             if prefix == "dst":
@@ -1391,28 +1384,52 @@ class ObsidianVaultExporter:
             max_export_bytes=max_export_bytes,
             dry_run=dry_run,
         )
-        curated_size = int(export_result["manifest"]["byte_size"])
+        curated_source = self.project.root / Path(export_result["document_path"])
+        evidence_source = self.project.root / Path(export_result["evidence_document_path"])
+        if curated_source.is_file():
+            learning_document = curated_source.read_text(encoding="utf-8")
+        elif gpt_payload is not None:
+            learning_document = render_account_learning_report(gpt_payload)
+        else:
+            learning_document = (
+                "# 账号运营学习报告\n\n"
+                "当前尚无模型综合结果。请先完成内容策略综合，再把统计结果提升为可模仿打法、"
+                "启发创意和可验证实验。\n"
+            )
+        if evidence_source.is_file():
+            evidence_document = evidence_source.read_text(encoding="utf-8")
+        else:
+            evidence_document = "# 数据与证据附件\n\n正式导出后写入完整数据与证据。\n"
+        learning_document = learning_document.replace(
+            f"./{evidence_source.name}",
+            f"../{MACHINE_DIR_NAME}/数据与证据附件.md",
+        )
         video_index, video_notes = self._render_video_notes(
             payload=payload,
             video_meta=video_meta,
         )
         human_planned: list[tuple[str, str]] = [
-            ("README.md", self._render_readme(
-                payload=payload,
-                account=account,
-                folder_name=folder_name,
-                account_id=account_id,
-                gpt_payload=gpt_payload,
-                report_stems=[name.removesuffix(".md") for name, _ in report_notes],
-            )),
-            ("01-账号快照.md", self._render_account_note(
-                payload=payload,
-                account=account,
-                folder_name=folder_name,
-                original_account=original_account,
-            )),
-            ("03-媒体分析.md", self._render_media_note(payload=payload)),
-            ("04-视频分析.md", self._render_video_index_human()),
+            (
+                "README.md",
+                self._render_readme(
+                    payload=payload,
+                    account=account,
+                    folder_name=folder_name,
+                    account_id=account_id,
+                    gpt_payload=gpt_payload,
+                    report_stems=[name.removesuffix(".md") for name, _ in report_notes],
+                ),
+            ),
+            ("00-运营学习报告.md", learning_document),
+            (
+                "01-账号快照.md",
+                self._render_account_note(
+                    payload=payload,
+                    account=account,
+                    folder_name=folder_name,
+                    original_account=original_account,
+                ),
+            ),
             *report_notes,
         ]
         if gpt_payload is not None:
@@ -1440,16 +1457,17 @@ class ObsidianVaultExporter:
             else:
                 human_planned.append(("06-云端深度分析.md", self._render_gpt_note(gpt_payload)))
         machine_planned: list[tuple[str, str]] = [
+            ("数据与证据附件.md", evidence_document),
+            ("03-媒体分析.md", self._render_media_note(payload=payload)),
+            ("04-视频分析.md", self._render_video_index_human()),
             ("蒸馏原始数据.md", self._render_distillation_note(payload=payload)),
             ("05-模式与规律.md", self._render_pattern_index()),
             ("视频分析明细.md", video_index),
             *video_notes,
             *self._render_pattern_notes(),
         ]
-        total_bytes = (
-            curated_size
-            + sum(len(text.encode("utf-8")) for _, text in human_planned)
-            + sum(len(text.encode("utf-8")) for _, text in machine_planned)
+        total_bytes = sum(len(text.encode("utf-8")) for _, text in human_planned) + sum(
+            len(text.encode("utf-8")) for _, text in machine_planned
         )
         if total_bytes > max_export_bytes:
             raise DistillerError(
@@ -1463,29 +1481,30 @@ class ObsidianVaultExporter:
             )
         human_dir = target / HUMAN_DIR_NAME
         machine_dir = target / MACHINE_DIR_NAME
-        relative_files = [
-            (VAULT_SUBFOLDER + "/" + folder_name + "/" + HUMAN_DIR_NAME + "/" + name).replace(
-                "\\", "/"
-            )
-            for name, _ in human_planned
-        ] + [
-            (
-                VAULT_SUBFOLDER + "/" + folder_name + "/" + MACHINE_DIR_NAME + "/" + name
-            ).replace("\\", "/")
-            for name, _ in machine_planned
-        ] + [
-            (
-                VAULT_SUBFOLDER + "/" + folder_name + "/" + MACHINE_DIR_NAME + "/知识包.md"
-            ).replace("\\", "/"),
-            (
-                VAULT_SUBFOLDER
-                + "/"
-                + folder_name
-                + "/"
-                + MACHINE_DIR_NAME
-                + "/obsidian-manifest.json"
-            ).replace("\\", "/"),
-        ]
+        relative_files = (
+            [
+                (VAULT_SUBFOLDER + "/" + folder_name + "/" + HUMAN_DIR_NAME + "/" + name).replace(
+                    "\\", "/"
+                )
+                for name, _ in human_planned
+            ]
+            + [
+                (VAULT_SUBFOLDER + "/" + folder_name + "/" + MACHINE_DIR_NAME + "/" + name).replace(
+                    "\\", "/"
+                )
+                for name, _ in machine_planned
+            ]
+            + [
+                (
+                    VAULT_SUBFOLDER
+                    + "/"
+                    + folder_name
+                    + "/"
+                    + MACHINE_DIR_NAME
+                    + "/obsidian-manifest.json"
+                ).replace("\\", "/"),
+            ]
+        )
         if dry_run:
             return {
                 "ok": True,
@@ -1504,16 +1523,16 @@ class ObsidianVaultExporter:
         for name, text in human_planned:
             atomic_write_text(human_dir / name, text)
             written.append(
-                (
-                    VAULT_SUBFOLDER + "/" + folder_name + "/" + HUMAN_DIR_NAME + "/" + name
-                ).replace("\\", "/")
+                (VAULT_SUBFOLDER + "/" + folder_name + "/" + HUMAN_DIR_NAME + "/" + name).replace(
+                    "\\", "/"
+                )
             )
         for name, text in machine_planned:
             atomic_write_text(machine_dir / name, text)
             written.append(
-                (
-                    VAULT_SUBFOLDER + "/" + folder_name + "/" + MACHINE_DIR_NAME + "/" + name
-                ).replace("\\", "/")
+                (VAULT_SUBFOLDER + "/" + folder_name + "/" + MACHINE_DIR_NAME + "/" + name).replace(
+                    "\\", "/"
+                )
             )
         for old_dir_name in ("人读报告", "机器数据"):
             old_dir = target / old_dir_name
@@ -1538,20 +1557,6 @@ class ObsidianVaultExporter:
             for legacy_path in target.glob(pattern):
                 if legacy_path.is_file():
                     legacy_path.unlink()
-        curated_source = self.project.root / Path(export_result["document_path"])
-        curated_dest = machine_dir / "知识包.md"
-        if curated_source.is_file():
-            shutil.copyfile(curated_source, curated_dest)
-            written.append(
-                (
-                    VAULT_SUBFOLDER
-                    + "/"
-                    + folder_name
-                    + "/"
-                    + MACHINE_DIR_NAME
-                    + "/知识包.md"
-                ).replace("\\", "/")
-            )
         manifest = {
             "schema_version": OBSIDIAN_SCHEMA_VERSION,
             "export_id": stable_id("obs_", account_id, folder_name),

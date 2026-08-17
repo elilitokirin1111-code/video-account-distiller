@@ -70,17 +70,17 @@ def test_account_analyze_defaults_to_a_bounded_tikhub_plan(
     payload = json.loads(result.stdout)
     assert result.exit_code == 0
     assert payload["request"]["provider"] == "tikhub"
-    assert payload["request"]["count"] == 20
+    assert payload["request"]["count"] == 50
     assert payload["collection_profile"] == "standard"
     assert payload["collection_scope"]["mode"] == "limited"
-    assert payload["collection_scope"]["requested_video_limit"] == 20
+    assert payload["collection_scope"]["requested_video_limit"] == 50
     assert payload["collection_scope"]["requested_comments_per_sampled_video"] == 0
     assert payload["collection_scope"]["termination"] == "requested_limit_or_provider_exhausted"
     assert payload["collection_scope"]["page_safety_limit"] == 1000
     assert payload["collection_scope"]["video_safety_limit"] == 20000
-    assert payload["provider_calls"]["homepage_post_pages_max"] == 1
+    assert payload["provider_calls"]["homepage_post_pages_max"] == 3
     assert payload["provider_calls"]["video_detail_calls_max"] == 0
-    assert payload["provider_calls"]["total_max"] == 3
+    assert payload["provider_calls"]["total_max"] == 5
 
 
 def test_account_analyze_all_mode_is_explicit_and_safety_bounded(
@@ -269,4 +269,4 @@ def test_collection_budget_stops_before_provider_execution(project: ProjectLayou
     payload = json.loads(result.stdout)
     assert result.exit_code == EXIT_CODES[ErrorCode.COLLECTION_BUDGET_EXCEEDED]
     assert payload["error"]["code"] == "E_COLLECTION_BUDGET_EXCEEDED"
-    assert payload["error"]["details"]["planned_provider_calls_max"] == 3
+    assert payload["error"]["details"]["planned_provider_calls_max"] == 5

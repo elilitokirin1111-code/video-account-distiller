@@ -258,13 +258,12 @@ Raw Provider comment pages may contain public usernames and source identifiers. 
 `CollectedComment` rows retain only an `author_hash`; the importer and Phase 4 redaction pipeline
 remain the privacy boundary for normalized and reported comment data.
 
-## Optional OpenKB knowledge artifacts
+## Local knowledge artifacts
 
 | Path | Contract | Identity |
 |---|---|---|
-| `knowledge-outbox/openkb/accounts/account-<stable-id>.md` | curated, redacted account analysis document | account ID + schema + canonical payload SHA-256 |
-| `knowledge-outbox/openkb/manifest.json` | `KnowledgeExportIndex` | `document_key` → current export manifest |
-| `knowledge-outbox/openkb/sync-state.json` | `KnowledgeSyncIndex` | `document_key` → last successful OpenKB target/hash/remote ID |
+| `knowledge-outbox/local/accounts/account-<stable-id>.md` | curated, redacted account analysis document | account ID + schema + canonical payload SHA-256 |
+| `knowledge-outbox/local/manifest.json` | `KnowledgeExportIndex` | `document_key` → current export manifest |
 
 The export payload is derived from the bounded analysis-context contract. Volatile generation time
 is excluded from its content hash. Evidence backlinks may point only to `analyses/`,
@@ -272,8 +271,6 @@ is excluded from its content hash. Evidence backlinks may point only to `analyse
 username redaction is enabled, the account handle, display name, bio, and profile URL are removed.
 Comment content remains aggregate-only.
 
-An identical `document_key` and payload hash is not rewritten or uploaded again. If content changes,
-the integration removes the previous remote document only when it belongs to the same base URL and
-knowledge base, then stores the new sync record after a successful add. Project validation parses
-both indexes, confines documents to the OpenKB account outbox, verifies recorded byte sizes,
-rejects unsafe backlinks, and checks that sync records reference known exports.
+An identical `document_key` and payload hash is not rewritten. Project validation parses the local
+index, confines documents to the local account outbox, verifies recorded byte sizes, and rejects
+unsafe backlinks.

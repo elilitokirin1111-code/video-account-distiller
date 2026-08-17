@@ -8,12 +8,12 @@ import os
 from collections import defaultdict
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Annotated, Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.models import (
@@ -28,6 +28,10 @@ from video_account_distiller.utils.ids import stable_id
 
 class VisionSchemaFailure(Exception):
     """A visual provider result did not satisfy the strict media schema."""
+
+
+class VisionProviderUnavailable(Exception):
+    """The configured visual model service could not serve a request."""
 
 
 class VisionModelProvider(Protocol):
@@ -81,62 +85,96 @@ class UrllibVisionHttpExecutor:
         try:
             with urlopen(request, timeout=timeout_seconds) as response:
                 result = json.loads(response.read().decode("utf-8"))
-        except (HTTPError, URLError, TimeoutError, UnicodeError, json.JSONDecodeError) as exc:
-            raise VisionSchemaFailure(f"local Ollama request failed: {type(exc).__name__}") from exc
+        except HTTPError as exc:
+            raise VisionProviderUnavailable(
+                f"model service request failed with HTTP {exc.code}"
+            ) from exc
+        except (URLError, TimeoutError) as exc:
+            raise VisionProviderUnavailable(
+                f"model service is unavailable: {type(exc).__name__}"
+            ) from exc
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise VisionSchemaFailure(
+                f"model service returned invalid JSON: {type(exc).__name__}"
+            ) from exc
         if not isinstance(result, dict):
             raise VisionSchemaFailure("local Ollama response root must be an object")
         return result
 
 
+_VisionSummary = Annotated[str, StringConstraints(max_length=240)]
+_VisionLabel = Annotated[str, StringConstraints(max_length=80)]
+_VisionOcrText = Annotated[str, StringConstraints(min_length=1, max_length=160)]
+
+
 class _OllamaOcrResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    text: str = Field(min_length=1)
+    text: _VisionOcrText
     confidence: float | None = Field(default=None, ge=0, le=1)
-    bounding_box: list[float] | None = None
+    bounding_box: list[float] | None = Field(default=None, min_length=4, max_length=4)
 
 
 class _OllamaFrameResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     frame_index: int = Field(ge=0)
-    summary: str | None = Field(
+    summary: _VisionSummary | None = Field(
         default=None,
         description="One concise factual Chinese sentence about this exact frame.",
     )
-    labels: list[str] = Field(
+    labels: list[_VisionLabel] = Field(
         default_factory=list,
+        max_length=12,
         description="Concrete visible people, objects, or hotel scenes; never field names.",
     )
-    dominant_colors: list[str] = Field(
+    dominant_colors: list[_VisionLabel] = Field(
         default_factory=list,
+        max_length=8,
         description="Concrete visible colors such as 暖金色 or 米白色.",
     )
-    composition: list[str] = Field(
+    shot_scale: list[_VisionLabel] = Field(
         default_factory=list,
-        description="Concrete framing such as 居中构图, 对称构图, 近景, or 全景.",
+        max_length=3,
+        description="Concrete visible shot scale such as 特写, 近景, 中景, 全景, or 远景.",
     )
-    camera: list[str] = Field(
+    camera_movement: list[_VisionLabel] = Field(
         default_factory=list,
-        description="Concrete viewpoint such as 平视, 俯视, 仰视, or 广角感.",
+        max_length=4,
+        description="Best-effort camera motion such as 固定机位, 手持, 推镜, 摇镜, 移镜, or 跟拍.",
     )
-    lighting: list[str] = Field(
+    composition: list[_VisionLabel] = Field(
         default_factory=list,
+        max_length=8,
+        description="Concrete framing such as 居中构图, 对称构图, 三分法, or 引导线; "
+        "shot scale belongs in shot_scale.",
+    )
+    camera: list[_VisionLabel] = Field(
+        default_factory=list,
+        max_length=8,
+        description="Concrete viewpoint/angle such as 平视, 俯视, 仰视, or 斜角.",
+    )
+    lighting: list[_VisionLabel] = Field(
+        default_factory=list,
+        max_length=8,
         description="Concrete visible lighting such as 暖光, 自然光, or 逆光.",
     )
-    text_overlay_styles: list[str] = Field(
+    text_overlay_styles: list[_VisionLabel] = Field(
         default_factory=list,
+        max_length=8,
         description="Concrete subtitle or artistic text style, not the recognized OCR words.",
     )
-    motion_graphics: list[str] = Field(
+    motion_graphics: list[_VisionLabel] = Field(
         default_factory=list,
+        max_length=8,
         description="Only visible stickers or graphic effects; empty when not certain.",
     )
-    branding: list[str] = Field(
+    branding: list[_VisionLabel] = Field(
         default_factory=list,
+        max_length=8,
         description="Only visible logos, brand names, or branded objects.",
     )
-    ocr: list[_OllamaOcrResult] = Field(default_factory=list)
+    ocr: list[_OllamaOcrResult] = Field(default_factory=list, max_length=12)
     confidence: float | None = Field(default=None, ge=0, le=1)
 
 
@@ -144,10 +182,48 @@ class _OllamaVisionResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     frames: list[_OllamaFrameResult]
-    unknowns: list[str] = Field(default_factory=list)
+    unknowns: list[_VisionSummary] = Field(default_factory=list, max_length=12)
 
 
-OLLAMA_VISION_PROMPT_VERSION = "1.1.0"
+def _parse_structured_vision_response(
+    content: str,
+    *,
+    provider_label: str,
+) -> _OllamaVisionResponse:
+    """Accept strict JSON plus common Markdown/prose wrappers from local VLMs."""
+
+    stripped = content.strip()
+    candidates = [stripped]
+    if stripped.startswith("```"):
+        lines = stripped.splitlines()
+        if lines and lines[0].strip().casefold() in {"```", "```json"}:
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        candidates.append("\n".join(lines).strip())
+    object_start = stripped.find("{")
+    if object_start >= 0:
+        try:
+            value, _ = json.JSONDecoder().raw_decode(stripped[object_start:])
+        except json.JSONDecodeError:
+            pass
+        else:
+            candidates.append(json.dumps(value, ensure_ascii=False))
+
+    validation_errors: list[dict[str, Any]] = []
+    for candidate in dict.fromkeys(item for item in candidates if item):
+        try:
+            return _OllamaVisionResponse.model_validate_json(candidate)
+        except ValidationError as exc:
+            validation_errors = [
+                {"loc": list(error["loc"]), "type": error["type"]}
+                for error in exc.errors(include_url=False)
+            ]
+    raise VisionSchemaFailure(f"{provider_label} vision schema invalid: {validation_errors}")
+
+
+OLLAMA_VISION_PROMPT_VERSION = "1.4.0"
+LLAMACPP_VISION_CONTRACT_VERSION = "1.3.0"
 _FIELD_NAME_ECHOES = {
     "人物/物体/酒店场景",
     "人物",
@@ -158,7 +234,11 @@ _FIELD_NAME_ECHOES = {
     "景别",
     "机位或可见镜头感",
     "机位",
+    "机位角度",
     "可见镜头感",
+    "运镜",
+    "运镜痕迹",
+    "镜头感",
     "灯光",
     "主色",
     "字幕和艺术字样式",
@@ -224,7 +304,7 @@ def ollama_model_available(
             payload=None,
             timeout_seconds=timeout_seconds,
         )
-    except VisionSchemaFailure:
+    except (VisionProviderUnavailable, VisionSchemaFailure):
         return False
     models = payload.get("models")
     if not isinstance(models, list):
@@ -281,16 +361,23 @@ class OllamaVisionProvider:
             for index, item in enumerate(batch)
         )
         return (
-            "你是酒店短视频视觉分析器。只描述图片中可以直接观察到的事实，不推测真实身份、"
-            "地点、经营结果或因果关系。图片顺序与 frame_index 一致。\n"
-            "请识别：人物/物体/酒店场景、构图景别、机位或可见镜头感、灯光、主色、"
-            "字幕和艺术字样式、贴纸与动效痕迹、品牌露出，以及清晰可见的中文 OCR。"
-            "无法确认的字段返回空数组，不要编造。bounding_box 使用 0 到 1 的"
-            "[x1,y1,x2,y2] 归一化坐标。每张图必须返回且只返回一条对应 frame_index。"
-            "labels 只写具体可见名词；camera 只写平视/俯视/仰视/广角感等具体观察；"
-            "不要把“主色、构图、灯光、OCR、品牌露出”等字段名称本身写入任何数组，"
-            "不要用“无、未知、未确认”充当标签。\n"
-            f"{frame_map}"
+            "你是短视频画面语义分析器。只描述图片中可以直接观察到的事实，"
+            "不要推测人物身份、地点、经营结果或因果关系。图片顺序与 frame_index 一致。\n"
+            "每张图片必须返回一条结果，识别人物、物体、酒店场景、景别、运镜痕迹、机位角度、"
+            "构图、灯光、主色、字幕或艺术字样式、贴纸动效痕迹、品牌露出，以及清晰可见的 OCR。"
+            "景别只填特写/近景/中景/全景/远景等可见画幅；运镜痕迹（固定机位/手持/推拉摇移跟等）"
+            "和机位角度（平视/俯视/仰视/斜角等）只能从画面线索推断，不确定就返回空数组。"
+            "无法确认的列表字段返回空数组，不要用‘无’‘未知’‘未确认’作为标签。"
+            "bounding_box 使用 [x1,y1,x2,y2] 的 0 到 1 归一化坐标。\n"
+            "只返回一个合法 JSON 对象，不要 Markdown、代码围栏、解释或 YAML。结构必须是：\n"
+            '{"frames":[{"frame_index":0,"summary":"一句画面事实",'
+            '"labels":[],"dominant_colors":[],"shot_scale":[],"camera_movement":[],'
+            '"composition":[],"camera":[],'
+            '"lighting":[],"text_overlay_styles":[],"motion_graphics":[],'
+            '"branding":[],"ocr":[{"text":"可见文字","confidence":0.9,'
+            '"bounding_box":[0.1,0.1,0.9,0.2]}],"confidence":0.9}],'
+            '"unknowns":[]}\n'
+            f"本批图片映射：\n{frame_map}"
         )
 
     def _analyze_batch(self, batch: Sequence[Any]) -> _OllamaVisionResponse:
@@ -326,14 +413,7 @@ class OllamaVisionProvider:
             content = message.get("thinking") if isinstance(message, dict) else None
         if not isinstance(content, str) or not content.strip():
             raise VisionSchemaFailure("local Ollama response has no message content")
-        try:
-            return _OllamaVisionResponse.model_validate_json(content)
-        except ValidationError as exc:
-            compact = [
-                {"loc": list(error["loc"]), "type": error["type"]}
-                for error in exc.errors(include_url=False)
-            ]
-            raise VisionSchemaFailure(f"Ollama vision schema invalid: {compact}") from exc
+        return _parse_structured_vision_response(content, provider_label="Ollama")
 
     def analyze(self, bundle: MediaVisionBundle) -> MediaVisionAnnotation:
         """Analyze bounded keyframes and map every result back to immutable evidence."""
@@ -343,6 +423,8 @@ class OllamaVisionProvider:
                 "summaries": [],
                 "labels": set(),
                 "dominant_colors": set(),
+                "shot_scale": set(),
+                "camera_movement": set(),
                 "composition": set(),
                 "camera": set(),
                 "lighting": set(),
@@ -370,6 +452,8 @@ class OllamaVisionProvider:
                 for key in (
                     "labels",
                     "dominant_colors",
+                    "shot_scale",
+                    "camera_movement",
                     "composition",
                     "camera",
                     "lighting",
@@ -422,6 +506,9 @@ class OllamaVisionProvider:
                 summary="；".join(dict.fromkeys(values["summaries"]))[:2000] or None,
                 labels=sorted(values["labels"]),
                 dominant_colors=sorted(values["dominant_colors"]),
+                shot_scale=sorted(values["shot_scale"]),
+                camera_movement=sorted(values["camera_movement"]),
+                camera_angle=sorted(values["camera"]),
                 composition=sorted(values["composition"]),
                 camera=sorted(values["camera"]),
                 lighting=sorted(values["lighting"]),
@@ -482,7 +569,7 @@ def llamacpp_model_available(
             timeout_seconds=timeout_seconds,
             headers=headers,
         )
-    except VisionSchemaFailure:
+    except (VisionProviderUnavailable, VisionSchemaFailure):
         return False
     data = payload.get("data")
     if not isinstance(data, list):
@@ -524,7 +611,9 @@ class LlamaCppVisionProvider(OllamaVisionProvider):
             )
         self.model_name = model.strip()
         self.base_url = _local_llamacpp_base_url(base_url)
-        self.batch_size = batch_size
+        # This llama.cpp/Qwen3-VL runtime can silently omit later images in a
+        # multi-image request. Single-image batches preserve evidence coverage.
+        self.batch_size = 1
         self.timeout_seconds = timeout_seconds
         self.executor = executor or UrllibVisionHttpExecutor()
         self.api_key = api_key or os.environ.get("DISTILLER_LLAMACPP_API_KEY")
@@ -537,8 +626,54 @@ class LlamaCppVisionProvider(OllamaVisionProvider):
                 "batch_size": self.batch_size,
                 "contract": "media-vision-v2",
                 "prompt_version": OLLAMA_VISION_PROMPT_VERSION,
+                "structured_output_version": LLAMACPP_VISION_CONTRACT_VERSION,
             }
         )
+
+    @staticmethod
+    def _response_schema(batch_size: int) -> dict[str, Any]:
+        """Build a grammar-ready schema with exact coverage for this request."""
+
+        schema = _OllamaVisionResponse.model_json_schema()
+        schema["required"] = list(schema["properties"])
+        for definition in schema["$defs"].values():
+            if isinstance(definition, dict) and isinstance(definition.get("properties"), dict):
+                definition["required"] = list(definition["properties"])
+        frames = schema["properties"]["frames"]
+        frames["minItems"] = batch_size
+        frames["maxItems"] = batch_size
+        frame_result = schema["$defs"]["_OllamaFrameResult"]
+        frame_index = frame_result["properties"]["frame_index"]
+        frame_index["minimum"] = 0
+        frame_index["maximum"] = batch_size - 1
+        if batch_size == 1:
+            frame_index["const"] = 0
+        return schema
+
+    @staticmethod
+    def _structured_output_options(schema: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "max_tokens": 4096,
+            "chat_template_kwargs": {"enable_thinking": False},
+            # llama.cpp converts this schema to a token-level grammar.
+            # json_object without schema only guarantees generic JSON.
+            "response_format": {"type": "json_object", "schema": schema},
+        }
+
+    @staticmethod
+    def _completion_candidates(payload: dict[str, Any]) -> tuple[list[str], str]:
+        choices = payload.get("choices")
+        choice = choices[0] if isinstance(choices, list) and choices else None
+        message = choice.get("message") if isinstance(choice, dict) else None
+        finish_reason = str(choice.get("finish_reason") or "unknown") if choice else "unknown"
+        if not isinstance(message, dict):
+            return [], finish_reason
+        candidates = [
+            value
+            for key in ("content", "reasoning_content")
+            if isinstance((value := message.get(key)), str) and value.strip()
+        ]
+        return list(dict.fromkeys(candidates)), finish_reason
 
     def _analyze_batch(self, batch: Sequence[Any]) -> _OllamaVisionResponse:
         content: list[dict[str, Any]] = [{"type": "text", "text": self._prompt(batch)}]
@@ -553,42 +688,93 @@ class LlamaCppVisionProvider(OllamaVisionProvider):
                     "image_url": {"url": f"data:image/jpeg;base64,{encoded}"},
                 }
             )
-        payload = self.executor.request_json(
-            url=f"{self.base_url}/v1/chat/completions",
-            method="POST",
-            payload={
-                "model": self.model_name,
-                "messages": [{"role": "user", "content": content}],
-                "temperature": 0,
-                "stream": False,
-            },
-            timeout_seconds=self.timeout_seconds,
-            headers=(
-                {"Authorization": f"Bearer {self.api_key}"}
-                if self.api_key
-                else {}
-            ),
+        schema = self._response_schema(len(batch))
+        messages: list[dict[str, Any]] = [{"role": "user", "content": content}]
+        errors: list[str] = []
+        previous_output = ""
+        for model_attempt in range(1, 3):
+            if model_attempt == 2:
+                if "finish_reason=length" in errors[-1]:
+                    retry_content = [
+                        {
+                            "type": "text",
+                            "text": (
+                                self._prompt(batch) + "\n上一条输出因长度上限被截断。"
+                                "请从原图重新生成更精简的完整 JSON："
+                                "summary 只写一句；每个分类最多 5 项；OCR 最多 8 项；"
+                                "不得重复、解释、使用 Markdown 或省略必需字段。"
+                            ),
+                        },
+                        *content[1:],
+                    ]
+                    # A truncated assistant turn can bias the model to continue the
+                    # broken JSON. Re-send the original image and a compact contract.
+                    messages = [{"role": "user", "content": retry_content}]
+                else:
+                    messages = [
+                        messages[0],
+                        {"role": "assistant", "content": previous_output[:4000]},
+                        {
+                            "role": "user",
+                            "content": (
+                                "上一条输出未通过严格 JSON Schema 校验。"
+                                f"错误：{errors[-1]}。请重新检查同一张图片并输出完整替代结果；"
+                                "不得解释、不得使用 Markdown、不得省略必需字段。"
+                            ),
+                        },
+                    ]
+            payload = self.executor.request_json(
+                url=f"{self.base_url}/v1/chat/completions",
+                method="POST",
+                payload={
+                    "model": self.model_name,
+                    "messages": messages,
+                    "temperature": 0,
+                    "stream": False,
+                    **self._structured_output_options(schema),
+                },
+                timeout_seconds=self.timeout_seconds,
+                headers=({"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}),
+            )
+            self.raw_responses.append(payload)
+            candidates, finish_reason = self._completion_candidates(payload)
+            if not candidates:
+                errors.append(
+                    f"attempt {model_attempt}: no message content (finish_reason={finish_reason})"
+                )
+                previous_output = "{}"
+                continue
+            previous_output = candidates[0]
+            candidate_errors: list[str] = []
+            for candidate in candidates:
+                try:
+                    return _parse_structured_vision_response(
+                        candidate,
+                        provider_label="llama.cpp",
+                    )
+                except VisionSchemaFailure as exc:
+                    candidate_errors.append(str(exc))
+            errors.append(
+                f"attempt {model_attempt}: finish_reason={finish_reason}; "
+                + "; ".join(candidate_errors)
+            )
+        raise VisionSchemaFailure(
+            "llama.cpp vision remained schema-invalid after 2 model-level attempts: "
+            + " | ".join(errors)
         )
-        self.raw_responses.append(payload)
-        choices = payload.get("choices")
-        message = choices[0].get("message") if isinstance(choices, list) and choices else None
-        content_text = message.get("content") if isinstance(message, dict) else None
-        if not isinstance(content_text, str) or not content_text.strip():
-            raise VisionSchemaFailure("local llama.cpp response has no message content")
-        try:
-            return _OllamaVisionResponse.model_validate_json(content_text)
-        except ValidationError as exc:
-            compact = [
-                {"loc": list(error["loc"]), "type": error["type"]}
-                for error in exc.errors(include_url=False)
-            ]
-            raise VisionSchemaFailure(f"llama.cpp vision schema invalid: {compact}") from exc
 
 
 class CloudVisionProvider(LlamaCppVisionProvider):
     """Any OpenAI-compatible vision API (DashScope Qwen-VL, OpenAI, etc.)."""
 
     provider_name = "cloud"
+
+    @staticmethod
+    def _structured_output_options(schema: dict[str, Any]) -> dict[str, Any]:
+        del schema
+        # Preserve compatibility with generic OpenAI-compatible cloud APIs;
+        # llama.cpp-specific grammar and chat-template parameters are local only.
+        return {"response_format": {"type": "json_object"}}
 
     def __init__(
         self,

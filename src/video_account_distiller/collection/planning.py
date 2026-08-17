@@ -43,7 +43,7 @@ def resolve_profile_options(
     elif profile == CollectionProfile.COMPREHENSIVE:
         resolved_count = None
     else:
-        resolved_count = 20
+        resolved_count = 50
 
     if comments_per_video is not None:
         resolved_comments = comments_per_video
@@ -52,6 +52,18 @@ def resolve_profile_options(
     else:
         resolved_comments = 0
     return resolved_count, resolved_comments
+
+
+def resolve_comment_video_limit(
+    *,
+    count: int | None,
+    configured_limit: int | None,
+) -> int:
+    """Follow the final collection scope when no narrower comment scope is declared."""
+
+    if configured_limit is not None:
+        return configured_limit
+    return HOMEPAGE_VIDEO_SAFETY_LIMIT if count is None else count
 
 
 def provider_capabilities(
@@ -208,7 +220,12 @@ def enforce_collection_budget(plan: dict[str, Any]) -> None:
         return
     raise DistillerError(
         ErrorCode.COLLECTION_BUDGET_EXCEEDED,
-        "Planned provider calls exceed the configured collection budget",
+        (
+            "计划最多需要 "
+            f"{budget['planned_provider_calls_max']} 次采集调用，"
+            f"超过当前自定义上限 {budget['max_provider_calls']}；"
+            "请将最大采集调用数设为 0（自动），或提高自定义上限"
+        ),
         details={
             "max_provider_calls": budget["max_provider_calls"],
             "planned_provider_calls_max": budget["planned_provider_calls_max"],

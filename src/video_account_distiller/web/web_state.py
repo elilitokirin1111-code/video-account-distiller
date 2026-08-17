@@ -57,7 +57,8 @@ def set_state(**values: Any) -> None:
     payload.update(values)
     try:
         fd, temp_name = tempfile.mkstemp(
-            prefix=".distiller-web-state-", suffix=".json",
+            prefix=".distiller-web-state-",
+            suffix=".json",
             dir=str(_STATE_PATH.parent),
         )
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -74,7 +75,8 @@ def clear_state(*keys: str) -> None:
         payload.pop(key, None)
     try:
         fd, temp_name = tempfile.mkstemp(
-            prefix=".distiller-web-state-", suffix=".json",
+            prefix=".distiller-web-state-",
+            suffix=".json",
             dir=str(_STATE_PATH.parent),
         )
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -82,6 +84,7 @@ def clear_state(*keys: str) -> None:
         os.replace(temp_name, _STATE_PATH)
     except OSError:
         pass
+
 
 def _reset() -> None:
     try:

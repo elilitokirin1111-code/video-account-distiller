@@ -8,16 +8,19 @@ from fastapi import APIRouter, Request
 
 from video_account_distiller.api.deps import resolve_project
 from video_account_distiller.api.schemas import (
+    AccountMediaReparseParams,
     CommentAnalysisParams,
     MediaAnalysisParams,
     VideoAnalysisParams,
 )
 from video_account_distiller.api.task_jobs import (
+    AccountMediaReparseJob,
     AnalyzeCommentsJob,
     AnalyzeMediaJob,
     AnalyzeVideoJob,
     enqueue_api_job,
 )
+from video_account_distiller.media import AccountMediaEnrichmentService
 
 router = APIRouter()
 
@@ -90,6 +93,35 @@ async def analyze_media(
         AnalyzeMediaJob(
             project_path=str(layout.root),
             video_id=video_id,
+            body=body,
+            dry_run=dry_run,
+        ),
+    )
+
+
+@router.get("/{project_path:path}/analyze/accounts/{account_id}/media/reparse-candidates")
+async def media_reparse_candidates(
+    project_path: str,
+    account_id: str,
+) -> dict[str, Any]:
+    layout = resolve_project(project_path)
+    return AccountMediaEnrichmentService(layout).reparse_candidates(account_id=account_id)
+
+
+@router.post("/{project_path:path}/analyze/accounts/{account_id}/media/reparse")
+async def reparse_account_media(
+    project_path: str,
+    account_id: str,
+    request: Request,
+    body: AccountMediaReparseParams = AccountMediaReparseParams(),
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    layout = resolve_project(project_path)
+    return enqueue_api_job(
+        request.app.state.tasks,
+        AccountMediaReparseJob(
+            project_path=str(layout.root),
+            account_id=account_id,
             body=body,
             dry_run=dry_run,
         ),

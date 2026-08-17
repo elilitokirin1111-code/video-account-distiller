@@ -26,6 +26,74 @@ PRIVATE_METRIC_FIELDS = (
     "revenue",
     "promotion_spend",
 )
+MAX_CONTEXT_VIDEO_ANALYSES = 1_000
+
+
+def _compact_video_analysis(payload: dict[str, Any]) -> dict[str, Any]:
+    """Keep decision-useful fields so large accounts fit in model context.
+
+    Full immutable analysis artifacts remain on disk and are referenced by path.
+    The cloud/local knowledge context carries a compact row for every selected
+    video instead of repeating long transcript excerpts and task traces.
+    """
+
+    blind = payload.get("blind_analysis") or {}
+    facts = blind.get("facts") or {}
+    semantics = blind.get("semantics") or {}
+    hook = semantics.get("hook") or {}
+    cta = semantics.get("cta") or {}
+    performance = payload.get("performance_context") or {}
+    return {
+        "analysis_id": payload.get("analysis_id"),
+        "analysis_version": payload.get("analysis_version"),
+        "video_id": payload.get("video_id"),
+        "account_id": payload.get("account_id"),
+        "generated_at": payload.get("generated_at"),
+        "status": payload.get("status"),
+        "facts": {
+            "transcript_language": facts.get("transcript_language"),
+            "segment_count": facts.get("segment_count"),
+            "character_count": facts.get("character_count"),
+            "explicit_cta_texts": facts.get("explicit_cta_texts") or [],
+            "unknowns": facts.get("unknowns") or [],
+        },
+        "semantics": {
+            "primary_pillar": semantics.get("primary_pillar"),
+            "secondary_topics": semantics.get("secondary_topics") or [],
+            "audience_tasks": semantics.get("audience_tasks") or [],
+            "content_goal": semantics.get("content_goal"),
+            "funnel_stage": semantics.get("funnel_stage"),
+            "hook": {
+                "primary_type": hook.get("primary_type"),
+                "secondary_types": hook.get("secondary_types") or [],
+                "promise": hook.get("promise"),
+                "curiosity_gap": hook.get("curiosity_gap"),
+            },
+            "narrative_type": semantics.get("narrative_type"),
+            "information_density": semantics.get("information_density"),
+            "cta": {
+                "primary_type": cta.get("primary_type"),
+                "alignment_score": cta.get("alignment_score"),
+            },
+            "persona_signals": semantics.get("persona_signals") or [],
+            "language_signals": semantics.get("language_signals") or [],
+            "risk_flags": semantics.get("risk_flags") or [],
+            "unknowns": semantics.get("unknowns") or [],
+            "confidence": semantics.get("confidence"),
+        },
+        "performance_context": {
+            "snapshot_at": performance.get("snapshot_at"),
+            "views": performance.get("views"),
+            "engagement_rate_by_view": performance.get("engagement_rate_by_view"),
+            "completion_efficiency": performance.get("completion_efficiency"),
+            "performance_score": performance.get("performance_score"),
+            "performance_band": performance.get("performance_band"),
+            "outlier_flags": performance.get("outlier_flags") or [],
+            "is_promoted": performance.get("is_promoted"),
+            "evidence_ids": performance.get("evidence_ids") or {},
+        },
+        "warnings": payload.get("warnings") or [],
+    }
 
 
 def _latest_artifact(
@@ -59,7 +127,7 @@ def _latest_video_analyses(
     *,
     account_id: str,
     max_items: int,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], int]:
     selected: dict[str, tuple[str, str, dict[str, Any], Path]] = {}
     for path in project.root.glob("analyses/videos/*/*/analysis.json"):
         try:
@@ -81,10 +149,13 @@ def _latest_video_analyses(
         if current is None or candidate[:2] > current[:2]:
             selected[video_id] = candidate
     ordered = sorted(selected.values(), key=lambda item: (item[0], item[1]), reverse=True)
-    return [
-        {"path": project.relative(path), "data": payload}
-        for _, _, payload, path in ordered[:max_items]
-    ]
+    return (
+        [
+            {"path": project.relative(path), "data": _compact_video_analysis(payload)}
+            for _, _, payload, path in ordered[:max_items]
+        ],
+        len(ordered),
+    )
 
 
 def _comment_summary(payload: dict[str, Any]) -> dict[str, Any]:
@@ -127,7 +198,13 @@ class AnalysisContextService:
     def __init__(self, project: ProjectLayout) -> None:
         self.project = project
 
-    def build(self, *, account_id: str, max_video_analyses: int = 10) -> dict[str, Any]:
+    def build(
+        self,
+        *,
+        account_id: str,
+        max_video_analyses: int = 10,
+        include_model_synthesis: bool = False,
+    ) -> dict[str, Any]:
         accounts = [
             item
             for item in read_models(self.project.normalized_dir / "accounts.parquet", Account)
@@ -178,10 +255,18 @@ class AnalysisContextService:
             self.project,
             f"analyses/accounts/{account_id}/media-enrichments/*/enrichment.json",
         )
-        video_analyses = _latest_video_analyses(
+        model_synthesis, model_synthesis_path = (
+            _latest_artifact(
+                self.project,
+                f"analyses/gpt/{account_id}/*/analysis.json",
+            )
+            if include_model_synthesis
+            else (None, None)
+        )
+        video_analyses, analyzed_videos_available = _latest_video_analyses(
             self.project,
             account_id=account_id,
-            max_items=min(max(max_video_analyses, 1), 50),
+            max_items=min(max(max_video_analyses, 1), MAX_CONTEXT_VIDEO_ANALYSES),
         )
         growth = AccountGrowthService(self.project).summarize(account_id=account_id)
 
@@ -220,13 +305,14 @@ class AnalysisContextService:
                 comment_path,
                 benchmark_path,
                 media_path,
+                model_synthesis_path,
                 *(item["path"] for item in video_analyses),
             )
             if path is not None
         ]
         return {
             "ok": True,
-            "context_version": "1.0.0",
+            "context_version": "1.1.0",
             "generated_at": datetime.now(UTC).isoformat(),
             "purpose": "bounded evidence context for downstream GPT-compatible analysis",
             "project": {
@@ -238,7 +324,13 @@ class AnalysisContextService:
                 "account_videos": len(videos),
                 "metric_snapshots": len(metrics),
                 "public_comments": len(comments),
+                "analyzed_videos_available": analyzed_videos_available,
                 "analyzed_videos_in_context": len(video_analyses),
+                "video_analysis_scope": (
+                    "full_detail"
+                    if len(video_analyses) >= analyzed_videos_available
+                    else "full_corpus_distillation_plus_compact_detail_sample"
+                ),
                 "private_metric_fields": private_metric_availability,
             },
             "growth": growth,
@@ -265,6 +357,11 @@ class AnalysisContextService:
                     None
                     if media_enrichment is None
                     else {"path": media_path, "data": _media_summary(media_enrichment)}
+                ),
+                "model_synthesis": (
+                    None
+                    if model_synthesis is None
+                    else {"path": model_synthesis_path, "data": model_synthesis}
                 ),
                 "video_analyses": video_analyses,
             },

@@ -9,6 +9,7 @@ from video_account_distiller.collection.planning import (
     collection_coverage,
     enforce_collection_budget,
     provider_capabilities,
+    resolve_comment_video_limit,
     resolve_profile_options,
 )
 from video_account_distiller.collection.providers import (
@@ -31,5 +32,6 @@ __all__ = [
     "collection_coverage",
     "enforce_collection_budget",
     "provider_capabilities",
+    "resolve_comment_video_limit",
     "resolve_profile_options",
 ]

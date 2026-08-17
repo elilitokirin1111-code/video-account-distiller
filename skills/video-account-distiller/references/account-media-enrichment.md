@@ -65,6 +65,12 @@ appears, music meaning, editing causality, or performance impact. Without a visu
 visual semantic identity and OCR unknown. Public-view gaps can still prevent performance Patterns
 even when semantic coverage improves.
 
+The distillation `craft_profile` aggregates shooting techniques and expression forms (shot scale,
+camera motion, angle, composition, lighting, text styles, motion graphics, branding, opening
+technique, editing rhythm) with per-tag coverage. Treat camera-motion and opening tags as
+best-effort model labels; only shot duration, orientation, and pacing thresholds are directly
+measured.
+
 Treat media, frames, voices, and transcripts as sensitive. Keep them local and out of Git. The
 pinned `third_party/claude-video` MIT source is a workflow reference; do not invoke upstream
 `watch.py` in the account pipeline.

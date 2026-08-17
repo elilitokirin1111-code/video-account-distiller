@@ -100,13 +100,10 @@ after project-level permission plus per-run upload and cost confirmation. Derive
 provider/model IDs, hashes, token usage, evidence references, and a versioned cost estimate for
 audit without retaining the raw provider response.
 
-The optional OpenKB integration writes a separate `knowledge-outbox/openkb/` containing only
-curated Markdown and non-secret manifests. It never grants OpenKB access to `raw/`, `normalized/`,
-media, raw comments, Provider pages, browser state, or credentials. HTTP is accepted only for a
-loopback OpenKB service; remote targets require HTTPS and an environment-supplied token. A real
-sync or query requires explicit confirmation because OpenKB may invoke configured embedding or
-language models. OpenKB answers are marked derived and non-authoritative and cannot update
-Rule/Rubric artifacts.
+The local knowledge exporter writes `knowledge-outbox/local/` containing only curated Markdown and
+non-secret manifests. It never includes `raw/`, `normalized/`, media, raw comments, Provider pages,
+browser state, or credentials, and it does not automatically upload or synchronize these artifacts
+to an external knowledge service.
 
 Opt-in account media enrichment reads signed public-video candidates only from the immutable
 MediaCrawler batch for the approved account. It permits HTTPS Douyin/CDN hosts only, validates the

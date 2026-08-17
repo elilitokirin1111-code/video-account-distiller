@@ -9,12 +9,11 @@ from pydantic import BaseModel, Field, TypeAdapter
 
 from video_account_distiller.api.schemas import (
     AccountDistillWorkflowParams,
+    AccountMediaReparseParams,
     CollectionAnalyzeParams,
     CommentAnalysisParams,
     CompareParams,
     MediaAnalysisParams,
-    OpenKBQueryParams,
-    OpenKBSyncParams,
     PredictParams,
     PublishParams,
     ReportParams,
@@ -40,23 +39,32 @@ from video_account_distiller.collection import (
     AccountCollectionService,
     build_account_provider,
     build_collection_request,
+    resolve_comment_video_limit,
     resolve_profile_options,
 )
 from video_account_distiller.comments import CommentAnalysisService
+from video_account_distiller.config import load_config
 from video_account_distiller.distillation import (
     AccountDistillationService,
     BenchmarkComparisonService,
 )
 from video_account_distiller.features import VideoAnalysisService
-from video_account_distiller.knowledge import (
-    OpenKBIntegrationService,
-    resolve_openkb_target,
+from video_account_distiller.insights import (
+    KeyringCloudCredentialStore,
+    build_account_analysis_provider,
+    resolve_cloud_credential,
 )
-from video_account_distiller.media import LocalMediaAnalysisService
+from video_account_distiller.media import (
+    AccountMediaEnrichmentService,
+    DownloadedMediaCleanupService,
+    LocalMediaAnalysisService,
+    build_local_transcriber,
+)
 from video_account_distiller.reports import ReportService
 from video_account_distiller.sampling import SamplingService
 from video_account_distiller.storage.project import ProjectLayout
 from video_account_distiller.workflows import AccountDistillWorkflow
+from video_account_distiller.workflows.account_distill import build_vision_provider
 
 
 class AccountDistillJob(BaseModel):
@@ -88,18 +96,6 @@ class ReportJob(_DryRunProjectJob):
     kind: Literal["report"] = "report"
     account_id: str
     body: ReportParams
-
-
-class OpenKBSyncJob(_DryRunProjectJob):
-    kind: Literal["openkb_sync"] = "openkb_sync"
-    account_id: str
-    body: OpenKBSyncParams
-
-
-class OpenKBQueryJob(BaseModel):
-    kind: Literal["openkb_query"] = "openkb_query"
-    project_path: str
-    body: OpenKBQueryParams
 
 
 class DistillJob(_DryRunProjectJob):
@@ -154,12 +150,16 @@ class AnalyzeMediaJob(_DryRunProjectJob):
     body: MediaAnalysisParams
 
 
+class AccountMediaReparseJob(_DryRunProjectJob):
+    kind: Literal["account_media_reparse"] = "account_media_reparse"
+    account_id: str
+    body: AccountMediaReparseParams
+
+
 ApiTaskJob: TypeAlias = Annotated[
     CollectionAnalyzeJob
     | SampleJob
     | ReportJob
-    | OpenKBSyncJob
-    | OpenKBQueryJob
     | DistillJob
     | CompareJob
     | ScoreJob
@@ -168,18 +168,18 @@ ApiTaskJob: TypeAlias = Annotated[
     | RetroJob
     | AnalyzeVideoJob
     | AnalyzeCommentsJob
-    | AnalyzeMediaJob,
+    | AnalyzeMediaJob
+    | AccountMediaReparseJob,
     Field(discriminator="kind"),
 ]
 
 _API_JOB_ADAPTER: TypeAdapter[ApiTaskJob] = TypeAdapter(ApiTaskJob)
 _RESOURCE_CLASSES: dict[str, str] = {
     "collection_analyze": "provider",
-    "openkb_sync": "provider",
-    "openkb_query": "provider",
     "analyze_video": "model",
     "analyze_comments": "model",
     "analyze_media": "model",
+    "account_media_reparse": "model",
     "sample": "analysis",
     "report": "analysis",
     "distill": "analysis",
@@ -201,18 +201,6 @@ def enqueue_api_job(tasks: TaskStore, job: ApiTaskJob) -> TaskData:
         job_payload=job.model_dump(mode="json"),
         retryable=True,
     )
-
-
-def _openkb_integration(
-    layout: ProjectLayout,
-    *,
-    require_remote_token: bool,
-) -> OpenKBIntegrationService:
-    target, token = resolve_openkb_target(
-        layout,
-        require_remote_token=require_remote_token,
-    )
-    return OpenKBIntegrationService.from_target(layout, target, token=token)
 
 
 def execute_api_job(
@@ -237,7 +225,10 @@ def execute_api_job(
             sort=job.body.sort,
             provider=job.body.provider,
             comments_per_video=comments_per_video,
-            comment_video_limit=job.body.comment_video_limit,
+            comment_video_limit=resolve_comment_video_limit(
+                count=count,
+                configured_limit=job.body.comment_video_limit,
+            ),
         )
         provider = build_account_provider(job.body.provider)
         return AccountCollectionService(layout, provider).analyze_url(
@@ -260,32 +251,6 @@ def execute_api_job(
             account_id=job.account_id,
             sample_size=job.body.sample_size,
             dry_run=job.dry_run,
-        )
-
-    if isinstance(job, OpenKBSyncJob):
-        service = _openkb_integration(
-            layout,
-            require_remote_token=not job.dry_run,
-        )
-        if not job.dry_run:
-            service.require_model_confirmation(job.body.confirm_model_processing)
-        return service.sync_account(
-            account_id=job.account_id,
-            confirm_model_processing=job.body.confirm_model_processing,
-            create_kb=job.body.create_kb,
-            force=job.body.force,
-            max_video_analyses=job.body.max_video_analyses,
-            max_export_bytes=job.body.max_export_bytes,
-            dry_run=job.dry_run,
-        )
-
-    if isinstance(job, OpenKBQueryJob):
-        service = _openkb_integration(layout, require_remote_token=True)
-        service.require_model_confirmation(job.body.confirm_model_processing)
-        return service.query(
-            question=job.body.question,
-            confirm_model_processing=job.body.confirm_model_processing,
-            save=job.body.save,
         )
 
     if isinstance(job, DistillJob):
@@ -374,6 +339,61 @@ def execute_api_job(
             dry_run=job.dry_run,
         )
 
+    if isinstance(job, AccountMediaReparseJob):
+        config = load_config(layout.config_path)
+        if job.body.vision_provider == "llamacpp":
+            vision_base_url = config.models.llamacpp_base_url
+            vision_model = config.models.llamacpp_model or job.body.vision_model
+            vision_api_key = config.models.llamacpp_api_key
+        else:
+            vision_base_url = job.body.ollama_base_url
+            vision_model = job.body.vision_model
+            vision_api_key = None
+        vision = build_vision_provider(
+            provider=job.body.vision_provider,
+            model=vision_model,
+            base_url=vision_base_url,
+            batch_size=job.body.vision_batch_size,
+            timeout_seconds=job.body.vision_timeout_seconds,
+            api_key=vision_api_key,
+        )
+        transcriber = build_local_transcriber(
+            backend=job.body.whisper_backend,
+            command=Path(job.body.whisper_command) if job.body.whisper_command else None,
+            model=job.body.whisper_model,
+            batch_size=job.body.whisper_batch_size,
+        )
+        result = AccountMediaEnrichmentService(
+            layout,
+            transcriber=transcriber,
+            vision_provider=vision,
+        ).enrich(
+            account_id=job.account_id,
+            limit=job.body.limit,
+            strict=job.body.strict_media_enrichment,
+            strict_vision=job.body.strict_vision,
+            dry_run=job.dry_run,
+            selection_mode=job.body.mode,
+            video_ids=job.body.video_ids,
+            refresh_media=job.body.refresh_media,
+            progress=lambda value, message: context.progress(value, "media_reparse", message),
+        )
+        enrichment = result.get("enrichment") or {}
+        media_analysis_paths = [
+            str(item["media_analysis_path"])
+            for item in enrichment.get("videos", [])
+            if isinstance(item, dict) and item.get("media_analysis_path")
+        ]
+        if not job.dry_run and media_analysis_paths:
+            context.progress(0.99, "media_cleanup", "正在删除重新解析完成后的本地原视频")
+            result["media_cleanup"] = DownloadedMediaCleanupService(layout).cleanup_account(
+                account_id=job.account_id,
+                media_analysis_paths=media_analysis_paths,
+                reason="post_media_reparse_storage_cleanup",
+            )
+        result["project_root"] = str(layout.root)
+        return result
+
     raise AssertionError(f"Unsupported API task job: {type(job).__name__}")
 
 
@@ -397,17 +417,37 @@ def execute_account_distill(
         sort=body.sort,
         provider=body.provider,
         comments_per_video=comments_per_video,
-        comment_video_limit=body.comment_video_limit,
+        comment_video_limit=resolve_comment_video_limit(
+            count=count,
+            configured_limit=body.comment_video_limit,
+        ),
     )
     provider = build_account_provider(body.provider)
+    analysis_options = body.knowledge_analysis.options() if body.knowledge_analysis else None
+    analysis_provider = None
+    if analysis_options is not None and not job.dry_run:
+        resolved = resolve_cloud_credential(
+            KeyringCloudCredentialStore(),
+            analysis_options.provider.value,
+        )
+        analysis_provider = build_account_analysis_provider(
+            analysis_options,
+            credential=resolved.value if resolved is not None else None,
+            credential_source=resolved.source if resolved is not None else None,
+        )
+    media_limit = body.media_limit
+    if media_limit is None:
+        media_limit = 20_000 if count is None else count
     return AccountDistillWorkflow(layout, provider).run(
         request=collection_request,
         collection_profile=body.profile,
         confirm_provider_cost=body.confirm_provider_cost,
         max_provider_calls=body.max_provider_calls,
-        media_limit=body.media_limit,
+        media_limit=media_limit,
+        whisper_backend=body.whisper_backend,
         whisper_model=body.whisper_model,
         whisper_command=Path(body.whisper_command) if body.whisper_command else None,
+        whisper_batch_size=body.whisper_batch_size,
         vision_provider=body.vision_provider,
         vision_model=body.vision_model,
         ollama_base_url=body.ollama_base_url,
@@ -415,6 +455,8 @@ def execute_account_distill(
         vision_timeout_seconds=body.vision_timeout_seconds,
         strict_media_enrichment=body.strict_media_enrichment,
         strict_vision=body.strict_vision,
+        account_analysis_provider=analysis_provider,
+        account_analysis_options=analysis_options,
         export_knowledge=body.export_knowledge,
         dry_run=job.dry_run,
         progress=context.progress,

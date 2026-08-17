@@ -60,17 +60,32 @@ from video_account_distiller.utils.ids import stable_id
 from video_account_distiller.utils.io import atomic_write_json, atomic_write_text, read_json
 from video_account_distiller.utils.lookup import resolve_video
 
-ANALYSIS_VERSION = "1.1.0"
+ANALYSIS_VERSION = "1.3.1"
 ResponseT = TypeVar("ResponseT", bound=BaseModel)
 ResponseValidator = Callable[[ResponseT, set[str]], None]
 CTA_KEYWORDS: tuple[tuple[CtaType, tuple[str, ...]], ...] = (
     (CtaType.FOLLOW, ("关注", "follow")),
     (CtaType.SAVE, ("收藏", "save")),
-    (CtaType.COMMENT, ("评论", "留言", "comment")),
+    (
+        CtaType.COMMENT,
+        (
+            "评论",
+            "留言",
+            "你觉得",
+            "你怎么看",
+            "你会怎么",
+            "告诉我",
+            "说说看",
+            "帮我想",
+            "取个名字",
+            "起个名字",
+            "comment",
+        ),
+    ),
     (CtaType.SHARE, ("分享", "转发", "share")),
     (CtaType.DIRECT_MESSAGE, ("私信", "direct message", "dm")),
     (CtaType.PROFILE, ("主页", "profile")),
-    (CtaType.PRODUCT, ("购买", "下单", "链接", "buy")),
+    (CtaType.PRODUCT, ("购买", "下单", "链接", "预订", "订房", "团购", "到店", "buy")),
     (CtaType.NEXT_EPISODE, ("下期", "下一集", "next episode")),
 )
 FORBIDDEN_BLIND_KEYS = {
@@ -167,6 +182,20 @@ LOCAL_PILLAR_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "旅客",
         ),
     ),
+    (
+        "宠物与陪伴",
+        (
+            "宠物",
+            "猫咪",
+            "小猫",
+            "德文猫",
+            "喵",
+            "狗狗",
+            "小狗",
+            "牵引绳",
+            "取名",
+        ),
+    ),
 )
 
 
@@ -196,9 +225,7 @@ def _validate_fact_evidence(value: VideoFactExtraction, valid_ids: set[str]) -> 
     kept: list[ExtractedFact] = []
     for fact in value.facts:
         surviving = [
-            segment_id
-            for segment_id in fact.evidence_segment_ids
-            if segment_id in valid_ids
+            segment_id for segment_id in fact.evidence_segment_ids if segment_id in valid_ids
         ]
         if not surviving:
             continue  # Drop the fact; assigning [] would trip validate_assignment.
@@ -214,25 +241,20 @@ def _validate_semantic_evidence(value: VideoSemanticAnnotation, valid_ids: set[s
     local models cannot reliably reproduce long segment IDs, so citations are
     filtered in place and labels without surviving evidence become unknown.
     """
+
     def filtered(ids: list[str]) -> list[str]:
         return [segment_id for segment_id in ids if segment_id in valid_ids]
 
-    value.primary_pillar_evidence_segment_ids = filtered(
-        value.primary_pillar_evidence_segment_ids
-    )
+    value.primary_pillar_evidence_segment_ids = filtered(value.primary_pillar_evidence_segment_ids)
     value.hook.evidence_segment_ids = filtered(value.hook.evidence_segment_ids)
     value.cta.evidence_segment_ids = filtered(value.cta.evidence_segment_ids)
     # Structure and emotion entries require at least one surviving citation;
     # entries whose citations were fabricated are dropped entirely.
     value.structure_segments = [
-        segment
-        for segment in value.structure_segments
-        if filtered(segment.evidence_segment_ids)
+        segment for segment in value.structure_segments if filtered(segment.evidence_segment_ids)
     ]
     value.emotion_timeline = [
-        point
-        for point in value.emotion_timeline
-        if filtered(point.evidence_segment_ids)
+        point for point in value.emotion_timeline if filtered(point.evidence_segment_ids)
     ]
     if value.primary_pillar != "unknown" and not value.primary_pillar_evidence_segment_ids:
         value.primary_pillar = "unknown"
@@ -298,17 +320,42 @@ def _fallback_facts(bundle: BlindVideoBundle) -> VideoFactExtraction:
     )
 
 
-def _fallback_hook(opening: TranscriptInputSegment) -> HookType:
-    text = opening.text.casefold()
+def _classify_hook_text(text: str) -> HookType:
+    text = text.casefold()
     if re.search(r"\d+", text):
         return HookType.NUMBER_LIST
-    if any(value in text for value in ("为什么", "?", "？", "你知道")):
+    if any(value in text for value in ("为什么", "?", "？", "你知道", "你相信", "是什么感觉")):
         return HookType.QUESTION_CHALLENGE
     if any(value in text for value in ("千万别", "不要", "避坑", "损失")):
         return HookType.LOSS_AVERSION
-    if any(value in text for value in ("如何", "教你", "方法", "how to")):
+    if any(value in text for value in ("如何", "教你", "方法", "技巧", "how to")):
         return HookType.EXPLICIT_BENEFIT
+    if any(value in text for value in ("复盘", "翻车", "翻船", "对不起", "失败")):
+        return HookType.FAILURE_REVIEW
+    if any(value in text for value in ("测评", "锐评", "专业", "从业", "业内")):
+        return HookType.AUTHORITY
+    if any(value in text for value in ("外行", "内行", "同行", "打工人", "酒店人")):
+        return HookType.IDENTITY_CALLOUT
+    if any(value in text for value in ("试菜", "实测", "见分晓", "带你看", "看看")):
+        return HookType.PROCESS_DEMO
+    if any(value in text for value in ("终于", "后来", "后续", "命运", "没想到", "竟然")):
+        return HookType.STORY_SUSPENSE
+    if any(value in text for value in ("难题", "痛点", "怎么办", "问题", "没有捷径")):
+        return HookType.PAIN_POINT
     return HookType.UNKNOWN
+
+
+def _fallback_hook(
+    opening: TranscriptInputSegment,
+    title: str | None,
+) -> tuple[HookType, str, list[str]]:
+    opening_type = _classify_hook_text(opening.text)
+    if opening_type != HookType.UNKNOWN:
+        return opening_type, opening.text[:240], [opening.segment_id]
+    title_type = _classify_hook_text(title or "")
+    if title_type != HookType.UNKNOWN:
+        return title_type, (title or "")[:240], []
+    return HookType.UNKNOWN, opening.text[:240], []
 
 
 def _local_semantic_labels(
@@ -327,27 +374,40 @@ def _local_semantic_labels(
     str,
     float,
 ]:
-    """Infer bounded Chinese semantic labels from explicit transcript keywords only."""
+    """Infer bounded labels from title, description, and transcript keywords."""
 
     segments = bundle.transcript_segments
-    scored: list[tuple[int, int, str, tuple[str, ...], list[str]]] = []
+    metadata_text = " ".join(value for value in (bundle.title, bundle.description) if value)
+    scored: list[tuple[int, int, int, int, str, tuple[str, ...], list[str]]] = []
     for order, (pillar, keywords) in enumerate(LOCAL_PILLAR_KEYWORDS):
         evidence = [
             item.segment_id
             for item in segments
             if any(keyword.casefold() in item.text.casefold() for keyword in keywords)
         ]
-        scored.append((len(evidence), -order, pillar, keywords, evidence))
-    count, _, primary_pillar, _, evidence = max(scored)
-    if count == 0:
+        metadata_hits = sum(keyword.casefold() in metadata_text.casefold() for keyword in keywords)
+        signal_score = len(evidence) + metadata_hits * 2
+        scored.append(
+            (
+                signal_score,
+                metadata_hits,
+                len(evidence),
+                -order,
+                pillar,
+                keywords,
+                evidence,
+            )
+        )
+    score, metadata_hits, transcript_hits, _, primary_pillar, _, evidence = max(scored)
+    if score == 0:
         primary_pillar = "unknown"
         evidence = []
     secondary_topics = [
         pillar
-        for matched, _, pillar, _, _ in sorted(scored, reverse=True)
+        for matched, _, _, _, pillar, _, _ in sorted(scored, reverse=True)
         if matched > 0 and pillar != primary_pillar
     ][:3]
-    joined = " ".join(item.text for item in segments)
+    joined = " ".join((metadata_text, *(item.text for item in segments)))
     audience_tasks: list[str] = []
     if primary_pillar == "酒店经营与运营":
         audience_tasks.append("提升酒店经营与门店运营效率")
@@ -359,6 +419,8 @@ def _local_semantic_labels(
         audience_tasks.append("了解求职、面试与职场选择")
     elif primary_pillar == "旅行住宿知识":
         audience_tasks.append("获取订房与住宿决策信息")
+    elif primary_pillar == "宠物与陪伴":
+        audience_tasks.append("获取宠物陪伴、照护与互动经验")
     instructional = any(
         keyword in joined for keyword in ("怎么", "如何", "方法", "技巧", "流程", "注意", "教你")
     )
@@ -395,7 +457,15 @@ def _local_semantic_labels(
     language_signals = (
         ["中文口语化表达"] if re.search(r"[\u4e00-\u9fff]", joined) is not None else []
     )
-    confidence = 0.45 if primary_pillar != "unknown" else 0.2
+    confidence = (
+        0.55
+        if transcript_hits and metadata_hits
+        else 0.45
+        if transcript_hits
+        else 0.35
+        if metadata_hits
+        else 0.2
+    )
     return (
         primary_pillar,
         evidence,
@@ -414,8 +484,17 @@ def _fallback_semantics(bundle: BlindVideoBundle) -> VideoSemanticAnnotation:
     segments = bundle.transcript_segments
     first = segments[0]
     last = segments[-1]
-    hook_type = _fallback_hook(first)
-    cta_type, cta_text = _cta(last.text)
+    hook_type, hook_text, hook_evidence = _fallback_hook(first, bundle.title)
+    cta_segment = last
+    cta_type = CtaType.NONE
+    cta_text: str | None = None
+    for candidate in reversed(segments):
+        candidate_type, candidate_text = _cta(candidate.text)
+        if candidate_type != CtaType.NONE:
+            cta_segment = candidate
+            cta_type = candidate_type
+            cta_text = candidate_text
+            break
     (
         primary_pillar,
         primary_evidence,
@@ -449,6 +528,7 @@ def _fallback_semantics(bundle: BlindVideoBundle) -> VideoSemanticAnnotation:
             )
         )
     if len(segments) > 1:
+        terminal_segment = cta_segment if cta_type != CtaType.NONE else last
         structure.append(
             StructureAnnotation(
                 function=(
@@ -456,10 +536,10 @@ def _fallback_semantics(bundle: BlindVideoBundle) -> VideoSemanticAnnotation:
                     if cta_type != CtaType.NONE
                     else StructureFunction.CONCLUSION
                 ),
-                start_ms=last.start_ms,
-                end_ms=last.end_ms,
-                text_summary=last.text[:160],
-                evidence_segment_ids=[last.segment_id],
+                start_ms=terminal_segment.start_ms,
+                end_ms=terminal_segment.end_ms,
+                text_summary=terminal_segment.text[:160],
+                evidence_segment_ids=[terminal_segment.segment_id],
             )
         )
     duration = bundle.duration_seconds
@@ -501,10 +581,10 @@ def _fallback_semantics(bundle: BlindVideoBundle) -> VideoSemanticAnnotation:
         funnel_stage=funnel_stage,
         hook=HookAnnotation(
             primary_type=hook_type,
-            hook_text=first.text[:240],
-            start_ms=first.start_ms,
-            end_ms=first.end_ms,
-            evidence_segment_ids=([first.segment_id] if hook_type != HookType.UNKNOWN else []),
+            hook_text=hook_text,
+            start_ms=(first.start_ms if hook_evidence else None),
+            end_ms=(first.end_ms if hook_evidence else None),
+            evidence_segment_ids=hook_evidence,
         ),
         structure_segments=structure,
         narrative_type=narrative_type,
@@ -514,11 +594,21 @@ def _fallback_semantics(bundle: BlindVideoBundle) -> VideoSemanticAnnotation:
             primary_type=cta_type,
             text=cta_text,
             alignment_score=None,
-            evidence_segment_ids=([last.segment_id] if cta_type != CtaType.NONE else []),
+            evidence_segment_ids=([cta_segment.segment_id] if cta_type != CtaType.NONE else []),
         ),
         persona_signals=persona_signals,
         language_signals=language_signals,
-        risk_flags=["local_keyword_heuristic_requires_human_or_model_review"],
+        risk_flags=[
+            "local_keyword_heuristic_requires_human_or_model_review",
+            *(
+                ["metadata_only_semantic_label_requires_review"]
+                if (
+                    (primary_pillar != "unknown" and not primary_evidence)
+                    or (hook_type != HookType.UNKNOWN and not hook_evidence)
+                )
+                else []
+            ),
+        ],
         unknowns=[
             *([] if primary_pillar != "unknown" else ["content pillar"]),
             *([] if audience_tasks else ["audience task"]),
@@ -675,7 +765,7 @@ class VideoAnalysisService:
         elif selected_provider is None and config.models.text_provider == "cloud":
             selected_provider = CloudChatTextProvider(
                 model=config.models.cloud_text_model or config.models.vision_model or "local",
-                base_url=config.models.cloud_base_url,
+                base_url=config.models.cloud_base_url or "https://api.deepseek.com",
                 timeout_seconds=config.models.vision_timeout_seconds,
                 api_key=config.models.cloud_api_key,
             )
@@ -709,22 +799,12 @@ class VideoAnalysisService:
             # Correct descriptive counts programmatically; local models cannot
             # reliably count long transcripts, and the values are derivable.
             value.segment_count = len(bundle.transcript_segments)
-            value.character_count = sum(
-                len(item.text) for item in bundle.transcript_segments
-            )
+            value.character_count = sum(len(item.text) for item in bundle.transcript_segments)
             all_texts = [item.text for item in bundle.transcript_segments]
-            if value.opening_text and not any(
-                value.opening_text in text for text in all_texts
-            ):
-                raise ModelSchemaFailure(
-                    "opening_text is not observable in the transcript"
-                )
-            if value.closing_text and not any(
-                value.closing_text in text for text in all_texts
-            ):
-                raise ModelSchemaFailure(
-                    "closing_text is not observable in the transcript"
-                )
+            if value.opening_text and not any(value.opening_text in text for text in all_texts):
+                raise ModelSchemaFailure("opening_text is not observable in the transcript")
+            if value.closing_text and not any(value.closing_text in text for text in all_texts):
+                raise ModelSchemaFailure("closing_text is not observable in the transcript")
 
         fact_prompt = render_prompt(
             "video-fact-extraction.md",

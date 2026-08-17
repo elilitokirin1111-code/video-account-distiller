@@ -20,7 +20,7 @@ st.set_page_config(
     page_title="分析报告 · Video Account Distiller",
     page_icon=":material/description:",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="auto",
 )
 
 
@@ -52,9 +52,9 @@ def _report_identity(path: str) -> tuple[str, str] | None:
 
 context = setup_page(
     "reports",
-    "分析报告",
-    "集中管理账号分析产出，快速查看、导出或重新生成报告。",
-    eyebrow="REPORT CENTER",
+    "报告",
+    "阅读账号长文分析、体检结论和结构化证据，并导出需要的版本。",
+    eyebrow="分析产出",
 )
 encoded_project = quote(context.project_path, safe="")
 
@@ -117,7 +117,8 @@ with st.container(border=True):
             use_container_width=True,
             disabled=not bool(context.project_path),
         ):
-            _load_report_list()
+            with st.spinner("正在刷新报告列表…"):
+                _load_report_list()
             st.rerun()
 
 needle = keyword.strip().casefold()
@@ -165,11 +166,16 @@ if filtered_identities:
                         icon=":material/visibility:",
                         use_container_width=True,
                     ):
-                        data = _api(
-                            context.api_url,
-                            f"/api/projects/{encoded_project}/reports/accounts/"
-                            f"{quote(account_id, safe='')}/{quote(report_id, safe='')}/",
-                        )
+                        with st.status("正在读取报告内容…", expanded=False) as activity:
+                            data = _api(
+                                context.api_url,
+                                f"/api/projects/{encoded_project}/reports/accounts/"
+                                f"{quote(account_id, safe='')}/{quote(report_id, safe='')}/",
+                            )
+                            activity.update(
+                                label="报告已载入" if data.get("ok") else "报告读取失败",
+                                state="complete" if data.get("ok") else "error",
+                            )
                         if data.get("ok"):
                             st.session_state["current_report"] = data.get("data", {})
                             st.session_state["current_report_markdown"] = data.get("markdown")
@@ -208,12 +214,20 @@ if isinstance(report, dict) and report:
                 icon=":material/autorenew:",
                 use_container_width=True,
             ):
-                regenerate_result = _api(
-                    context.api_url,
-                    f"/api/projects/{encoded_project}/report/{quote(account_id, safe='')}",
-                    "POST",
-                    json={"sample_size": 40},
-                )
+                with st.status("正在提交报告重生成任务…", expanded=False) as activity:
+                    regenerate_result = _api(
+                        context.api_url,
+                        f"/api/projects/{encoded_project}/report/{quote(account_id, safe='')}",
+                        "POST",
+                        json={"sample_size": 40},
+                    )
+                    regenerate_ok = bool(regenerate_result.get("task_id")) or bool(
+                        regenerate_result.get("ok")
+                    )
+                    activity.update(
+                        label="报告重生成已提交" if regenerate_ok else "报告重生成提交失败",
+                        state="complete" if regenerate_ok else "error",
+                    )
                 task_id = regenerate_result.get("task_id")
                 if task_id:
                     st.success(f"报告重生成任务已提交：{task_id}")

@@ -19,14 +19,14 @@ st.set_page_config(
     page_title="系统设置 · Video Account Distiller",
     page_icon=":material/settings:",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="auto",
 )
 
 context = setup_page(
     "settings",
-    "系统设置",
-    "管理工作区连接、云端模型权限与运行诊断；敏感配置保持显式、可审计。",
-    eyebrow="SYSTEM SETTINGS",
+    "设置",
+    "管理工作区、AI 服务和运行诊断。日常使用通常不需要修改这里。",
+    eyebrow="系统与高级工具",
 )
 
 connection_tab, model_tab, runtime_tab, developer_tab = st.tabs(
@@ -72,7 +72,7 @@ with connection_tab:
             key="settings_project_path",
         )
         if st.button(
-            "保存连接配置",
+            "保存工作区",
             type="primary",
             icon=":material/save:",
         ):
@@ -90,7 +90,7 @@ with connection_tab:
         st.markdown("#### 配置说明")
         st.caption(
             "页面只保存 API 地址和项目路径，不显示、上传或持久化平台登录凭据。"
-            "项目初始化可在左侧“连接与项目”面板完成。"
+            "新建蒸馏任务时会自动初始化尚未创建的项目目录。"
         )
         st.markdown(
             f"{badge('会话级配置', 'neutral')} {badge('本地 API', 'success')}",
@@ -267,7 +267,34 @@ with runtime_tab:
                 st.caption("暂无任务记录，或尚未刷新。")
 
 with developer_tab:
-    section_header("开发者入口", "把调试信息放在次级区域，避免干扰运营用户。")
+    section_header("高级工具", "低频的数据维护与开发入口集中放在这里。")
+    tool_columns = st.columns(3)
+    with tool_columns[0]:
+        st.page_link(
+            "pages/import_data.py",
+            label="导入私域数据",
+            icon=":material/upload_file:",
+            use_container_width=True,
+        )
+        st.caption("导入创作者后台或其他授权导出。")
+    with tool_columns[1]:
+        st.page_link(
+            "pages/data_browser.py",
+            label="浏览底层数据",
+            icon=":material/database:",
+            use_container_width=True,
+        )
+        st.caption("查询标准化实体和来源记录。")
+    with tool_columns[2]:
+        st.page_link(
+            "pages/account_analysis.py",
+            label="手动分析流水线",
+            icon=":material/account_tree:",
+            use_container_width=True,
+        )
+        st.caption("仅用于诊断或单步重建分析。")
+
+    section_header("开发者入口", "接口文档与受保护的维护操作。")
     documentation_column, danger_column = st.columns(2, gap="large")
     with documentation_column:
         with st.container(border=True):

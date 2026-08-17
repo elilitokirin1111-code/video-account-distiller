@@ -67,6 +67,13 @@ changes.
   content-hash idempotence, same-target document replacement, environment-only connection
   settings, explicit model-processing confirmation, CLI/API routes, project validation, and
   network-free contract tests.
+- Vision contract 1.4.0 with explicit per-frame `shot_scale` and `camera_movement` fields
+  (legacy `camera` mirrored into `camera_angle`), filtered field-name echoes, and deterministic
+  per-video `opening_technique_tags` / `pacing_tags` in `media_features.parquet`.
+- Account craft distillation: a structured `CraftProfile` (景别/运镜/机位/构图/光线/字幕艺术字/
+  动效贴纸/品牌露出/开场手法/剪辑节奏 with per-tag coverage), `signature_style`,
+  performance-associated `craft` Patterns with support/counterexamples, evidence and warning
+  coverage, report sections, benchmark-profile `craft_identity`, and knowledge-base craft lines.
 
 ### Changed
 

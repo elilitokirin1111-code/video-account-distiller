@@ -125,6 +125,77 @@ class WeKnoraSyncService:
         kb_name = target["name"]
         headers = {"X-API-Key": api_key.strip()}
         api = _api_url(base_url)
+        replaced: list[str] = []
+        errors: list[str] = []
+
+        existing: list[dict[str, Any]] = []
+        page = 1
+        while True:
+            try:
+                response = requests.get(
+                    f"{api}/knowledge-bases/{selected_kb_id}/knowledge",
+                    headers=headers,
+                    params={"page": page, "page_size": 100},
+                    timeout=30,
+                )
+            except requests.RequestException as exc:
+                errors.append(f"读取现有知识失败: {exc}")
+                break
+            if not response.ok:
+                errors.append(
+                    f"读取现有知识失败: HTTP {response.status_code} {response.text[:200]}"
+                )
+                break
+            payload = response.json()
+            items = payload.get("data") if isinstance(payload, dict) else None
+            if not isinstance(items, list):
+                errors.append("读取现有知识失败: WeKnora 返回格式无效")
+                break
+            existing.extend(item for item in items if isinstance(item, dict))
+            total = int(payload.get("total") or len(existing))
+            if len(existing) >= total or len(items) < 100:
+                break
+            page += 1
+
+        owned_existing: list[dict[str, Any]] = []
+        for item in existing:
+            metadata = item.get("metadata")
+            if isinstance(metadata, str):
+                try:
+                    metadata = json.loads(metadata)
+                except (TypeError, ValueError):
+                    metadata = {}
+            if not isinstance(metadata, dict):
+                metadata = {}
+            if (
+                item.get("channel") == "distiller"
+                and metadata.get("source") == "video-account-distiller"
+                and metadata.get("account_id") == account_id
+            ):
+                owned_existing.append(item)
+
+        if not errors:
+            for item in owned_existing:
+                knowledge_id = str(item.get("id") or "").strip()
+                if not knowledge_id:
+                    continue
+                try:
+                    response = requests.delete(
+                        f"{api}/knowledge/{knowledge_id}",
+                        headers=headers,
+                        timeout=60,
+                    )
+                    if response.ok:
+                        replaced.append(
+                            str(item.get("file_name") or item.get("title") or knowledge_id)
+                        )
+                    else:
+                        errors.append(
+                            f"删除旧知识 {knowledge_id} 失败: HTTP {response.status_code} "
+                            f"{response.text[:200]}"
+                        )
+                except requests.RequestException as exc:
+                    errors.append(f"删除旧知识 {knowledge_id} 失败: {exc}")
 
         with tempfile.TemporaryDirectory(prefix="distiller-weknora-") as temporary:
             vault = Path(temporary)
@@ -135,8 +206,7 @@ class WeKnoraSyncService:
             )
             human_dir = vault / export["account_folder"] / HUMAN_DIR_NAME
             uploaded: list[str] = []
-            errors: list[str] = []
-            for path in sorted(human_dir.glob("*.md")):
+            for path in [] if errors else sorted(human_dir.glob("*.md")):
                 relative_name = (
                     f"{export['account_folder']}/{HUMAN_DIR_NAME}/{path.name}"
                 ).replace("\\", "/")
@@ -159,7 +229,7 @@ class WeKnoraSyncService:
                             },
                             timeout=180,
                         )
-                    if response.status_code in {200, 409}:
+                    if response.status_code in {200, 201, 202}:
                         uploaded.append(relative_name)
                     else:
                         errors.append(
@@ -184,6 +254,7 @@ class WeKnoraSyncService:
             "ok": not errors,
             "kb_id": selected_kb_id,
             "kb_name": kb_name,
+            "replaced": replaced,
             "uploaded": uploaded,
             "errors": errors,
             "error_code": error_code,

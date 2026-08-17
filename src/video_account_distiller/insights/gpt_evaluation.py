@@ -41,7 +41,7 @@ class GptEvaluationCase(StrictModel):
     model: OpenAIModel = OpenAIModel.TERRA
     template: AnalysisTemplate = AnalysisTemplate.ACCOUNT_HEALTH
     reasoning_effort: ReasoningEffort = ReasoningEffort.LOW
-    max_video_analyses: int = Field(default=10, ge=1, le=25)
+    max_video_analyses: int = Field(default=100, ge=1, le=1_000)
     runs_per_case: int = Field(default=2, ge=2, le=5)
 
     def options(self, *, authorized: bool) -> GptAnalysisOptions:

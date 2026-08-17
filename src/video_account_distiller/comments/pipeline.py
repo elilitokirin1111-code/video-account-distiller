@@ -44,7 +44,7 @@ from video_account_distiller.utils.hashing import sha256_file, sha256_json
 from video_account_distiller.utils.ids import stable_id
 from video_account_distiller.utils.io import atomic_write_json, atomic_write_text, read_json
 
-ANALYSIS_VERSION = "1.0.0"
+ANALYSIS_VERSION = "1.1.0"
 URL_PATTERN = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
 EMAIL_PATTERN = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
 PHONE_PATTERN = re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)")
@@ -61,6 +61,8 @@ INTENT_NAMES = {
     CommentIntent.REQUEST_LINK: "链接与入口需求",
     CommentIntent.PURCHASE_INTENT: "购买与预订意图",
     CommentIntent.SHARE_EXPERIENCE: "用户经验分享",
+    CommentIntent.SUGGESTION: "改进建议",
+    CommentIntent.KNOWLEDGE_CONTRIBUTION: "专业信息补充",
     CommentIntent.QUESTION_EVIDENCE: "证据质疑",
     CommentIntent.PRICE_OBJECTION: "价格异议",
     CommentIntent.FEATURE_OBJECTION: "功能异议",
@@ -80,6 +82,8 @@ INTENT_PRIORITY = (
     CommentIntent.REQUEST_LINK,
     CommentIntent.QUESTION_EVIDENCE,
     CommentIntent.FOLLOW_UP,
+    CommentIntent.SUGGESTION,
+    CommentIntent.KNOWLEDGE_CONTRIBUTION,
     CommentIntent.OPPOSE,
     CommentIntent.SHARE_EXPERIENCE,
     CommentIntent.IDENTITY_SIGNAL,
@@ -128,11 +132,29 @@ def _fallback_annotation(text: str) -> CommentSignalAnnotation:
         labels.append(CommentIntent.PRICE_OBJECTION)
         pain_points.append("价格与价值感不匹配")
         objections.append("价格异议")
-    if _contains(text, ("没有", "不支持", "不方便", "不能用", "不好用")):
+    if _contains(
+        text,
+        (
+            "没有",
+            "不支持",
+            "不方便",
+            "不能用",
+            "不好用",
+            "诡异",
+            "不公平",
+            "欠缺",
+            "好心办坏事",
+            "不满意",
+            "不太好看",
+            "不好吃",
+            "没人续",
+            "没电",
+        ),
+    ):
         labels.append(CommentIntent.FEATURE_OBJECTION)
         pain_points.append("功能或服务能力不足")
         objections.append("功能异议")
-    if _contains(text, ("教程", "教一下", "怎么做", "做一期", "步骤")):
+    if _contains(text, ("教程", "教一下", "怎么做", "做一期", "步骤", "想看")):
         labels.append(CommentIntent.REQUEST_TUTORIAL)
         opportunities.append("制作步骤型教程或操作演示")
     if _contains(text, ("链接", "地址", "入口", "哪里订", "在哪买")):
@@ -143,22 +165,216 @@ def _fallback_annotation(text: str) -> CommentSignalAnnotation:
         objections.append("证据充分性")
         opportunities.append("补充可核验依据、边界和真实案例")
     is_question = any(mark in text for mark in ("?", "？")) or _contains(
-        text, ("吗", "怎么", "如何", "几点", "能不能", "有没有", "为什么")
+        text,
+        (
+            "吗",
+            "怎么",
+            "如何",
+            "几点",
+            "能不能",
+            "有没有",
+            "为什么",
+            "是不是",
+            "到底",
+            "啥时",
+            "请教",
+        ),
     )
     if is_question:
         labels.append(CommentIntent.FOLLOW_UP)
         opportunities.append("围绕高频追问制作答疑内容")
-    if _contains(text, ("我住过", "我用过", "我遇到", "我的经验", "我觉得")):
+    suggestion = _contains(
+        text,
+        (
+            "建议",
+            "最好",
+            "不如",
+            "换个",
+            "改成",
+            "记得",
+            "一定要",
+            "务必",
+            "推荐",
+            "下次",
+            "要不要",
+            "可以试",
+            "可以换",
+            "可以把",
+            "可以叫",
+            "可以寄养",
+            "可以请教",
+            "应该",
+            "别让",
+            "不要",
+            "别弃养",
+            "拿下吧",
+            "去拿下",
+            "反过来",
+            "提升下",
+            "放整齐",
+            "名字：",
+            "取名",
+            "喂个",
+            "满意度调查",
+        ),
+    ) or ("叫" in text and "吧" in text)
+    if suggestion:
+        labels.append(CommentIntent.SUGGESTION)
+        opportunities.append("整理用户提出的具体改进建议并逐项回应")
+    if _contains(
+        text,
+        (
+            "我住过",
+            "我用过",
+            "我遇到",
+            "我的经验",
+            "我觉得",
+            "我在",
+            "我家",
+            "我当时",
+            "我以前",
+            "我之前",
+            "我做",
+            "我干",
+            "我住",
+            "我用",
+            "我遇",
+            "我的",
+            "我们",
+            "作为",
+            "身为",
+            "毕业实习",
+            "结婚的时候",
+            "过来人",
+        ),
+    ) or ("我" in text and len(text) >= 8):
         labels.append(CommentIntent.SHARE_EXPERIENCE)
+    if len(text) >= 20 and _contains(
+        text,
+        (
+            "本来",
+            "一般",
+            "其实",
+            "客观一点",
+            "原因",
+            "方式",
+            "取自",
+            "源自",
+            "空运",
+            "稳定出品",
+            "成本",
+            "行情",
+            "复刻",
+            "搭配",
+            "加半分钟",
+            "寓意",
+            "一起放",
+            "放在",
+            "做得好吃",
+        ),
+    ):
+        labels.append(CommentIntent.KNOWLEDGE_CONTRIBUTION)
+        opportunities.append("把评论区的专业补充整理为可核验的知识型选题")
     if _contains(text, ("不对", "不认同", "假的", "骗人", "避雷", "坑")):
         labels.append(CommentIntent.OPPOSE)
-    if _contains(text, ("我也是", "同感", "同款", "本地人", "同行")):
+    if _contains(
+        text,
+        (
+            "我也是",
+            "同感",
+            "同款",
+            "本地人",
+            "同行",
+            "业内",
+            "餐饮人",
+            "酒店行业",
+            "酒店管理",
+            "做酒店",
+            "做餐饮",
+            "业主",
+            "厨师",
+            "老吃家",
+            "酒店行政",
+        ),
+    ):
         labels.append(CommentIntent.IDENTITY_SIGNAL)
-    if _contains(text, ("清楚", "有用", "不错", "喜欢", "学到了", "靠谱", "赞")):
+    if _contains(
+        text,
+        (
+            "清楚",
+            "有用",
+            "不错",
+            "喜欢",
+            "学到了",
+            "靠谱",
+            "专业",
+            "舒服",
+            "敬业",
+            "很棒",
+            "厉害",
+            "佩服",
+            "爱看",
+            "有缘",
+            "命中注定",
+            "天花板",
+            "会玩",
+            "很会选",
+            "蛮好的",
+            "真带感",
+            "想到心坎",
+            "一种能力",
+            "旺你",
+            "不怕生",
+            "好乖",
+            "可爱",
+            "赞",
+        ),
+    ):
         labels.append(CommentIntent.SUPPORT)
-    if _contains(text, ("哈哈", "笑死", "气死", "无语", "感动")):
+    has_reaction_marker = re.search(r"\[[^\]]{1,12}\]", text) is not None
+    if has_reaction_marker or _contains(
+        text,
+        (
+            "哈哈",
+            "笑死",
+            "气死",
+            "无语",
+            "感动",
+            "难受",
+            "担心",
+            "开心",
+            "心疼",
+            "震惊",
+            "惊喜",
+            "好乖",
+            "可爱",
+            "泪",
+            "哭",
+            "咒骂",
+            "和蔼",
+            "气的",
+            "后悔",
+            "放心",
+            "吓人",
+            "尴尬",
+        ),
+    ):
         labels.append(CommentIntent.EMOTIONAL_EXPRESSION)
-    if _contains(text, ("哈哈", "笑死", "这个梗")):
+    if _contains(
+        text,
+        (
+            "哈哈",
+            "笑死",
+            "笑哭",
+            "这个梗",
+            "霸总",
+            "蛐蛐",
+            "省流",
+            "还真别说",
+            "顶级打野",
+            "顶极打野",
+        ),
+    ):
         labels.append(CommentIntent.JOKE)
     if not labels:
         labels.append(CommentIntent.UNKNOWN)
@@ -194,7 +410,7 @@ def _fallback_annotation(text: str) -> CommentSignalAnnotation:
         content_opportunities=list(dict.fromkeys(opportunities)),
         spam_probability=(0.9 if CommentIntent.SPAM_OR_AD in unique_labels else 0.05),
         confidence=0.45,
-        unknowns=["model unavailable; labels use deterministic keyword fallback"],
+        unknowns=["semantic nuance requires model or human review"],
     )
 
 
@@ -306,7 +522,7 @@ class CommentAnalysisService:
         elif selected_provider is None and config.models.text_provider == "cloud":
             selected_provider = CloudChatTextProvider(
                 model=config.models.cloud_text_model or config.models.vision_model or "local",
-                base_url=config.models.cloud_base_url,
+                base_url=config.models.cloud_base_url or "https://api.deepseek.com",
                 timeout_seconds=config.models.vision_timeout_seconds,
                 api_key=config.models.cloud_api_key,
             )
@@ -502,6 +718,12 @@ class CommentAnalysisService:
             warnings.append("comment_sample_partial")
         if any(signal.task_trace.status == "degraded" for signal in signals):
             warnings.append("comment_labels_include_low_confidence_fallbacks")
+        unknown_count = sum(
+            _primary_intent(signal.annotation.intent_labels) == CommentIntent.UNKNOWN
+            for signal in signals
+        )
+        if signals and unknown_count / len(signals) >= 0.25:
+            warnings.append("comment_unknown_intent_rate_high")
         if any(signal.redaction_count for signal in signals):
             warnings.append("direct_identifiers_redacted_from_analysis_copy")
         analysis = CommentAnalysis(

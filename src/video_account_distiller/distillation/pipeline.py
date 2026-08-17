@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -15,6 +16,11 @@ from video_account_distiller.benchmarking import (
     rank_account_profiles,
 )
 from video_account_distiller.config import load_config
+from video_account_distiller.distillation.craft import (
+    CRAFT_CATEGORIES,
+    CRAFT_CATEGORY_LABELS,
+    build_craft_profile,
+)
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.metrics.calculations import median
 from video_account_distiller.models import (
@@ -25,6 +31,7 @@ from video_account_distiller.models import (
     BenchmarkComparison,
     CommentAnalysis,
     ContentCluster,
+    CraftProfile,
     EvidenceItem,
     EvidenceSource,
     MediaAnalysis,
@@ -45,11 +52,17 @@ from video_account_distiller.utils.hashing import sha256_json
 from video_account_distiller.utils.ids import stable_id
 from video_account_distiller.utils.io import atomic_write_json, atomic_write_text, read_json
 
-DISTILLATION_VERSION = "1.1.0"
+DISTILLATION_VERSION = "1.4.0"
 COMPARISON_VERSION = "1.1.0"
 Classification = Literal[
     "fact", "semantic_annotation", "statistical_association", "hypothesis", "warning"
 ]
+UNKNOWN_LABELS = frozenset({"", "unknown", "unclassified", "未知", "未识别", "未识别需求"})
+
+
+def _is_unknown_label(value: object) -> bool:
+    raw = getattr(value, "value", value)
+    return str(raw or "").strip().casefold() in UNKNOWN_LABELS
 
 
 def _media_features(
@@ -134,24 +147,8 @@ def _production_signals(features: Sequence[MediaFeatureRecord]) -> list[str]:
     colors = Counter(value for item in features for value in item.dominant_colors)
     if colors:
         signals.append("常见画面主色：" + "、".join(value for value, _ in colors.most_common(4)))
-    style_tags = Counter(value for item in features for value in item.visual_style_tags)
-    if style_tags:
-        signals.append(
-            "构图与光线特征：" + "、".join(value for value, _ in style_tags.most_common(5))
-        )
-    text_styles = Counter(value for item in features for value in item.text_overlay_style_tags)
-    if text_styles:
-        signals.append(
-            "字幕与艺术字特征：" + "、".join(value for value, _ in text_styles.most_common(5))
-        )
-    motion_tags = Counter(value for item in features for value in item.motion_graphic_tags)
-    if motion_tags:
-        signals.append(
-            "动效与贴纸特征：" + "、".join(value for value, _ in motion_tags.most_common(5))
-        )
-    branding = Counter(value for item in features for value in item.branding_tags)
-    if branding:
-        signals.append("品牌露出特征：" + "、".join(value for value, _ in branding.most_common(5)))
+    # 拍摄手法与表现形式（景别/运镜/机位/构图/光线/字幕/动效/品牌/开场/节奏）由
+    # CraftProfile 按类别与覆盖率结构化输出，避免在这里重复合并标签。
     return signals
 
 
@@ -200,6 +197,110 @@ def _score(record: AccountVideoRecord) -> float | None:
     if record.derived is None:
         return None
     return record.derived.performance_score
+
+
+@dataclass(frozen=True)
+class _PatternPerformance:
+    """Comparable account-local bands used only for association mining."""
+
+    basis: Literal["performance_score", "public_interaction_proxy", "unavailable"]
+    bands: dict[str, str]
+    scores: dict[str, float]
+
+    @property
+    def target_metric(self) -> str:
+        return (
+            "performance_score" if self.basis == "performance_score" else "public_interaction_proxy"
+        )
+
+    def band(self, record: AccountVideoRecord) -> str:
+        return self.bands.get(record.video.video_id, "unknown")
+
+    def score(self, record: AccountVideoRecord) -> float | None:
+        return self.scores.get(record.video.video_id)
+
+
+def _public_interaction_total(record: AccountVideoRecord) -> int | None:
+    """Return a transparent public-count proxy without pretending views are known."""
+
+    if record.metric is None:
+        return None
+    direct = (record.metric.likes, record.metric.comments, record.metric.shares)
+    saved = max(record.metric.saves or 0, record.metric.favorites or 0)
+    if not any(
+        value is not None for value in (*direct, record.metric.saves, record.metric.favorites)
+    ):
+        return None
+    return sum(value or 0 for value in direct) + saved
+
+
+def _resolve_pattern_performance(dataset: AccountDataset) -> _PatternPerformance:
+    """Prefer real performance bands; otherwise rank transparent public interactions.
+
+    The fallback is deliberately account-local and ordinal. It enables bounded
+    pattern/counterexample mining when a public provider omits views, while the
+    output remains explicitly labelled as a proxy rather than view efficiency.
+    """
+
+    actual_bands = {
+        record.video.video_id: _band(record)
+        for record in dataset.records
+        if _band(record) != "unknown"
+    }
+    if len(actual_bands) == len(dataset.records):
+        return _PatternPerformance(
+            basis="performance_score",
+            bands=actual_bands,
+            scores={
+                record.video.video_id: score
+                for record in dataset.records
+                if (score := _score(record)) is not None
+            },
+        )
+
+    totals = {
+        record.video.video_id: total
+        for record in dataset.records
+        if (total := _public_interaction_total(record)) is not None
+    }
+    if len(totals) < 5:
+        return _PatternPerformance(basis="unavailable", bands={}, scores={})
+
+    ordered_values = sorted(set(totals.values()))
+    denominator = max(len(ordered_values) - 1, 1)
+    rank_by_total = {total: index for index, total in enumerate(ordered_values)}
+    percentiles = {
+        video_id: rank_by_total[total] / denominator for video_id, total in totals.items()
+    }
+    bands = {
+        video_id: (
+            "A"
+            if percentile >= 0.8
+            else "B"
+            if percentile >= 0.55
+            else "C"
+            if percentile >= 0.25
+            else "D"
+        )
+        for video_id, percentile in percentiles.items()
+    }
+    return _PatternPerformance(
+        basis="public_interaction_proxy",
+        bands=bands,
+        scores={
+            video_id: round(percentile * 100, 3) for video_id, percentile in percentiles.items()
+        },
+    )
+
+
+def _public_account_stage(dataset: AccountDataset) -> str:
+    followers = dataset.account.follower_count_current or 0
+    published = dataset.account.video_count_current or len(dataset.records)
+    if followers >= 100_000 or published >= 100:
+        return "公开规模代理：成熟账号"
+    if followers >= 10_000 or published >= 30:
+        return "公开规模代理：增长期账号"
+    return "公开规模代理：起步期账号"
 
 
 class _EvidenceCollector:
@@ -272,6 +373,7 @@ def _build_clusters(
     dataset: AccountDataset,
     video_analyses: dict[str, SingleVideoAnalysis],
     collector: _EvidenceCollector,
+    performance: _PatternPerformance,
 ) -> list[ContentCluster]:
     grouped: dict[tuple[str, str], list[AccountVideoRecord]] = defaultdict(list)
     for record in dataset.records:
@@ -279,19 +381,24 @@ def _build_clusters(
         semantic_pillar = (
             analysis.blind_analysis.semantics.primary_pillar if analysis is not None else "unknown"
         )
-        if semantic_pillar != "unknown":
+        if not _is_unknown_label(semantic_pillar):
             grouped[("semantic_pillar", semantic_pillar)].append(record)
         else:
             proxy = (record.video.content_type or "unknown").strip() or "unknown"
-            grouped[("content_type_proxy", proxy)].append(record)
+            if not _is_unknown_label(proxy):
+                grouped[("content_type_proxy", proxy)].append(record)
 
     clusters: list[ContentCluster] = []
     for (method, value), records in sorted(grouped.items()):
         video_ids = sorted(record.video.video_id for record in records)
         cluster_id = stable_id("clu_", dataset.account.account_id, method, value, *video_ids)
-        band_counts = dict(sorted(Counter(_band(record) for record in records).items()))
-        known_bands = [band for band in (_band(record) for record in records) if band != "unknown"]
-        known_scores = [score for record in records if (score := _score(record)) is not None]
+        band_counts = dict(sorted(Counter(performance.band(record) for record in records).items()))
+        known_bands = [
+            band for band in (performance.band(record) for record in records) if band != "unknown"
+        ]
+        known_scores = [
+            score for record in records if (score := performance.score(record)) is not None
+        ]
         evidence_id = collector.add(
             label=f"content_cluster.{cluster_id}",
             classification=("semantic_annotation" if method == "semantic_pillar" else "fact"),
@@ -300,11 +407,18 @@ def _build_clusters(
                 "method": method,
                 "video_ids": video_ids,
                 "performance_band_counts": band_counts,
+                "performance_basis": performance.basis,
             },
             calculation=(
-                "group by latest blind semantic pillar"
+                (
+                    "group by latest blind semantic pillar; performance bands use "
+                    f"{performance.basis}"
+                )
                 if method == "semantic_pillar"
-                else "group by normalized content_type proxy"
+                else (
+                    "group by normalized content_type proxy; performance bands use "
+                    f"{performance.basis}"
+                )
             ),
             sources=[source for record in records for source in _record_sources(record)],
         )
@@ -317,7 +431,11 @@ def _build_clusters(
                 video_ids=video_ids,
                 video_count=len(records),
                 performance_band_counts=band_counts,
-                median_performance_score=median([float(item) for item in known_scores]),
+                median_performance_score=(
+                    median([float(item) for item in known_scores])
+                    if performance.basis == "performance_score"
+                    else None
+                ),
                 high_performance_rate=(
                     sum(item in {"S", "A"} for item in known_bands) / len(known_bands)
                     if known_bands
@@ -339,7 +457,7 @@ def _build_clusters(
 def _pattern_from_records(
     *,
     dataset: AccountDataset,
-    feature_type: Literal["topic", "hook", "cta", "posting_time", "comment_trigger"],
+    feature_type: Literal["topic", "hook", "cta", "posting_time", "comment_trigger", "craft"],
     feature_name: str,
     feature_value: str,
     records: list[AccountVideoRecord],
@@ -347,14 +465,16 @@ def _pattern_from_records(
     collector: _EvidenceCollector,
     min_support: int,
     generated_at: datetime,
+    performance: _PatternPerformance,
+    craft_category: str | None = None,
 ) -> Pattern | None:
     if len(records) < min_support:
         return None
     eligible = [
         record for record in records if not _is_promoted(record) and not _is_outlier(record)
     ]
-    high = [record for record in eligible if _band(record) in {"S", "A"}]
-    low = [record for record in eligible if _band(record) in {"C", "D"}]
+    high = [record for record in eligible if performance.band(record) in {"S", "A"}]
+    low = [record for record in eligible if performance.band(record) in {"C", "D"}]
     if not high and not low:
         return None
     failure = len(low) > len(high)
@@ -372,6 +492,7 @@ def _pattern_from_records(
         "account_id": dataset.account.account_id,
         "feature_type": feature_type,
         "feature_value": feature_value,
+        "performance_basis": performance.basis,
         "support": support_ids,
         "counterexamples": counterexample_ids,
         "version": DISTILLATION_VERSION,
@@ -388,8 +509,8 @@ def _pattern_from_records(
             "excluded_confounder_video_ids": sorted(record.video.video_id for record in confounded),
         },
         calculation=(
-            "account-local S/A versus C/D comparison; promoted and robust outlier videos are "
-            "excluded from support/counterexample counts"
+            f"account-local S/A versus C/D comparison using {performance.basis}; "
+            "promoted and robust outlier videos are excluded from support/counterexample counts"
         ),
         sources=[source for record in records for source in _record_sources(record)],
     )
@@ -404,6 +525,13 @@ def _pattern_from_records(
     if any(_is_outlier(record) for record in confounded):
         confounders.append("robust_outlier_excluded")
     risks = ["association_not_causation"]
+    if performance.basis == "public_interaction_proxy":
+        risks.extend(
+            [
+                "views_unavailable_proxy_is_not_view_efficiency",
+                "publication_age_not_normalized",
+            ]
+        )
     if not counterexamples:
         risks.append("no_observed_counterexample_in_current_sample")
     return Pattern(
@@ -415,25 +543,29 @@ def _pattern_from_records(
             f"在账号内可比样本中，特征“{feature_value}”有 {len(support)} 条{direction}支持样本，"
             f"并保留 {len(counterexamples)} 条反例。"
         ),
-        feature_conditions={"feature_type": feature_type, "feature_value": feature_value},
-        target_metrics=["performance_score"],
+        feature_conditions={
+            "feature_type": feature_type,
+            "feature_value": feature_value,
+            **({"craft_category": craft_category} if craft_category is not None else {}),
+        },
+        target_metrics=[performance.target_metric],
         support_video_ids=support_ids,
         counterexample_video_ids=counterexample_ids,
         support_count=len(support_ids),
         counterexample_count=len(counterexample_ids),
         effect_summary=(
             f"eligible={len(eligible)}; high={len(high)}; low={len(low)}; "
-            f"account-local direction={direction}"
+            f"account-local direction={direction}; basis={performance.basis}"
         ),
         confounders=confounders,
         scope=PatternScope(
             platforms=[dataset.account.platform.value],
             pillars=[feature_value] if feature_type == "topic" else [],
-            account_stages=["unknown"],
+            account_stages=[_public_account_stage(dataset)],
         ),
         confidence=confidence,
         maturity_level=maturity,
-        replicability=("high" if feature_type in {"topic", "hook", "cta"} else "medium"),
+        replicability=("high" if feature_type in {"topic", "hook", "cta", "craft"} else "medium"),
         risks=risks,
         evidence_ids=list(dict.fromkeys([*source_evidence_ids, evidence_id])),
         created_at=generated_at,
@@ -450,18 +582,23 @@ def _build_patterns(
     collector: _EvidenceCollector,
     min_support: int,
     generated_at: datetime,
+    performance: _PatternPerformance,
+    craft_profile: CraftProfile | None = None,
 ) -> list[Pattern]:
     records_by_id = {record.video.video_id: record for record in dataset.records}
     groups: list[
         tuple[
-            Literal["topic", "hook", "cta", "posting_time", "comment_trigger"],
+            Literal["topic", "hook", "cta", "posting_time", "comment_trigger", "craft"],
             str,
             str,
             list[AccountVideoRecord],
             list[str],
+            str | None,
         ]
     ] = []
     for cluster in clusters:
+        if _is_unknown_label(cluster.feature_value):
+            continue
         groups.append(
             (
                 "topic",
@@ -469,6 +606,7 @@ def _build_patterns(
                 cluster.feature_value,
                 [records_by_id[item] for item in cluster.video_ids],
                 [cluster.evidence_id],
+                None,
             )
         )
     hook_groups: dict[str, list[AccountVideoRecord]] = defaultdict(list)
@@ -481,12 +619,12 @@ def _build_patterns(
         cta = analysis.blind_analysis.semantics.cta.primary_type.value
         if hook != "unknown":
             hook_groups[hook].append(record)
-        if cta not in {"unknown", "none"}:
-            cta_groups[cta].append(record)
+        if cta != "unknown":
+            cta_groups["未设置明确行动引导" if cta == "none" else cta].append(record)
     for value, records in sorted(hook_groups.items()):
-        groups.append(("hook", "Hook", value, records, []))
+        groups.append(("hook", "Hook", value, records, [], None))
     for value, records in sorted(cta_groups.items()):
-        groups.append(("cta", "CTA", value, records, []))
+        groups.append(("cta", "CTA", value, records, [], None))
     time_groups: dict[str, list[AccountVideoRecord]] = defaultdict(list)
     for record in dataset.records:
         if record.video.published_at is None:
@@ -495,9 +633,11 @@ def _build_patterns(
         bucket = "morning" if hour < 12 else "afternoon" if hour < 18 else "evening"
         time_groups[bucket].append(record)
     for value, records in sorted(time_groups.items()):
-        groups.append(("posting_time", "发布时间", value, records, []))
+        groups.append(("posting_time", "发布时间", value, records, [], None))
     if comment_analysis is not None:
         for comment_cluster in comment_analysis.need_clusters:
+            if _is_unknown_label(comment_cluster.primary_intent):
+                continue
             records = [
                 records_by_id[item] for item in comment_cluster.video_ids if item in records_by_id
             ]
@@ -508,12 +648,29 @@ def _build_patterns(
                     comment_cluster.primary_intent.value,
                     records,
                     [comment_cluster.evidence_id],
+                    None,
                 )
             )
+    if craft_profile is not None:
+        for category in CRAFT_CATEGORIES:
+            for summary in craft_profile.categories.get(category, []):
+                records = [
+                    records_by_id[item] for item in summary.video_ids if item in records_by_id
+                ]
+                groups.append(
+                    (
+                        "craft",
+                        CRAFT_CATEGORY_LABELS[category],
+                        summary.tag,
+                        records,
+                        [],
+                        category,
+                    )
+                )
 
     patterns = [
         pattern
-        for feature_type, name, value, records, evidence_ids in groups
+        for feature_type, name, value, records, evidence_ids, craft_category in groups
         if (
             pattern := _pattern_from_records(
                 dataset=dataset,
@@ -525,6 +682,8 @@ def _build_patterns(
                 collector=collector,
                 min_support=min_support,
                 generated_at=generated_at,
+                performance=performance,
+                craft_category=craft_category,
             )
         )
         is not None
@@ -553,9 +712,15 @@ class AccountDistillationService:
         video_ids = {record.video.video_id for record in dataset.records}
         video_analyses = _latest_video_analyses(self.project, video_ids)
         media_features = _media_features(self.project, video_ids)
+        craft_profile = build_craft_profile(media_features)
         production_signals = _production_signals(media_features)
+        identity_signals = list(
+            dict.fromkeys([*production_signals, *craft_profile.signature_style])
+        )
         comment_analysis, comment_evidence = _latest_comment_analysis(self.project, account_id)
         config = load_config(self.project.config_path)
+        pattern_performance = _resolve_pattern_performance(dataset)
+        public_account_stage = _public_account_stage(dataset)
         generated_at = datetime.now(UTC)
         seed = {
             "account_id": account_id,
@@ -563,9 +728,15 @@ class AccountDistillationService:
             "input_hashes": dataset.input_hashes,
             "video_analyses": sorted(item.analysis_id for item in video_analyses.values()),
             "media_analyses": sorted(item.analysis_id for item in media_features),
+            "craft_profile": craft_profile.model_dump(mode="json"),
             "comment_analysis": comment_analysis.analysis_id if comment_analysis else None,
             "min_pattern_support": config.analysis.min_pattern_support,
             "analysis_config": config.analysis.model_dump(mode="json"),
+            "pattern_performance": {
+                "basis": pattern_performance.basis,
+                "bands": pattern_performance.bands,
+                "scores": pattern_performance.scores,
+            },
             "video_features": [
                 {
                     "video_id": record.video.video_id,
@@ -640,7 +811,27 @@ class AccountDistillationService:
                     sources=[_source("media_features", item) for item in media_features],
                 )
             )
-        clusters = _build_clusters(dataset, video_analyses, collector)
+            media_evidence.append(
+                collector.add(
+                    label="account.craft_profile",
+                    classification="semantic_annotation",
+                    value={
+                        "analyzed_media_count": craft_profile.analyzed_media_count,
+                        "annotated_media_count": craft_profile.annotated_media_count,
+                        "categories": {
+                            category: [item.tag for item in summaries]
+                            for category, summaries in craft_profile.categories.items()
+                        },
+                        "signature_style": craft_profile.signature_style,
+                    },
+                    calculation=(
+                        "deterministic aggregation of per-shot vision craft labels "
+                        "and measured editing rhythm across videos"
+                    ),
+                    sources=[_source("media_features", item) for item in media_features],
+                )
+            )
+        clusters = _build_clusters(dataset, video_analyses, collector, pattern_performance)
         if comment_evidence is not None:
             for item in comment_evidence.items:
                 collector.items.setdefault(item.evidence_id, item)
@@ -652,8 +843,15 @@ class AccountDistillationService:
             collector,
             config.analysis.min_pattern_support,
             generated_at,
+            pattern_performance,
+            craft_profile,
         )
-        comment_clusters = comment_analysis.need_clusters if comment_analysis else []
+        all_comment_clusters = comment_analysis.need_clusters if comment_analysis else []
+        comment_clusters = [
+            cluster
+            for cluster in all_comment_clusters
+            if not _is_unknown_label(cluster.primary_intent)
+        ]
         persona_signals = sorted(
             {
                 signal
@@ -677,7 +875,8 @@ class AccountDistillationService:
             statement=(
                 (
                     f"在 {len(video_analyses)}/{len(dataset.records)} 条已完成语义分析的视频中，"
-                    f"已观察到的内容方向包括：{'、'.join(focus)}。"
+                    f"已观察到的内容方向包括：{'、'.join(focus)}；"
+                    f"账号处于{public_account_stage.removeprefix('公开规模代理：')}。"
                 )
                 if focus and video_analyses
                 else f"基于标准化内容类型代理，账号内容主要集中在：{'、'.join(focus)}。"
@@ -687,7 +886,7 @@ class AccountDistillationService:
             observed_content_focus=focus,
             audience_need_clusters=need_names,
             persona_signals=persona_signals,
-            visual_and_audio_identity=production_signals,
+            visual_and_audio_identity=identity_signals,
             confidence=(
                 "high"
                 if len(dataset.records) >= 30 and len(video_analyses) >= 10
@@ -702,16 +901,16 @@ class AccountDistillationService:
                 *(cluster.evidence_id for cluster in comment_clusters[:5]),
             ],
             unknowns=[
-                *([] if persona_signals else ["persona_signals"]),
-                *([] if production_signals else ["visual_and_audio_identity"]),
+                *([] if persona_signals else ["缺少可核验的人设表达证据"]),
+                *([] if production_signals else ["尚未完成可测量的画面与音频特征分析"]),
                 *(
-                    ["visual_semantic_identity"]
+                    ["已有镜头节奏等测量，但尚无视觉模型语义标注"]
                     if production_signals
                     and not any(item.visual_annotation_count for item in media_features)
                     else []
                 ),
-                "account_stage",
-                "commercial_conversion_path",
+                *craft_profile.unknowns,
+                "公开内容未提供完整商业转化承接路径",
             ],
         )
         strengths = [pattern.name for pattern in patterns if pattern.pattern_type != "failure"][:5]
@@ -755,10 +954,27 @@ class AccountDistillationService:
             warnings.extend(comment_analysis.warnings)
         if len(video_analyses) < min(10, len(dataset.records)):
             warnings.append("semantic_video_analysis_coverage_low")
+        if any(
+            _is_unknown_label(analysis.blind_analysis.semantics.primary_pillar)
+            for analysis in video_analyses.values()
+        ):
+            warnings.append("semantic_unknown_values_excluded_from_strategy")
+        if len(comment_clusters) != len(all_comment_clusters):
+            warnings.append("comment_unknown_clusters_excluded_from_strategy")
         if len(media_features) < min(3, len(dataset.records)):
             warnings.append("media_analysis_coverage_low")
+        if craft_profile.annotated_media_count < min(3, len(media_features)):
+            warnings.append("craft_profile_vision_annotations_low")
+        if craft_profile.analyzed_media_count and not any(
+            summaries for summaries in craft_profile.categories.values()
+        ):
+            warnings.append("craft_profile_no_aggregatable_craft_tags")
         if not patterns:
             warnings.append("no_pattern_met_minimum_support")
+        if pattern_performance.basis == "public_interaction_proxy":
+            warnings.append("patterns_use_public_interaction_proxy_not_view_efficiency")
+        elif pattern_performance.basis == "unavailable":
+            warnings.append("pattern_performance_basis_unavailable")
         warnings.extend(
             [
                 "patterns_are_observations_or_associations_not_causal_rules",
@@ -778,6 +994,9 @@ class AccountDistillationService:
                 "analyzed_media_count": len(media_features),
                 "content_cluster_count": len(clusters),
                 "pattern_count": len(patterns),
+                "pattern_performance_basis": pattern_performance.basis,
+                "pattern_performance_coverage": len(pattern_performance.bands),
+                "public_account_stage": public_account_stage,
             },
             positioning=positioning,
             content_clusters=clusters,
@@ -789,6 +1008,7 @@ class AccountDistillationService:
             noncopyable_factors=noncopyable,
             action_recommendations=list(dict.fromkeys(actions))[:8],
             experiment_plan=experiments,
+            craft_profile=craft_profile,
             evidence_index_path=relative[2],
             warnings_path=relative[3],
             warnings=list(dict.fromkeys(warnings)),
@@ -816,7 +1036,9 @@ class AccountDistillationService:
         atomic_write_text(
             paths[1],
             _render(
-                "account-distillation.md.j2", distillation=distillation.model_dump(mode="python")
+                "account-distillation.md.j2",
+                distillation=distillation.model_dump(mode="python"),
+                craft_labels=CRAFT_CATEGORY_LABELS,
             ),
         )
         atomic_write_json(paths[2], evidence.model_dump(mode="json"))
@@ -827,6 +1049,7 @@ class AccountDistillationService:
             if not pattern_path.exists():
                 atomic_write_json(pattern_path, pattern.model_dump(mode="json"))
         profile_path = self.project.root / "knowledge-base" / "accounts" / f"{account_id}.md"
+        craft_lines = craft_profile.signature_style or ["unknown"]
         atomic_write_text(
             profile_path,
             "\n".join(
@@ -838,6 +1061,8 @@ class AccountDistillationService:
                     f"Latest distillation: `{relative[0]}`",
                     f"Observed focus: {', '.join(focus) or 'unknown'}",
                     f"Audience needs: {', '.join(need_names) or 'unknown'}",
+                    f"Public account stage: {public_account_stage}",
+                    f"Craft signature: {'；'.join(craft_lines)}",
                     "",
                 ]
             ),
@@ -845,8 +1070,17 @@ class AccountDistillationService:
         index_path = self.project.root / "knowledge-base" / "index.json"
         index = read_json(index_path) if index_path.is_file() else {"accounts": {}, "patterns": {}}
         index.setdefault("accounts", {})[account_id] = self.project.relative(profile_path)
+        pattern_index = index.setdefault("patterns", {})
+        for pattern_id, relative_path in list(pattern_index.items()):
+            existing_path = self.project.root / str(relative_path)
+            try:
+                existing = read_json(existing_path)
+            except (OSError, ValueError, TypeError):
+                continue
+            if isinstance(existing, dict) and existing.get("account_id") == account_id:
+                pattern_index.pop(pattern_id, None)
         for pattern in patterns:
-            index.setdefault("patterns", {})[pattern.pattern_id] = self.project.relative(
+            pattern_index[pattern.pattern_id] = self.project.relative(
                 pattern_dir / f"{pattern.pattern_id}.json"
             )
         atomic_write_json(index_path, index)
@@ -860,6 +1094,7 @@ class AccountDistillationService:
                 "content_clusters": len(clusters),
                 "comment_need_clusters": len(comment_clusters),
                 "patterns": len(patterns),
+                "craft_patterns": sum(item.pattern_type == "craft" for item in patterns),
                 "counterexamples": sum(item.counterexample_count for item in patterns),
             },
             output_files=[
@@ -1110,7 +1345,11 @@ class BenchmarkComparisonService:
         atomic_write_json(paths[0], comparison.model_dump(mode="json"))
         atomic_write_text(
             paths[1],
-            _render("benchmark-comparison.md.j2", comparison=comparison.model_dump(mode="python")),
+            _render(
+                "benchmark-comparison.md.j2",
+                comparison=comparison.model_dump(mode="python"),
+                craft_labels=CRAFT_CATEGORY_LABELS,
+            ),
         )
         atomic_write_json(paths[2], evidence.model_dump(mode="json"))
         atomic_write_json(paths[3], comparison.warnings)

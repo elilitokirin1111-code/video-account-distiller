@@ -1,5 +1,6 @@
 """Audited, privacy-gated account analysis through selectable cloud providers."""
 
+# ruff: noqa: E501
 from __future__ import annotations
 
 import json
@@ -39,9 +40,9 @@ BAILIAN_DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 DEEPSEEK_API_KEY_ENV = "DEEPSEEK_API_KEY"
 DEEPSEEK_BASE_URL_ENV = "DEEPSEEK_BASE_URL"
 DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com"
-GPT_ANALYSIS_VERSION = "1.2.0"
-GPT_PROMPT_VERSION = "account-gpt-analysis-v1"
-GPT_EVALUATION_VERSION = "account-analysis-eval-v1"
+GPT_ANALYSIS_VERSION = "1.4.0"
+GPT_PROMPT_VERSION = "account-learning-playbook-v4"
+GPT_EVALUATION_VERSION = "account-analysis-eval-v2"
 GPT_PRICING_SNAPSHOT = "openai-api-pricing-2026-07-28"
 BAILIAN_PRICING_SNAPSHOT = "aliyun-model-studio-pricing-2026-08-04"
 DEEPSEEK_PRICING_SNAPSHOT = "deepseek-api-pricing-2026-08-05"
@@ -67,8 +68,8 @@ class BailianModel(StrEnum):
 
 
 class DeepSeekModel(StrEnum):
-    CHAT = "deepseek-chat"
-    REASONER = "deepseek-reasoner"
+    V4_FLASH = "deepseek-v4-flash"
+    V4_PRO = "deepseek-v4-pro"
 
 
 class AnalysisProviderKind(StrEnum):
@@ -91,18 +92,36 @@ class ReasoningEffort(StrEnum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
+    XHIGH = "xhigh"
+    MAX = "max"
 
 
 class GptAnalysisOptions(StrictModel):
     """Secret-free options that may safely enter task memory and audit metadata."""
 
-    provider: AnalysisProviderKind = AnalysisProviderKind.OPENAI
-    model: AnalysisModel = OpenAIModel.TERRA
-    template: AnalysisTemplate = AnalysisTemplate.ACCOUNT_HEALTH
-    reasoning_effort: ReasoningEffort = ReasoningEffort.LOW
-    max_video_analyses: int = Field(default=10, ge=1, le=25)
+    provider: AnalysisProviderKind = AnalysisProviderKind.DEEPSEEK
+    model: AnalysisModel = DeepSeekModel.V4_FLASH
+    template: AnalysisTemplate = AnalysisTemplate.CONTENT_STRATEGY
+    reasoning_effort: ReasoningEffort = ReasoningEffort.HIGH
+    max_video_analyses: int = Field(default=100, ge=1, le=1_000)
     confirm_cloud_upload: bool = False
     confirm_cost: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def infer_provider_from_explicit_model(cls, value: Any) -> Any:
+        if not isinstance(value, dict) or "provider" in value or "model" not in value:
+            return value
+        model = value.get("model")
+        model_value = model.value if isinstance(model, StrEnum) else str(model)
+        inferred = (
+            AnalysisProviderKind.OPENAI
+            if model_value.startswith("gpt-")
+            else AnalysisProviderKind.DEEPSEEK
+            if model_value.startswith("deepseek-")
+            else AnalysisProviderKind.BAILIAN
+        )
+        return {**value, "provider": inferred}
 
     @model_validator(mode="after")
     def validate_provider_model(self) -> Self:
@@ -154,11 +173,66 @@ class GptExperiment(StrictModel):
     evidence_refs: list[str] = Field(min_length=1, max_length=8)
 
 
+class GptKnowledgeCard(StrictModel):
+    """One reusable, falsifiable operating proposition derived from evidence."""
+
+    title: str = Field(min_length=1, max_length=160)
+    claim: str = Field(min_length=1, max_length=2_000)
+    knowledge_type: Literal["observation", "hypothesis", "experimental_rule"]
+    mechanism: str = Field(min_length=1, max_length=2_000)
+    competing_explanations: list[str] = Field(min_length=1, max_length=5)
+    falsifier: str = Field(min_length=1, max_length=1_500)
+    decision: str = Field(min_length=1, max_length=1_500)
+    scope: list[str] = Field(min_length=1, max_length=8)
+    boundary_conditions: list[str] = Field(min_length=1, max_length=8)
+    tradeoff: str = Field(min_length=1, max_length=1_000)
+    success_condition: str = Field(min_length=1, max_length=1_000)
+    stop_condition: str = Field(min_length=1, max_length=1_000)
+    target_metric: str = Field(min_length=1, max_length=160)
+    maturity_level: int = Field(ge=0, le=3)
+    evidence_refs: list[str] = Field(min_length=1, max_length=8)
+    confidence: Literal["low", "medium", "high"]
+
+
+class GptImitationPlaybook(StrictModel):
+    """A transferable way to reproduce the mechanism without copying the surface."""
+
+    title: str = Field(min_length=1, max_length=160)
+    learned_insight: str = Field(min_length=1, max_length=1_500)
+    why_it_works: str = Field(min_length=1, max_length=1_500)
+    copy_this: list[str] = Field(min_length=1, max_length=6)
+    do_not_copy: list[str] = Field(min_length=1, max_length=5)
+    adaptation_steps: list[str] = Field(min_length=2, max_length=7)
+    suitable_for: list[str] = Field(min_length=1, max_length=6)
+    evidence_refs: list[str] = Field(min_length=1, max_length=8)
+    confidence: Literal["low", "medium", "high"]
+
+
+class GptCreativeExtension(StrictModel):
+    """One executable creative direction derived from an observed mechanism."""
+
+    title: str = Field(min_length=1, max_length=160)
+    derived_from: str = Field(min_length=1, max_length=1_000)
+    concept: str = Field(min_length=1, max_length=1_500)
+    execution: list[str] = Field(min_length=2, max_length=7)
+    trend_relevance: Literal[
+        "evidence_backed_recent",
+        "evergreen_extension",
+        "needs_current_trend_check",
+    ]
+    trend_basis: str | None = Field(default=None, max_length=1_000)
+    risk_or_boundary: str = Field(min_length=1, max_length=1_000)
+    evidence_refs: list[str] = Field(min_length=1, max_length=8)
+
+
 class GptAccountAnalysis(StrictModel):
     executive_summary: str = Field(min_length=1, max_length=3_000)
     findings: list[GptFinding] = Field(min_length=1, max_length=12)
+    imitation_playbooks: list[GptImitationPlaybook] = Field(default_factory=list, max_length=6)
+    creative_extensions: list[GptCreativeExtension] = Field(default_factory=list, max_length=8)
     priority_actions: list[GptPriorityAction] = Field(min_length=1, max_length=8)
     experiments: list[GptExperiment] = Field(max_length=6)
+    knowledge_cards: list[GptKnowledgeCard] = Field(default_factory=list, max_length=8)
     limitations: list[str] = Field(min_length=1, max_length=12)
 
 
@@ -253,33 +327,33 @@ MODEL_PRICING: dict[AnalysisModel, ModelPricing] = {
         long_context_output_multiplier=3.0,
         cache_write_multiplier=1.0,
     ),
-    DeepSeekModel.CHAT: ModelPricing(
+    DeepSeekModel.V4_FLASH: ModelPricing(
         currency="USD",
-        input_per_million=0.27,
-        cached_input_per_million=0.07,
-        output_per_million=1.10,
+        input_per_million=0.14,
+        cached_input_per_million=0.0028,
+        output_per_million=0.28,
         source_url="https://api-docs.deepseek.com/quick_start/pricing",
         snapshot=DEEPSEEK_PRICING_SNAPSHOT,
         authoritative_source="DeepSeek platform pricing",
-        max_input_tokens=131_072,
-        long_context_threshold_tokens=64_000,
+        max_input_tokens=1_000_000,
+        long_context_threshold_tokens=1_000_000,
         long_context_input_multiplier=1.0,
         long_context_output_multiplier=1.0,
-        cache_write_multiplier=1.25,
+        cache_write_multiplier=1.0,
     ),
-    DeepSeekModel.REASONER: ModelPricing(
+    DeepSeekModel.V4_PRO: ModelPricing(
         currency="USD",
-        input_per_million=0.55,
-        cached_input_per_million=0.14,
-        output_per_million=2.19,
+        input_per_million=0.435,
+        cached_input_per_million=0.003625,
+        output_per_million=0.87,
         source_url="https://api-docs.deepseek.com/quick_start/pricing",
         snapshot=DEEPSEEK_PRICING_SNAPSHOT,
         authoritative_source="DeepSeek platform pricing",
-        max_input_tokens=131_072,
-        long_context_threshold_tokens=64_000,
+        max_input_tokens=1_000_000,
+        long_context_threshold_tokens=1_000_000,
         long_context_input_multiplier=1.0,
         long_context_output_multiplier=1.0,
-        cache_write_multiplier=1.25,
+        cache_write_multiplier=1.0,
     ),
 }
 
@@ -777,9 +851,19 @@ class DeepSeekChatCompletionsProvider:
                 },
                 {"role": "user", "content": context_json},
             ],
+            "response_format": {"type": "json_object"},
         }
-        if self.model_name == DeepSeekModel.CHAT.value:
-            payload["response_format"] = {"type": "json_object"}
+        if self.reasoning_effort is ReasoningEffort.NONE:
+            payload["thinking"] = {"type": "disabled"}
+        else:
+            payload["thinking"] = {"type": "enabled"}
+            payload["reasoning_effort"] = (
+                "low"
+                if self.reasoning_effort is ReasoningEffort.LOW
+                else "max"
+                if self.reasoning_effort is ReasoningEffort.MAX
+                else "high"
+            )
         response = request_json(
             self.executor,
             method="POST",
@@ -877,6 +961,7 @@ def probe_account_analysis_provider(
 
     client = executor or UrllibHttpExecutor()
     policy = RetryPolicy(max_retries=1, base_seconds=0.5, timeout_seconds=30)
+    supported: list[str]
     if provider is AnalysisProviderKind.OPENAI:
         url = OPENAI_MODELS_URL
     elif provider is AnalysisProviderKind.DEEPSEEK:
@@ -993,6 +1078,9 @@ def _used_evidence_refs(analysis: GptAccountAnalysis) -> set[str]:
     refs = {ref for finding in analysis.findings for ref in finding.evidence_refs}
     refs.update(ref for action in analysis.priority_actions for ref in action.evidence_refs)
     refs.update(ref for experiment in analysis.experiments for ref in experiment.evidence_refs)
+    refs.update(ref for card in analysis.knowledge_cards for ref in card.evidence_refs)
+    refs.update(ref for playbook in analysis.imitation_playbooks for ref in playbook.evidence_refs)
+    refs.update(ref for idea in analysis.creative_extensions for ref in idea.evidence_refs)
     return refs
 
 
@@ -1003,28 +1091,53 @@ def _prompt(options: GptAnalysisOptions, allowed_refs: list[str]) -> str:
         f"Task: {_TEMPLATE_INSTRUCTIONS[options.template]}\n"
         "Write all narrative fields in concise Simplified Chinese.\n"
         "Separate observed facts, statistical associations, hypotheses, and recommendations.\n"
+        "Do not produce an inventory of metrics. Synthesize the evidence into a small number "
+        "of consequential business judgments. For every major judgment, explain: what changed, "
+        "the most plausible mechanism, at least one competing explanation, what evidence could "
+        "falsify it, and the decision that follows.\n"
+        "Compare high- and low-performing samples where possible. Distinguish a topic effect from "
+        "an exposure, hook, structure, duration, or measurement effect. If views, completion, or "
+        "growth snapshots are missing, explain exactly which decision cannot yet be made.\n"
+        "Recommendations must name a trade-off, a measurable success condition, and a stop or "
+        "revision condition. Experiments must change one main variable and avoid vague advice.\n"
+        "Produce 2 to 5 imitation_playbooks. Each playbook must extract the underlying mechanism "
+        "instead of copying a title, person, hotel, wording, or visual surface. State what is safe "
+        "to copy, what must not be copied, and concrete adaptation steps another account can use.\n"
+        "Produce 2 to 6 creative_extensions derived from the evidence. Prefer executable content "
+        "concepts over abstract brainstorming. Mark trend_relevance as evidence_backed_recent only "
+        "when the supplied evidence itself proves recency and trend relevance; use evergreen_extension "
+        "for durable ideas, otherwise needs_current_trend_check. Never invent a current hot topic.\n"
+        "Create 2 to 6 knowledge_cards that are reusable operating propositions, not report "
+        "summaries. Every card must contain a mechanism, competing explanations, falsifier, "
+        "scope, boundary conditions, decision, trade-off, success condition, stop condition, "
+        "and target metric. A single analysis may produce maturity levels 0 to 3 only; never "
+        "claim a level-4 validated rule. Use level 3 only when the card defines a controlled "
+        "experiment. Prefer no card over a generic or unfalsifiable card.\n"
+        "Never treat unknown, missing, or fallback semantic labels as a content strategy.\n"
         "Never infer missing values, audience demographics, or causal effects.\n"
-        "Every finding, action, and experiment must cite one or more evidence_refs exactly from "
-        "the allowlist below. Do not invent paths or identifiers.\n"
+        "Every finding, imitation playbook, creative extension, action, experiment, and knowledge "
+        "card must cite evidence_refs exactly from the allowlist below. Do not invent paths or "
+        "identifiers.\n"
         "Preserve the context limitations in the output and prefer testable next actions.\n"
         f"Evidence allowlist:\n{refs}\n"
         f"Prompt version: {GPT_PROMPT_VERSION}"
     )
 
 
-def _render_markdown(payload: dict[str, Any]) -> str:
-    classification_zh = {
-        "observed_fact": "已观察事实",
-        "statistical_association": "统计关联",
-        "hypothesis": "假设",
-        "recommendation": "建议",
-        "unknown": "未知",
-    }
+def _render_markdown(
+    payload: dict[str, Any],
+    *,
+    include_evidence_appendix: bool = True,
+) -> str:
     confidence_zh = {
         "high": "高",
         "medium": "中",
         "low": "低",
-        "unknown": "未知",
+    }
+    trend_zh = {
+        "evidence_backed_recent": "有近期证据支持",
+        "evergreen_extension": "常青创意",
+        "needs_current_trend_check": "执行前需核验当前热点",
     }
 
     def _evidence_label(ref: str) -> str:
@@ -1057,36 +1170,75 @@ def _render_markdown(payload: dict[str, Any]) -> str:
 
     result = GptAccountAnalysis.model_validate(payload["result"])
     lines = [
-        "# GPT 账号分析",
+        "# 账号运营学习报告",
+        "",
+        "> 先读方法和行动；统计明细、反证与证据路径集中放在文末附录。",
+        "",
+        "## 一页结论",
         "",
         result.executive_summary,
         "",
-        "## 主要发现",
+        "## 可模仿打法",
         "",
     ]
-    for finding in result.findings:
-        lines.extend(
-            [
-                f"### {finding.title}",
-                "",
-                finding.statement,
-                "",
-                f"- 类型：{classification_zh.get(str(finding.classification), str(finding.classification))}",
-                f"- 置信度：{confidence_zh.get(str(finding.confidence), str(finding.confidence))}",
-                f"- 证据来源：{'、'.join(_evidence_label(ref) for ref in finding.evidence_refs)}",
-                "",
-            ]
-        )
-    lines.extend(["## 优先行动", ""])
+    if result.imitation_playbooks:
+        for index, playbook in enumerate(result.imitation_playbooks, start=1):
+            lines.extend(
+                [
+                    f"### {index}. {playbook.title}",
+                    "",
+                    f"**学到的东西：** {playbook.learned_insight}",
+                    "",
+                    f"**为什么可能有效：** {playbook.why_it_works}",
+                    "",
+                    "**可以模仿：** " + "；".join(playbook.copy_this),
+                    "",
+                    "**不要照搬：** " + "；".join(playbook.do_not_copy),
+                    "",
+                    "**落地步骤：**",
+                    *[f"{step_no}. {step}" for step_no, step in enumerate(playbook.adaptation_steps, 1)],
+                    "",
+                    f"**适合：** {'；'.join(playbook.suitable_for)}",
+                    f"**置信度：** {confidence_zh[str(playbook.confidence)]}",
+                    "",
+                ]
+            )
+    else:
+        lines.extend(["- 当前证据尚不足以形成可迁移打法；建议先补齐视频语义后重新综合。", ""])
+
+    lines.extend(["## 灵感与延伸创意", ""])
+    if result.creative_extensions:
+        for index, idea in enumerate(result.creative_extensions, start=1):
+            lines.extend(
+                [
+                    f"### {index}. {idea.title}",
+                    "",
+                    f"- 来源：{idea.derived_from}",
+                    f"- 创意：{idea.concept}",
+                    f"- 热点属性：{trend_zh[str(idea.trend_relevance)]}",
+                    *(
+                        [f"- 热点依据：{idea.trend_basis}"]
+                        if idea.trend_basis
+                        else []
+                    ),
+                    "- 执行：",
+                    *[f"  {step_no}. {step}" for step_no, step in enumerate(idea.execution, 1)],
+                    f"- 风险/边界：{idea.risk_or_boundary}",
+                    "",
+                ]
+            )
+    else:
+        lines.extend(["- 本次没有形成足够具体的延伸创意。", ""])
+
+    lines.extend(["## 现在就做", ""])
     for action in sorted(result.priority_actions, key=lambda item: item.priority):
         lines.extend(
             [
                 f"{action.priority}. {action.action}",
-                f"   - 理由：{action.rationale}",
-                f"   - 证据来源：{'、'.join(_evidence_label(ref) for ref in action.evidence_refs)}",
+                f"   - 为什么：{action.rationale}",
             ]
         )
-    lines.extend(["", "## 实验建议", ""])
+    lines.extend(["", "## 如何验证这些想法", ""])
     if result.experiments:
         for experiment in result.experiments:
             lines.extend(
@@ -1095,14 +1247,49 @@ def _render_markdown(payload: dict[str, Any]) -> str:
                     f"  - 动作：{experiment.action}",
                     f"  - 主指标：{experiment.primary_metric}",
                     f"  - 观察窗口：{experiment.observation_window}",
-                    f"  - 证据来源：{'、'.join(_evidence_label(ref) for ref in experiment.evidence_refs)}",
                 ]
             )
     else:
         lines.append("- 本次未生成实验建议。")
-    lines.extend(["", "## 局限", ""])
+
+    lines.extend(["", "## 阅读边界", ""])
     lines.extend(f"- {item}" for item in result.limitations)
+
+    if include_evidence_appendix:
+        lines.extend(["", "<details>", "<summary>证据与严谨分析附录</summary>", ""])
+        lines.extend(["### 主要判断", ""])
+        for finding in result.findings:
+            lines.extend(
+                [
+                    f"- **{finding.title}**：{finding.statement}",
+                    f"  - 类型：{finding.classification}；置信度：{confidence_zh[str(finding.confidence)]}",
+                    f"  - 证据：{'、'.join(_evidence_label(ref) for ref in finding.evidence_refs)}",
+                ]
+            )
+        lines.extend(["", "### 可复用经营知识卡", ""])
+        for card in result.knowledge_cards:
+            lines.extend(
+                [
+                    f"- **{card.title}**：{card.claim}",
+                    f"  - 机制：{card.mechanism}",
+                    f"  - 竞争解释：{'；'.join(card.competing_explanations)}",
+                    f"  - 反证：{card.falsifier}",
+                    f"  - 成功/停止：{card.success_condition} / {card.stop_condition}",
+                    f"  - 证据：{'、'.join(_evidence_label(ref) for ref in card.evidence_refs)}",
+                ]
+            )
+        lines.extend(["", "</details>"])
     return "\n".join(lines).rstrip() + "\n"
+
+
+def render_account_learning_report(
+    payload: dict[str, Any],
+    *,
+    include_evidence_appendix: bool = False,
+) -> str:
+    """Render the concise, human-first view of a persisted account synthesis."""
+
+    return _render_markdown(payload, include_evidence_appendix=include_evidence_appendix)
 
 
 def _prepare_analysis_context(
@@ -1227,6 +1414,7 @@ def _evaluate_analysis(
         *(item.evidence_refs for item in analysis.findings),
         *(item.evidence_refs for item in analysis.priority_actions),
         *(item.evidence_refs for item in analysis.experiments),
+        *(item.evidence_refs for item in analysis.knowledge_cards),
     ]
     cited_items = sum(bool(refs) for refs in citation_groups)
     completeness = cited_items / len(citation_groups) if citation_groups else None
@@ -1261,10 +1449,17 @@ def _evaluate_analysis(
         minimum_similarity = None
         stability_status = "insufficient_runs"
 
+    knowledge_cards_present = bool(analysis.knowledge_cards)
+    knowledge_cards_are_safe = all(card.maturity_level <= 3 for card in analysis.knowledge_cards)
+    knowledge_card_titles = {
+        " ".join(card.title.casefold().split()) for card in analysis.knowledge_cards
+    }
+    knowledge_cards_are_distinct = len(knowledge_card_titles) == len(analysis.knowledge_cards)
+
     checks: list[dict[str, Any]] = [
         {
             "id": "citation_completeness",
-            "question": "Does every finding, action, and experiment include evidence?",
+            "question": "Does every finding, action, experiment, and knowledge card include evidence?",
             "status": "pass" if completeness == 1.0 else "fail",
             "value": completeness,
             "unknown": completeness is None,
@@ -1293,10 +1488,39 @@ def _evaluate_analysis(
             "required_runs": 2,
         },
         {
+            "id": "knowledge_asset_completeness",
+            "question": "Did the synthesis create distinct, falsifiable operating knowledge cards?",
+            "status": (
+                "pass"
+                if knowledge_cards_present and knowledge_cards_are_distinct
+                else "review_required"
+            ),
+            "knowledge_card_count": len(analysis.knowledge_cards),
+            "distinct_titles": knowledge_cards_are_distinct,
+            "required_fields_enforced_by_schema": [
+                "mechanism",
+                "competing_explanations",
+                "falsifier",
+                "decision",
+                "scope",
+                "boundary_conditions",
+                "tradeoff",
+                "success_condition",
+                "stop_condition",
+                "target_metric",
+            ],
+        },
+        {
+            "id": "knowledge_promotion_safety",
+            "question": "Does one model run avoid promoting a claim to a validated rule?",
+            "status": "pass" if knowledge_cards_are_safe else "fail",
+            "maximum_allowed_maturity": 3,
+        },
+        {
             "id": "derived_analysis_boundary",
-            "question": "Is the GPT output isolated from Rule and Rubric source records?",
+            "question": "Are model-derived cards isolated from validated Rule and Rubric records?",
             "status": "pass",
-            "write_scope": "analyses/gpt only",
+            "write_scope": "analyses/gpt + knowledge-base/claims (candidate only)",
         },
     ]
     return {
@@ -1308,6 +1532,56 @@ def _evaluate_analysis(
             item["status"] in {"review_required", "insufficient_runs"} for item in checks
         ),
     }
+
+
+def _persist_candidate_knowledge_cards(
+    project: ProjectLayout,
+    *,
+    account_id: str,
+    analysis_id: str,
+    generated_at: str,
+    analysis: GptAccountAnalysis,
+) -> list[str]:
+    """Persist model-derived propositions without promoting them to validated rules."""
+
+    claim_dir = project.root / "knowledge-base" / "claims"
+    relative_paths: list[str] = []
+    claim_index: dict[str, str] = {}
+    for card in analysis.knowledge_cards:
+        card_payload = card.model_dump(mode="json")
+        claim_id = stable_id("claim_", account_id, analysis_id, card_payload)
+        claim_path = claim_dir / f"{claim_id}.json"
+        payload = {
+            "schema_version": "1.0.0",
+            "claim_id": claim_id,
+            "account_id": account_id,
+            "source_analysis_id": analysis_id,
+            "generated_at": generated_at,
+            "status": "experimental" if card.maturity_level >= 3 else "candidate",
+            "validated": False,
+            "requires_human_review": True,
+            "knowledge": card_payload,
+        }
+        atomic_write_json(claim_path, payload)
+        relative = project.relative(claim_path)
+        relative_paths.append(relative)
+        claim_index[claim_id] = relative
+
+    if claim_index:
+        index_path = project.root / "knowledge-base" / "index.json"
+        try:
+            index = read_json(index_path) if index_path.is_file() else {}
+        except (OSError, ValueError, TypeError):
+            index = {}
+        if not isinstance(index, dict):
+            index = {}
+        claims = index.setdefault("claims", {})
+        if not isinstance(claims, dict):
+            claims = {}
+            index["claims"] = claims
+        claims.update(claim_index)
+        atomic_write_json(index_path, index)
+    return relative_paths
 
 
 class RemoteAccountAnalysisService:
@@ -1448,13 +1722,16 @@ class RemoteAccountAnalysisService:
         relative_paths = [self.project.relative(path) for path in paths]
         if all(path.is_file() for path in paths):
             cached = read_json(analysis_path)
+            cached_claim_paths = (
+                cached.get("knowledge_claim_paths", []) if isinstance(cached, dict) else []
+            )
             return {
                 "ok": True,
                 "already_generated": True,
                 "analysis": cached,
                 "audit": read_json(audit_path),
                 "evaluation": read_json(evaluation_path),
-                "outputs": relative_paths,
+                "outputs": [*relative_paths, *cached_claim_paths],
             }
 
         manifest = self.project.begin_run(
@@ -1501,6 +1778,15 @@ class RemoteAccountAnalysisService:
                 "derived_analysis_only": True,
                 "evaluation_run_key": evaluation_run_key,
             }
+            knowledge_claim_paths = _persist_candidate_knowledge_cards(
+                self.project,
+                account_id=account_id,
+                analysis_id=analysis_id,
+                generated_at=generated_at,
+                analysis=provider_result.analysis,
+            )
+            analysis_payload["knowledge_claim_paths"] = knowledge_claim_paths
+            relative_paths.extend(knowledge_claim_paths)
             audit_payload = {
                 "analysis_id": analysis_id,
                 "audit_version": GPT_ANALYSIS_VERSION,
@@ -1540,12 +1826,14 @@ class RemoteAccountAnalysisService:
                         (
                             OPENAI_API_KEY_ENV
                             if options.provider is AnalysisProviderKind.OPENAI
+                            else DEEPSEEK_API_KEY_ENV
+                            if options.provider is AnalysisProviderKind.DEEPSEEK
                             else BAILIAN_API_KEY_ENV
                         ),
                     ),
                     "raw_response_persisted": False,
                 },
-                "write_boundary": "derived_analysis_only",
+                "write_boundary": "derived_analysis_and_candidate_claims_only",
                 "evidence_catalog": prepared.evidence_catalog,
                 "evidence_refs_used": sorted(used_refs),
                 "evaluation": {

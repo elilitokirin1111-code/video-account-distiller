@@ -9,6 +9,14 @@ copyable/noncopyable factors, actions, experiments, evidence, and warnings. Writ
 JSON to `knowledge-base/patterns/` and a latest account profile pointer under
 `knowledge-base/accounts/`.
 
+When local media analysis exists, the report also includes a 拍摄手法与表现形式 craft profile:
+per-tag coverage for shot scale, camera motion, camera angle, composition, lighting, text styles,
+motion graphics, branding, opening technique, and editing rhythm, plus a signature style line.
+Each craft tag reaching `min_pattern_support` may become a `craft` Pattern with account-local S/A
+support versus C/D counterexamples. Craft tags are model-label observations, not measurements or
+causal rules; camera-motion tags are best-effort from still frames. Benchmark profiles carry this
+profile as `craft_identity` so comparisons can show each account's signature craft side by side.
+
 For benchmark transfer, distill every account separately. Never compare raw cross-account or
 cross-platform views. Evaluate feature overlap and platform alignment; keep audience, account
 stage, resources, and business alignment as unknown unless the user supplied them. Use these

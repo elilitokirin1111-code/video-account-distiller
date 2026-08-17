@@ -1,50 +1,28 @@
-"""Curated account knowledge export and optional OpenKB routes."""
+"""Local curated-knowledge, Obsidian, and WeKnora routes."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 
 from video_account_distiller.api.deps import resolve_project
 from video_account_distiller.api.schemas import (
     KnowledgeExportParams,
     ObsidianSyncParams,
-    OpenKBQueryParams,
-    OpenKBSyncParams,
     WeKnoraConnectionParams,
     WeKnoraSyncParams,
-)
-from video_account_distiller.api.task_jobs import (
-    OpenKBQueryJob,
-    OpenKBSyncJob,
-    enqueue_api_job,
 )
 from video_account_distiller.knowledge import (
     KnowledgeExportService,
     ObsidianVaultExporter,
-    OpenKBIntegrationService,
     WeKnoraSyncService,
-    resolve_openkb_target,
 )
 
 router = APIRouter()
 
 
-def _integration(
-    project_path: str,
-    *,
-    require_remote_token: bool = True,
-) -> OpenKBIntegrationService:
-    layout = resolve_project(project_path)
-    target, token = resolve_openkb_target(
-        layout,
-        require_remote_token=require_remote_token,
-    )
-    return OpenKBIntegrationService.from_target(layout, target, token=token)
-
-
-@router.post("/{project_path:path}/knowledge/openkb/accounts/{account_id}/export")
+@router.post("/{project_path:path}/knowledge/local/accounts/{account_id}/export")
 async def export_account_knowledge(
     project_path: str,
     account_id: str,
@@ -110,56 +88,3 @@ async def list_weknora_knowledge_bases(
         api_key=body.api_key,
     )
     return {"ok": True, "knowledge_bases": knowledge_bases}
-
-
-@router.post("/{project_path:path}/knowledge/openkb/accounts/{account_id}/sync")
-async def sync_account_knowledge(
-    project_path: str,
-    account_id: str,
-    request: Request,
-    body: OpenKBSyncParams,
-    dry_run: bool = False,
-) -> dict[str, Any]:
-    layout = resolve_project(project_path)
-    service = _integration(str(layout.root), require_remote_token=not dry_run)
-    if not dry_run:
-        service.require_model_confirmation(body.confirm_model_processing)
-    return enqueue_api_job(
-        request.app.state.tasks,
-        OpenKBSyncJob(
-            project_path=str(layout.root),
-            account_id=account_id,
-            body=body,
-            dry_run=dry_run,
-        ),
-    )
-
-
-@router.get("/{project_path:path}/knowledge/openkb/accounts/{account_id}/status")
-async def account_knowledge_status(
-    project_path: str,
-    account_id: str,
-    remote: bool = False,
-) -> dict[str, Any]:
-    return _integration(project_path, require_remote_token=remote).status(
-        account_id=account_id,
-        remote=remote,
-    )
-
-
-@router.post("/{project_path:path}/knowledge/openkb/query")
-async def query_account_knowledge(
-    project_path: str,
-    request: Request,
-    body: OpenKBQueryParams,
-) -> dict[str, Any]:
-    layout = resolve_project(project_path)
-    service = _integration(str(layout.root))
-    service.require_model_confirmation(body.confirm_model_processing)
-    return enqueue_api_job(
-        request.app.state.tasks,
-        OpenKBQueryJob(
-            project_path=str(layout.root),
-            body=body,
-        ),
-    )

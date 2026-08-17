@@ -65,7 +65,14 @@ def retry_account_distill_task(tasks: TaskStore, task: TaskData) -> TaskData:
             ErrorCode.SCHEMA_INVALID,
             "Task retry metadata is incomplete",
         )
-    body = AccountDistillWorkflowParams.model_validate(body_payload)
+    retry_body_payload = dict(body_payload)
+    error = task.get("error")
+    if (
+        isinstance(error, dict)
+        and error.get("code") == ErrorCode.COLLECTION_BUDGET_EXCEEDED.value
+    ):
+        retry_body_payload["max_provider_calls"] = None
+    body = AccountDistillWorkflowParams.model_validate(retry_body_payload)
     checkpoint = task.get("checkpoint")
     resume_state = checkpoint if isinstance(checkpoint, dict) else None
     return _enqueue_account_distill(

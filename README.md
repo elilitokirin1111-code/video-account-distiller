@@ -9,7 +9,7 @@ Instagram Reels 的账号导出数据、字幕和评论，并沉淀可复用的 
 Google Sheets 官方 API、批量任务、快照计划接口和团队配置。离线分析不会上传媒体。
 
 当前主线同时提供 Phase 8 预发布能力：输入用户确认的抖音主页链接，默认通过 TikHub
-文档化 API 读取最多 20 条近期公开作品，默认不采集评论，再复用已有的原始哈希、数据
+文档化 API 默认读取最多 50 条近期公开作品，默认不采集评论，再复用已有的原始哈希、数据
 校验、Parquet、DuckDB、Robust 指标、评论分析、账号体检和蒸馏链路。真实 API 调用必须
 先预演并显式确认可能发生的费用。
 可选的本地视频增强会从已留存、用户批准的 MediaCrawler 作品详情中解析公开视频源，
@@ -39,6 +39,9 @@ Chrome，登录和平台验证由用户手动完成。项目不调用代理池�
 - 计算可追溯的音频响度、动态范围、静音/活动比例，并在无 FFmpeg 时明确降级。
 - 通过回环地址上的 Ollama/Qwen3-VL 添加画面、构图、色彩、灯光、艺术字、动效痕迹、
   品牌露出和 OCR；默认保持未知且不上传媒体。
+- 从镜头级视觉标注蒸馏账号拍摄手法与表现形式画像（景别、运镜、机位角度、构图、光线、
+  字幕艺术字、动效贴纸、品牌露出、开场手法与剪辑节奏），并把每个手法标签纳入账号内
+  表现关联 Pattern 与对标迁移矩阵。
 - 在评论分析副本中脱敏电话、邮箱、网址、账号和联系方式，不修改原始评论。
 - 输出评论意图、痛点、异议、购买意图、内容机会和带偏差提醒的需求聚类。
 - 将内容簇与账号内表现分层对照，生成同时包含支持样本和反例的可追溯 Pattern。
@@ -138,11 +141,11 @@ distiller backup restore --archive D:\backups\project.zip --destination C:\data\
 1. 初始化或选择分析项目。
 2. 粘贴抖音主页链接并先做不联网预检。
 3. 自选作品数量或全主页，自选评论覆盖视频数、每个视频评论数和调用预算。
-4. 对最多 20 条视频执行本地下载、关键帧/镜头/音频、Whisper 转写和可选 Ollama 视觉分析。
+4. 可对最多 100 条视频执行本地下载、关键帧/镜头/音频、Whisper 转写和视觉分析；默认处理 20 条。
 5. 查看持久化任务进度、账号报告和蒸馏结果，并下载 GPT 分析上下文。
 6. 可选开启项目云端模型权限，选择 OpenAI 或阿里云百炼，在网页中验证并保存 API Key，
    在线识别可用模型后选择分析模板，并分别确认数据外发和潜在费用。
-7. 生成本地 OpenKB 知识包；远端同步必须再次确认模型处理。
+7. 生成本地脱敏知识包，供 Obsidian、归档和人工验证使用。
 
 MediaCrawler 首次运行可能打开可见 Chrome，登录与平台验证由用户在浏览器中完成。网页
 保存的云端分析密钥进入当前 Windows 用户凭据管理器，持续
@@ -182,7 +185,7 @@ uv run distiller account analyze --project ./demo-project \
 `--comments-per-video` 显式启用评论；只有明确需要全主页时才使用 `--all`。
 也可以用三个明确档位：
 
-- `--profile standard`：默认 20 条、0 评论。
+- `--profile standard`：默认 50 条、0 评论。
 - `--profile comprehensive`：主页可用作品直到 Provider 耗尽/安全上限，并对 3 条作品各
   采样最多 20 条顶层评论。
 - `--profile owned`：公开证据保持有界，后续另行导入已授权的私域指标。
@@ -203,7 +206,7 @@ uv run distiller account analyze --project ./demo-project \
   --provider mediacrawler --count 20 --json
 ```
 
-要在同一条 MediaCrawler 命令中继续分析最多 20 条公开视频，显式增加 `--media-limit`。视频、
+要在同一条 MediaCrawler 命令中继续分析最多 100 条公开视频，显式增加 `--media-limit`。视频、
 帧和字幕留在本机；`base` 可换成已安装的其他本地 Whisper 模型：
 
 ```bash
@@ -285,30 +288,22 @@ API 任务默认持久化到用户目录的 SQLite。自助蒸馏任务进入可
 `POST /api/tasks/{task-id}/cancel` 请求安全取消。取消不会强制终止正在写入不可变产物的
 本地步骤，而会在下一个安全边界生效。
 
-如需把多个账号、多个周期的分析成果编译成长期可查询知识，可连接独立 OpenKB 服务。
-先离线预演导出和同步：
+如需生成可供 Obsidian 或其他本地工具使用的脱敏知识包，可先离线预演：
 
 ```bash
-uv run distiller knowledge openkb export --project ./demo-project \
-  --account <acc_id> --dry-run --json
-uv run distiller knowledge openkb sync --project ./demo-project \
+uv run distiller knowledge package export --project ./demo-project \
   --account <acc_id> --dry-run --json
 ```
 
-确认 OpenKB 的模型、隐私边界和潜在费用后，再执行：
+确认导出范围后写入本地知识包：
 
 ```bash
-uv run distiller knowledge openkb sync --project ./demo-project \
-  --account <acc_id> --confirm-model-processing --json
-uv run distiller knowledge openkb query \
-  "比较已有账号的内容模式、反例和数据缺口" \
-  --project ./demo-project --confirm-model-processing --json
+uv run distiller knowledge package export --project ./demo-project \
+  --account <acc_id> --json
 ```
 
-同步只读取 `knowledge-outbox/openkb/` 的脱敏派生文档；不会上传原始评论、Provider
-响应、媒体、凭据或浏览器状态。OpenKB 不进入核心依赖，回答也不能替代 Distiller 的
-证据索引。完整配置和 API 见
-[`docs/openkb-integration.md`](docs/openkb-integration.md)。
+知识包写入 `knowledge-outbox/local/`，只包含脱敏派生文档和证据反链；不会包含原始评论、
+Provider 响应、媒体、凭据或浏览器状态，也不会自动同步到外部知识服务。
 
 ### 2. 导入离线导出数据
 
@@ -565,9 +560,9 @@ uv run python skills/video-account-distiller/scripts/install-skill.py \
 
 支持离线项目、CSV/JSON/JSONL、SRT/VTT/TXT 字幕、七个平台字段映射、Parquet、DuckDB、
 稳健指标、代表性采样、账号体检、单视频文本/本地多模态拆解、评论需求分析、Pattern/反例、账号蒸馏、
-对标迁移矩阵、脚本评分、不可变区间预测、发布登记、快照复盘、授权导出、飞书多维表格、
-  Google Sheets、批量任务、快照计划、团队策略、FastAPI/Streamlit 工作台，以及通过默认
-TikHub API 或可选锁定版本 MediaCrawler 进行的抖音公开主页解析与限额评论采样。
+拍摄手法与表现形式画像与 Pattern、对标迁移矩阵、脚本评分、不可变区间预测、发布登记、快照复盘、
+授权导出、飞书多维表格、Google Sheets、批量任务、快照计划、团队策略、FastAPI/Streamlit 工作台，
+以及通过默认 TikHub API 或可选锁定版本 MediaCrawler 进行的抖音公开主页解析与限额评论采样。
 
 尚未实现：登录/验证码自动化、评论回复树、自动批准 Level 4 规则，以及把所有一次性
 API 短任务迁移到持久队列；当前跨进程队列覆盖工作台的自助蒸馏主链路。
@@ -619,7 +614,6 @@ uv run python tools/generate_large_fixture.py --output ./tmp/large-fixture --row
 - [字幕与盲分析](docs/text-video-analysis.md)
 - [本地视频多模态分析](docs/local-media-analysis.md)
 - [本地 Ollama 视觉与账号画像验收](docs/local-vision-and-benchmark-acceptance-2026-07-23.md)
-- [OpenKB 可选知识层接入](docs/openkb-integration.md)
 - [授权平台与协作 Adapter](docs/authorized-collaboration-adapters.md)
 - [评论、Pattern 与账号蒸馏](docs/comment-and-account-distillation.md)
 - [评分、预测、发布与复盘](docs/scoring-prediction-retro.md)

@@ -5,7 +5,10 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from video_account_distiller.collection import build_collection_request
+from video_account_distiller.collection import (
+    build_collection_request,
+    resolve_comment_video_limit,
+)
 from video_account_distiller.collection.providers import _map_post
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.models import AccountCollectionRequest
@@ -77,11 +80,11 @@ def test_collection_request_bounds_optional_comment_sampling() -> None:
     request = AccountCollectionRequest(
         profile_url="https://www.douyin.com/user/demo",
         comments_per_video=20,
-        comment_video_limit=200,
+        comment_video_limit=20_000,
     )
 
     assert request.comments_per_video == 20
-    assert request.comment_video_limit == 200
+    assert request.comment_video_limit == 20_000
     with pytest.raises(ValidationError):
         AccountCollectionRequest(
             profile_url="https://www.douyin.com/user/demo",
@@ -90,8 +93,14 @@ def test_collection_request_bounds_optional_comment_sampling() -> None:
     with pytest.raises(ValidationError):
         AccountCollectionRequest(
             profile_url="https://www.douyin.com/user/demo",
-            comment_video_limit=201,
+            comment_video_limit=20_001,
         )
+
+
+def test_comment_video_scope_defaults_to_final_collection_scope() -> None:
+    assert resolve_comment_video_limit(count=250, configured_limit=None) == 250
+    assert resolve_comment_video_limit(count=None, configured_limit=None) == 20_000
+    assert resolve_comment_video_limit(count=250, configured_limit=80) == 80
 
 
 def test_public_zero_views_with_positive_interactions_are_treated_as_missing() -> None:

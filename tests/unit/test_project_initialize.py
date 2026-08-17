@@ -7,9 +7,7 @@ from video_account_distiller.storage.project import ProjectLayout
 
 
 def test_initialize_inherits_template_config(tmp_path: Path) -> None:
-    container, _ = ProjectLayout.initialize(
-        tmp_path / "container", project_name="container"
-    )
+    container, _ = ProjectLayout.initialize(tmp_path / "container", project_name="container")
     # Configure the container for local models.
     config = load_config(container.config_path)
     config.models.text_provider = "ollama"

@@ -33,10 +33,18 @@ millisecond interval inside its shot.
 
 For local Ollama, pass `--vision-provider ollama --vision-model qwen3-vl:8b`. The endpoint is
 hard-limited to loopback port 11434. Bounded keyframe batches are converted to strict structured
-results covering labels, dominant colors, composition, camera, lighting, text-overlay styles,
-motion-graphic traces, branding, and OCR. Qwen may place structured JSON in Ollama's `thinking`
-field even when normal content is empty; validate either field against the same strict Schema.
+results covering labels, dominant colors, shot scale, best-effort camera motion, composition,
+camera viewpoint/angle, lighting, text-overlay styles, motion-graphic traces, branding, and OCR.
+Qwen may place structured JSON in Ollama's `thinking` field even when normal content is empty;
+validate either field against the same strict Schema.
 Never treat still-frame evidence as proof of motion or upload frames to a remote endpoint.
+
+The `media_features.parquet` rows aggregate per-shot craft labels into `shot_scale_tags`,
+`camera_movement_tags`, `camera_angle_tags`, `composition_tags`, and `lighting_tags`, plus
+deterministic `opening_technique_tags` (first shot) and `pacing_tags` (measured shot duration).
+Account distillation turns these into a `craft_profile` of 拍摄手法与表现形式 with coverage,
+performance-associated `craft` Patterns, and benchmark `craft_identity`; see
+`account-distillation.md`.
 
 Use `--strict-media` to stop with `E_MEDIA_DECODE` when FFmpeg/FFprobe is unavailable or metadata
 cannot be decoded. The default degrades visibly. Use `--strict-vision` to stop on invalid visual

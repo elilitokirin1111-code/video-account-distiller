@@ -13,6 +13,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, SecretStr
 
 from video_account_distiller.collection import CollectionProfile
+from video_account_distiller.insights import GptAnalysisRequest
 from video_account_distiller.models import (
     CollectionProviderKind,
     CollectionSort,
@@ -193,7 +194,7 @@ class CollectionAnalyzeParams(BaseModel):
     sort: CollectionSort = CollectionSort.LATEST
     provider: CollectionProviderKind = CollectionProviderKind.TIKHUB
     comments_per_video: int | None = Field(default=None, ge=0, le=20)
-    comment_video_limit: int = Field(default=3, ge=1, le=200)
+    comment_video_limit: int | None = Field(default=None, ge=1, le=20_000)
     max_provider_calls: int | None = Field(default=None, ge=1, le=50_000)
     confirm_provider_cost: bool = False
 
@@ -202,10 +203,12 @@ class AccountDistillWorkflowParams(CollectionAnalyzeParams):
     """Inputs for the self-service collect-to-knowledge workflow."""
 
     provider: CollectionProviderKind = CollectionProviderKind.MEDIACRAWLER
-    media_limit: int = Field(default=20, ge=0, le=20)
+    media_limit: int | None = Field(default=None, ge=0, le=20_000)
     text_provider: Literal["llamacpp", "cloud"] | None = None
+    whisper_backend: Literal["auto", "faster-whisper", "openai-whisper"] = "auto"
     whisper_model: str = Field(default="base", min_length=1, max_length=64)
     whisper_command: str | None = Field(default=None, max_length=2048)
+    whisper_batch_size: int = Field(default=8, ge=1, le=32)
     vision_provider: Literal["ollama", "llamacpp", "cloud"] | None = "llamacpp"
     vision_model: str = Field(default="qwen3-vl-8b", min_length=1, max_length=128)
     ollama_base_url: str = Field(default="http://127.0.0.1:11434", max_length=2048)
@@ -217,23 +220,38 @@ class AccountDistillWorkflowParams(CollectionAnalyzeParams):
     vision_timeout_seconds: int = Field(default=180, ge=1, le=1800)
     strict_media_enrichment: bool = False
     strict_vision: bool = False
+    knowledge_analysis: GptAnalysisRequest | None = None
     export_knowledge: bool = True
 
 
+class AccountMediaReparseParams(BaseModel):
+    """Selectively retry retained videos without repeating account collection."""
+
+    mode: Literal["failed_or_degraded", "selected", "all"] = "failed_or_degraded"
+    video_ids: list[str] = Field(default_factory=list, max_length=20_000)
+    limit: int = Field(default=50, ge=1, le=20_000)
+    refresh_media: bool = True
+    whisper_backend: Literal["auto", "faster-whisper", "openai-whisper"] = "auto"
+    whisper_model: str = Field(default="small", min_length=1, max_length=64)
+    whisper_command: str | None = Field(default=None, max_length=2048)
+    whisper_batch_size: int = Field(default=8, ge=1, le=32)
+    vision_provider: Literal["ollama", "llamacpp"] | None = "llamacpp"
+    vision_model: str = Field(default="qwen3-vl-8b", min_length=1, max_length=128)
+    ollama_base_url: str = Field(default="http://127.0.0.1:11434", max_length=2048)
+    vision_batch_size: int = Field(default=4, ge=1, le=8)
+    vision_timeout_seconds: int = Field(default=180, ge=1, le=1800)
+    strict_media_enrichment: bool = False
+    strict_vision: bool = False
+
+
 # ---------------------------------------------------------------------------
-# Curated knowledge / OpenKB
+# Local curated knowledge
 # ---------------------------------------------------------------------------
 
 
 class KnowledgeExportParams(BaseModel):
-    max_video_analyses: int = Field(default=10, ge=1, le=25)
+    max_video_analyses: int = Field(default=100, ge=1, le=1_000)
     max_export_bytes: int = Field(default=1_000_000, ge=10_000, le=5_000_000)
-
-
-class OpenKBSyncParams(KnowledgeExportParams):
-    confirm_model_processing: bool = False
-    create_kb: bool = True
-    force: bool = False
 
 
 class ObsidianSyncParams(KnowledgeExportParams):
@@ -249,9 +267,3 @@ class WeKnoraSyncParams(KnowledgeExportParams):
     base_url: str = Field(default="http://127.0.0.1:8080", max_length=2048)
     api_key: str = Field(min_length=1, max_length=2048)
     kb_id: str = Field(min_length=1, max_length=128)
-
-
-class OpenKBQueryParams(BaseModel):
-    question: str = Field(min_length=1, max_length=8_000)
-    confirm_model_processing: bool = False
-    save: bool = False

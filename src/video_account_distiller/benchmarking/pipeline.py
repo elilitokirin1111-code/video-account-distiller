@@ -29,7 +29,7 @@ from video_account_distiller.utils.hashing import sha256_json
 from video_account_distiller.utils.ids import stable_id
 from video_account_distiller.utils.io import atomic_write_json, read_json
 
-BENCHMARK_PROFILE_VERSION = "1.0.0"
+BENCHMARK_PROFILE_VERSION = "1.1.0"
 RANKING_BASIS = (
     "median_likes_per_video",
     "median_comments_per_video",
@@ -317,6 +317,11 @@ class AccountBenchmarkProfileService:
             "interactions": interactions.model_dump(mode="json"),
             "comments": comments.model_dump(mode="json"),
             "content_interactions": [item.model_dump(mode="json") for item in content_interactions],
+            "craft_identity": (
+                distillation.craft_profile.model_dump(mode="json")
+                if distillation.craft_profile is not None
+                else None
+            ),
         }
         profile_id = stable_id("abp_", sha256_json(seed))
         output_dir = (
@@ -392,6 +397,7 @@ class AccountBenchmarkProfileService:
                 if item.name != "unknown"
             ],
             visual_and_audio_identity=distillation.positioning.visual_and_audio_identity,
+            craft_identity=distillation.craft_profile,
             input_hashes=input_hashes,
             warnings=warnings,
         )

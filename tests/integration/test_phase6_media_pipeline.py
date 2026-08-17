@@ -123,6 +123,12 @@ class FixtureVisionProvider:
                     shot_id=shot.shot_id,
                     summary="酒店大堂全景",
                     labels=["lobby", "hotel"],
+                    shot_scale=["全景"],
+                    camera_movement=["固定机位"],
+                    camera_angle=["平视"],
+                    composition=["对称构图"],
+                    lighting=["自然光"],
+                    text_overlay_styles=["金色标题字"],
                     ocr_observation_ids=["ocr_title"],
                     confidence=0.9,
                 )
@@ -171,6 +177,33 @@ def test_local_media_analysis_is_traceable_queryable_and_idempotent(
         assert store.count("media_features") == 1
         row = store.query("SELECT shot_count, ocr_observation_count FROM media_features")[0]
     assert row == {"shot_count": 2, "ocr_observation_count": 1}
+
+    # The media feature row carries shooting-technique and expression-form tags.
+    from video_account_distiller.models import MediaFeatureRecord
+    from video_account_distiller.storage.parquet import read_models
+
+    features = read_models(
+        phase3_project.normalized_dir / "media_features.parquet", MediaFeatureRecord
+    )
+    assert len(features) == 1
+    feature = features[0]
+    assert feature.shot_scale_tags == ["全景"]
+    assert feature.camera_movement_tags == ["固定机位"]
+    assert feature.camera_angle_tags == ["平视"]
+    assert feature.composition_tags == ["对称构图"]
+    assert feature.lighting_tags == ["自然光"]
+    assert feature.text_overlay_style_tags == ["金色标题字"]
+    assert feature.opening_technique_tags == [
+        "全景开场",
+        "固定机位开场",
+        "开场即出字幕",
+        "开场金色标题字",
+    ]
+    assert feature.pacing_tags == ["中等节奏剪辑"]
+    report = (phase3_project.root / result["outputs"][2]).read_text(encoding="utf-8")
+    assert "## 拍摄手法与表现形式" in report
+    assert "全景×1" in report
+
     status = project_status(phase3_project)
     assert status["artifacts"]["media_analyses"] == 1
     assert status["last_media_analysis_at"] is not None

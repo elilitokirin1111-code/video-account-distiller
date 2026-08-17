@@ -123,6 +123,66 @@ def test_weknora_scope_rejection_has_actionable_error(
     assert all("/knowledge-bases/kb-1/" in url for url in post_urls)
 
 
+def test_weknora_sync_replaces_only_distiller_owned_account_documents(
+    project: ProjectLayout, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deleted: list[str] = []
+    uploaded: list[str] = []
+
+    def _get(url: str, *args: Any, **kwargs: Any) -> _Response:
+        if url.endswith("/knowledge-bases"):
+            return _Response(200, {"data": [{"id": "kb-1", "name": "target"}]}, "")
+        return _Response(
+            200,
+            {
+                "data": [
+                    {
+                        "id": "old-owned",
+                        "file_name": "report.md",
+                        "channel": "distiller",
+                        "metadata": {
+                            "source": "video-account-distiller",
+                            "account_id": "account-id",
+                        },
+                    },
+                    {
+                        "id": "manual-doc",
+                        "file_name": "keep.md",
+                        "channel": "web",
+                        "metadata": {},
+                    },
+                ],
+                "total": 2,
+            },
+            "",
+        )
+
+    def _delete(url: str, *args: Any, **kwargs: Any) -> _Response:
+        deleted.append(url)
+        return _Response(200, {"success": True}, "")
+
+    def _post(url: str, *args: Any, **kwargs: Any) -> _Response:
+        uploaded.append(url)
+        return _Response(201, {"success": True}, "")
+
+    monkeypatch.setattr("video_account_distiller.knowledge.weknora.ObsidianVaultExporter", _Export)
+    monkeypatch.setattr(requests, "get", _get)
+    monkeypatch.setattr(requests, "delete", _delete)
+    monkeypatch.setattr(requests, "post", _post)
+
+    result = WeKnoraSyncService(project).sync_account(
+        account_id="account-id",
+        base_url="http://localhost:8080",
+        api_key="sk-test",
+        kb_id="kb-1",
+    )
+
+    assert result["ok"] is True
+    assert result["replaced"] == ["report.md"]
+    assert deleted == ["http://localhost:8080/api/v1/knowledge/old-owned"]
+    assert len(uploaded) == 1
+
+
 def test_weknora_requires_an_existing_visible_knowledge_base(
     project: ProjectLayout, monkeypatch: pytest.MonkeyPatch
 ) -> None:

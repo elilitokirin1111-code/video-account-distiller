@@ -99,3 +99,13 @@ Content-cluster interaction differences are descriptive associations only.
 The two profile artifacts represent successive implementation outputs; neither overwrote the
 other. A meaningful cross-account rank requires at least one more approved Douyin account profile.
 
+## Subsequent craft extension (vision contract 1.4.0)
+
+A later upgrade adds explicit per-frame `shot_scale` and `camera_movement` fields, mirrors the
+legacy `camera` viewpoint into `camera_angle`, and distills account-level 拍摄手法与表现形式
+(shot scale, camera motion, angle, composition, lighting, text styles, motion graphics, branding,
+opening technique, editing rhythm) into a structured `CraftProfile` with coverage, `craft`
+Patterns, report sections, and benchmark-profile `craft_identity`. See
+`local-media-analysis.md` and `comment-and-account-distillation.md` for the current contract.
+
+

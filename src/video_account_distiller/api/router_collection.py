@@ -15,6 +15,7 @@ from video_account_distiller.api.task_jobs import (
 from video_account_distiller.collection import (
     build_account_provider,
     build_collection_request,
+    resolve_comment_video_limit,
     resolve_profile_options,
 )
 
@@ -41,7 +42,10 @@ async def collection_analyze(
         sort=body.sort,
         provider=body.provider,
         comments_per_video=comments_per_video,
-        comment_video_limit=body.comment_video_limit,
+        comment_video_limit=resolve_comment_video_limit(
+            count=count,
+            configured_limit=body.comment_video_limit,
+        ),
     )
     build_account_provider(body.provider)
     return enqueue_api_job(

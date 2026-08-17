@@ -58,7 +58,7 @@ class AccountMediaEnrichment(StrictModel):
     source_batch_hash: str
     source_batch_path: str
     selection_policy: str
-    requested_limit: int = Field(ge=1, le=20)
+    requested_limit: int = Field(ge=1, le=20_000)
     selected_count: int = Field(ge=0)
     completed_count: int = Field(ge=0)
     degraded_count: int = Field(ge=0)

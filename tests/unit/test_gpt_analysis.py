@@ -12,12 +12,15 @@ from video_account_distiller.insights import (
     AnalysisProviderKind,
     BailianChatCompletionsProvider,
     BailianModel,
+    DeepSeekChatCompletionsProvider,
+    DeepSeekModel,
     GptAccountAnalysis,
     GptAnalysisOptions,
     OpenAIModel,
     OpenAIResponsesProvider,
     ReasoningEffort,
     RemoteAccountAnalysisService,
+    render_account_learning_report,
 )
 from video_account_distiller.insights.gpt_analysis import GPT_ANALYSIS_VERSION, ProviderAnalysis
 from video_account_distiller.storage.project import ProjectLayout
@@ -38,6 +41,30 @@ def _analysis(evidence_ref: str = "context://account") -> GptAccountAnalysis:
                     "confidence": "high",
                 }
             ],
+            "imitation_playbooks": [
+                {
+                    "title": "把连续主题做成可比较系列",
+                    "learned_insight": "系列化的价值不是重复，而是减少变量并积累观众预期。",
+                    "why_it_works": "相近主题与结构让账号更容易识别真正影响表现的变化。",
+                    "copy_this": ["固定内容母题", "每次只替换一个关键变量"],
+                    "do_not_copy": ["照搬他人标题和场景"],
+                    "adaptation_steps": ["选择一个高相关母题", "连续制作三组单变量内容"],
+                    "suitable_for": ["需要形成稳定栏目但样本不足的账号"],
+                    "evidence_refs": [evidence_ref],
+                    "confidence": "medium",
+                }
+            ],
+            "creative_extensions": [
+                {
+                    "title": "同一服务的三种住客视角",
+                    "derived_from": "连续主题可形成可比较样本",
+                    "concept": "围绕同一服务分别用首次入住、亲子和商务住客视角表达。",
+                    "execution": ["保持开头结构一致", "只替换人物需求和冲突"],
+                    "trend_relevance": "evergreen_extension",
+                    "risk_or_boundary": "不能把角色设定包装成真实住客证言。",
+                    "evidence_refs": [evidence_ref],
+                }
+            ],
             "priority_actions": [
                 {
                     "priority": 1,
@@ -55,9 +82,41 @@ def _analysis(evidence_ref: str = "context://account") -> GptAccountAnalysis:
                     "evidence_refs": ["context://data-availability"],
                 }
             ],
+            "knowledge_cards": [
+                {
+                    "title": "把连续主题当作待验证的稳定性机制",
+                    "claim": "同一主题的连续发布应通过对照实验验证，而不是直接视为增长规则。",
+                    "knowledge_type": "experimental_rule",
+                    "mechanism": "连续主题减少内容变量，有助于区分主题机制与随机曝光。",
+                    "competing_explanations": ["表现变化也可能来自发布时间或平台分发波动。"],
+                    "falsifier": "三组同主题对照仍无稳定差异时撤销该命题。",
+                    "decision": "先做三组单变量配对实验，再决定是否进入团队模板。",
+                    "scope": ["当前账号", "同一内容支柱"],
+                    "boundary_conditions": ["需补齐可比较的播放或互动效率指标"],
+                    "tradeoff": "降低短期选题多样性，以换取更清晰的学习信号。",
+                    "success_condition": "三组实验中至少两组目标指标高于对照。",
+                    "stop_condition": "连续三组未优于账号基线即停止。",
+                    "target_metric": "engagement_rate_by_view",
+                    "maturity_level": 3,
+                    "evidence_refs": [evidence_ref],
+                    "confidence": "medium",
+                }
+            ],
             "limitations": ["缺少多个分隔时间点的账号快照。"],
         }
     )
+
+
+def test_learning_report_prioritizes_transferable_playbooks_and_creative_extensions() -> None:
+    report = render_account_learning_report({"result": _analysis().model_dump(mode="json")})
+
+    assert "账号运营学习报告" in report
+    assert "可模仿打法" in report
+    assert "把连续主题做成可比较系列" in report
+    assert "灵感与延伸创意" in report
+    assert "同一服务的三种住客视角" in report
+    assert "Evidence" not in report
+    assert "证据与严谨分析附录" not in report
 
 
 class RecordingExecutor:
@@ -90,8 +149,8 @@ class RecordingExecutor:
 
 
 class RecordingProvider:
-    provider_name = "fake_openai"
-    model_name = "gpt-5.6-terra"
+    provider_name = "fake_deepseek"
+    model_name = "deepseek-v4-flash"
 
     def __init__(self, analysis: GptAccountAnalysis) -> None:
         self.analysis = analysis
@@ -226,7 +285,50 @@ def test_bailian_provider_uses_json_mode_and_environment_only_credential() -> No
     assert "sk-bailian-temporary-secret" not in call["body"].decode("utf-8")
 
 
+def test_deepseek_v4_flash_provider_enables_thinking_and_json_mode() -> None:
+    expected = _analysis()
+    response = {
+        "id": "chatcmpl_deepseek_123",
+        "model": "deepseek-v4-flash",
+        "choices": [
+            {
+                "finish_reason": "stop",
+                "message": {
+                    "role": "assistant",
+                    "content": json.dumps(expected.model_dump(mode="json"), ensure_ascii=False),
+                },
+            }
+        ],
+        "usage": {"prompt_tokens": 120, "completion_tokens": 60, "total_tokens": 180},
+    }
+    executor = RecordingExecutor(response)
+    provider = DeepSeekChatCompletionsProvider(
+        model=DeepSeekModel.V4_FLASH,
+        reasoning_effort=ReasoningEffort.HIGH,
+        executor=executor,
+        credential_loader=lambda: "sk-deepseek-temporary-secret",
+    )
+
+    result = provider.analyze(
+        instructions="Analyze with evidence.",
+        context_json='{"account":{"account_id":"acc_test"}}',
+    )
+
+    assert result.analysis == expected
+    payload: Any = json.loads(executor.calls[0]["body"])
+    assert payload["model"] == "deepseek-v4-flash"
+    assert payload["thinking"] == {"type": "enabled"}
+    assert payload["reasoning_effort"] == "high"
+    assert payload["response_format"] == {"type": "json_object"}
+    assert "sk-deepseek-temporary-secret" not in executor.calls[0]["body"].decode("utf-8")
+
+
 def test_cloud_analysis_options_reject_cross_provider_models() -> None:
+    defaults = GptAnalysisOptions()
+    assert defaults.provider is AnalysisProviderKind.DEEPSEEK
+    assert defaults.model is DeepSeekModel.V4_FLASH
+    assert defaults.reasoning_effort is ReasoningEffort.HIGH
+
     options = GptAnalysisOptions(
         provider=AnalysisProviderKind.BAILIAN,
         model=BailianModel.QWEN_3_7_PLUS,
@@ -335,16 +437,24 @@ def test_remote_analysis_is_redacted_audited_and_idempotent(
     audit: Any = read_json(audit_path)
     assert audit["request"]["store"] is False
     assert audit["privacy"]["api_key_persisted"] is False
-    assert audit["privacy"]["api_key_source"] == "OPENAI_API_KEY"
+    assert audit["privacy"]["api_key_source"] == "DEEPSEEK_API_KEY"
     assert audit["privacy"]["raw_response_persisted"] is False
     assert audit["response"]["response_id"] == "resp_test"
-    assert audit["response"]["estimated_cost"]["estimated_total_usd"] == 0.001
+    assert audit["response"]["estimated_cost"]["estimated_total_usd"] == 0.000028
     evaluation: Any = read_json(evaluation_path)
     statuses = {item["id"]: item["status"] for item in evaluation["checks"]}
     assert statuses["citation_completeness"] == "pass"
     assert statuses["evidence_allowlist_integrity"] == "pass"
     assert statuses["conclusion_stability"] == "insufficient_runs"
+    assert statuses["knowledge_asset_completeness"] == "pass"
+    assert statuses["knowledge_promotion_safety"] == "pass"
     assert statuses["derived_analysis_boundary"] == "pass"
+    claim_paths = first["analysis"]["knowledge_claim_paths"]
+    assert len(claim_paths) == 1
+    claim: Any = read_json(normalized_project.root / claim_paths[0])
+    assert claim["status"] == "experimental"
+    assert claim["validated"] is False
+    assert claim["requires_human_review"] is True
     assert "sk-" not in audit_path.read_text(encoding="utf-8")
 
 

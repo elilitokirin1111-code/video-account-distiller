@@ -23,6 +23,7 @@ from video_account_distiller.insights import (
     build_account_analysis_provider,
     resolve_cloud_credential,
 )
+from video_account_distiller.knowledge import KnowledgeExportService
 
 router = APIRouter()
 
@@ -81,11 +82,25 @@ async def account_gpt_analysis(
         credential_source=resolved.source,
     )
     service = RemoteAccountAnalysisService(layout, provider)
+
+    def analyze_and_refresh_knowledge() -> dict[str, Any]:
+        result = service.analyze(account_id=account_id, options=options)
+        knowledge_export = KnowledgeExportService(layout).export_account(
+            account_id=account_id,
+            max_video_analyses=options.max_video_analyses,
+            max_export_bytes=5_000_000,
+        )
+        result["knowledge_export"] = knowledge_export
+        result["outputs"] = [
+            *result.get("outputs", []),
+            knowledge_export["document_path"],
+            knowledge_export["evidence_document_path"],
+        ]
+        return result
+
     return enqueue_ephemeral_task(
         request.app.state.tasks,
-        service.analyze,
-        account_id=account_id,
-        options=options,
+        analyze_and_refresh_knowledge,
         task_type="gpt_account_analysis",
         resource_class="model",
     )

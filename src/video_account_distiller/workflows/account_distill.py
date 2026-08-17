@@ -7,24 +7,31 @@ from pathlib import Path
 from typing import Any
 
 from video_account_distiller.benchmarking import AccountBenchmarkProfileService
-from video_account_distiller.config import load_config
 from video_account_distiller.collection import (
     AccountCollectionProvider,
     AccountCollectionService,
     CollectionProfile,
 )
+from video_account_distiller.config import load_config
+from video_account_distiller.distillation import AccountDistillationService
 from video_account_distiller.doctor import doctor_report
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.features import CloudChatTextProvider, TextModelProvider
-from video_account_distiller.insights import AnalysisContextService
+from video_account_distiller.insights import (
+    AnalysisContextService,
+    GptAnalysisOptions,
+    RemoteAccountAnalysisService,
+)
+from video_account_distiller.insights.gpt_analysis import AccountAnalysisProvider
 from video_account_distiller.knowledge import KnowledgeExportService
 from video_account_distiller.media import (
     AccountMediaEnrichmentService,
     CloudVisionProvider,
+    DownloadedMediaCleanupService,
     LlamaCppVisionProvider,
     OllamaVisionProvider,
     VisionModelProvider,
-    WhisperCliTranscriber,
+    build_local_transcriber,
 )
 from video_account_distiller.models import AccountCollectionRequest, CollectionProviderKind
 from video_account_distiller.reports import NarrativeReportService, ReportService
@@ -81,6 +88,7 @@ def _workflow_coverage(
     media_items = enrichment.get("videos") or []
     valid_media_items = [item for item in media_items if isinstance(item, dict)]
     media_selected = int(enrichment.get("selected_count") or 0)
+    media_target = min(media_limit, collected_videos) if media_limit > 0 else 0
     media_analyzed = sum(bool(item.get("media_analysis_id")) for item in valid_media_items)
     transcript_ready = sum(
         (item.get("transcription") or {}).get("status") in {"complete", "reused"}
@@ -98,7 +106,7 @@ def _workflow_coverage(
             and str(comments_provider.get("status"))
             in {"partial_degraded", "no_usable_public_comments"}
         )
-        or (media_limit > 0 and media_analyzed < media_selected)
+        or (media_target > 0 and media_analyzed < media_selected)
         or int(enrichment.get("failed_count") or 0) > 0
     )
     return {
@@ -135,9 +143,10 @@ def _workflow_coverage(
         },
         "media": {
             "requested": media_limit,
+            "effective_target": media_target,
             "selected": media_selected,
             "analyzed": media_analyzed,
-            "ratio": _ratio(media_analyzed, media_limit),
+            "ratio": _ratio(media_analyzed, media_target),
             "completed": int(enrichment.get("completed_count") or 0),
             "degraded": int(enrichment.get("degraded_count") or 0),
             "failed": int(enrichment.get("failed_count") or 0),
@@ -163,7 +172,7 @@ def _workflow_coverage(
     }
 
 
-def _vision_provider(
+def build_vision_provider(
     *,
     provider: str | None,
     model: str,
@@ -221,9 +230,11 @@ class AccountDistillWorkflow:
         collection_profile: CollectionProfile,
         confirm_provider_cost: bool = False,
         max_provider_calls: int | None = None,
-        media_limit: int = 20,
+        media_limit: int = 50,
+        whisper_backend: str = "auto",
         whisper_model: str = "base",
         whisper_command: Path | None = None,
+        whisper_batch_size: int = 8,
         vision_provider: str | None = "ollama",
         vision_model: str = "qwen3-vl-8b",
         text_provider: str | None = None,
@@ -236,6 +247,8 @@ class AccountDistillWorkflow:
         vision_timeout_seconds: int = 180,
         strict_media_enrichment: bool = False,
         strict_vision: bool = False,
+        account_analysis_provider: AccountAnalysisProvider | None = None,
+        account_analysis_options: GptAnalysisOptions | None = None,
         export_knowledge: bool = True,
         dry_run: bool = False,
         progress: WorkflowProgress = _ignore_progress,
@@ -257,14 +270,16 @@ class AccountDistillWorkflow:
             local_vision_model = config.models.llamacpp_model or vision_model
             local_api_key = config.models.llamacpp_api_key
         elif vision_provider == "cloud":
-            local_base_url = cloud_base_url or config.models.cloud_base_url
+            local_base_url = (
+                cloud_base_url or config.models.cloud_base_url or "https://api.deepseek.com"
+            )
             local_vision_model = cloud_vision_model or vision_model
             local_api_key = cloud_api_key or config.models.cloud_api_key
         else:
             local_base_url = ollama_base_url
             local_vision_model = vision_model
             local_api_key = None
-        local_vision = _vision_provider(
+        local_vision = build_vision_provider(
             provider=vision_provider if media_limit > 0 else None,
             model=local_vision_model,
             base_url=local_base_url,
@@ -275,17 +290,18 @@ class AccountDistillWorkflow:
         local_text: TextModelProvider | None = None
         if text_provider == "cloud":
             local_text = CloudChatTextProvider(
-                model=cloud_text_model
-                or config.models.cloud_text_model
-                or vision_model
-                or "local",
-                base_url=cloud_base_url or config.models.cloud_base_url,
+                model=cloud_text_model or config.models.cloud_text_model or vision_model or "local",
+                base_url=(
+                    cloud_base_url or config.models.cloud_base_url or "https://api.deepseek.com"
+                ),
                 timeout_seconds=vision_timeout_seconds,
                 api_key=cloud_api_key or config.models.cloud_api_key,
             )
-        transcriber = WhisperCliTranscriber(
+        transcriber = build_local_transcriber(
+            backend=whisper_backend,
             command=whisper_command,
             model=whisper_model,
+            batch_size=whisper_batch_size,
         )
         collection_service = AccountCollectionService(self.project, self.provider)
 
@@ -306,6 +322,7 @@ class AccountDistillWorkflow:
                     "provider": transcriber.provider_name,
                     "model": transcriber.model_name,
                     "available": transcriber.available,
+                    "diagnostics": getattr(transcriber, "diagnostics", {}),
                 },
                 "vision": {
                     "provider": local_vision.provider_name if local_vision else "none",
@@ -313,7 +330,12 @@ class AccountDistillWorkflow:
                     "network_uploads": 0,
                 },
                 "knowledge_export": export_knowledge,
-                "external_model_calls": 0,
+                "media_retention": {
+                    "raw_video": "delete_after_success",
+                    "derived_analysis": "preserve",
+                    "keep_on_failure": True,
+                },
+                "external_model_calls": (1 if account_analysis_options is not None else 0),
                 "stages": [
                     "collect",
                     "normalize",
@@ -324,6 +346,7 @@ class AccountDistillWorkflow:
                     "video_analysis",
                     "distill",
                     "report",
+                    "knowledge_synthesis",
                     "knowledge_export",
                 ],
             }
@@ -378,7 +401,14 @@ class AccountDistillWorkflow:
         media_already_complete = (
             media_limit > 0
             and isinstance(result.get("media_enrichment"), dict)
-            and resume_stage in {"media_complete", "report_complete", "knowledge_export_complete"}
+            and resume_stage
+            in {
+                "media_complete",
+                "report_complete",
+                "knowledge_export_complete",
+                "narrative_complete",
+                "media_cleanup_complete",
+            }
         )
         if media_limit > 0 and not media_already_complete:
             progress(0.38, "media", f"正在处理 {media_limit} 条视频的画面、音频与字幕")
@@ -413,14 +443,18 @@ class AccountDistillWorkflow:
         elif media_already_complete:
             progress(0.78, "resuming", "已复用检查点中的视频内容分析")
 
-        progress(0.82, "report", "正在重建账号画像、报告与分析上下文")
+        progress(0.80, "distill", "正在从完整视频证据中重建账号模式与反例")
+        result["distillation"] = AccountDistillationService(self.project).distill(
+            account_id=account_id
+        )
+        progress(0.84, "report", "正在重建账号画像、报告与分析上下文")
         result["report"] = ReportService(self.project).generate_account_health(
             account_id=account_id
         )
         result["benchmark_profile"] = AccountBenchmarkProfileService(self.project).build(
             account_id=account_id
         )
-        context_limit = max(1, min(media_limit or 10, 25))
+        context_limit = max(1, min(media_limit or 100, 1_000))
         result["analysis_context"] = AnalysisContextService(self.project).build(
             account_id=account_id,
             max_video_analyses=context_limit,
@@ -437,12 +471,37 @@ class AccountDistillWorkflow:
             },
         )
 
+        if account_analysis_provider is not None and account_analysis_options is not None:
+            progress(
+                0.90,
+                "knowledge_synthesis",
+                "正在提炼可模仿打法、运营启发与可验证创意",
+            )
+            result["knowledge_synthesis"] = RemoteAccountAnalysisService(
+                self.project,
+                account_analysis_provider,
+            ).analyze(
+                account_id=account_id,
+                options=account_analysis_options,
+            )
+        else:
+            result["knowledge_synthesis"] = {
+                "ok": True,
+                "status": "evidence_ready",
+                "knowledge_distilled": False,
+                "message": "数据与证据已整理，但尚未运行模型知识蒸馏。",
+            }
+
         if export_knowledge:
-            progress(0.93, "knowledge_export", "正在生成 GPT/OpenKB 可用的本地知识包")
+            progress(
+                0.93,
+                "knowledge_export",
+                "正在生成运营学习报告与数据证据附件",
+            )
             result["knowledge_export"] = KnowledgeExportService(self.project).export_account(
                 account_id=account_id,
                 max_video_analyses=context_limit,
-                max_export_bytes=1_000_000,
+                max_export_bytes=5_000_000,
             )
             checkpoint(
                 "knowledge_export_complete",
@@ -472,12 +531,56 @@ class AccountDistillWorkflow:
             },
         )
 
+        enrichment_payload = result.get("media_enrichment") or {}
+        enrichment = enrichment_payload.get("enrichment") or {}
+        media_analysis_paths = [
+            str(item["media_analysis_path"])
+            for item in enrichment.get("videos", [])
+            if isinstance(item, dict) and item.get("media_analysis_path")
+        ]
+        if media_analysis_paths:
+            progress(0.99, "media_cleanup", "正在删除已完成分析的本地原视频")
+            result["media_cleanup"] = DownloadedMediaCleanupService(
+                self.project
+            ).cleanup_account(
+                account_id=account_id,
+                media_analysis_paths=media_analysis_paths,
+            )
+            checkpoint(
+                "media_cleanup_complete",
+                {
+                    "version": "1.0.0",
+                    "stage": "media_cleanup_complete",
+                    "request": request_payload,
+                    "collection_profile": collection_profile.value,
+                    "account_id": account_id,
+                    "result": result,
+                },
+            )
+        else:
+            result["media_cleanup"] = {
+                "ok": True,
+                "deleted_count": 0,
+                "deleted_bytes": 0,
+                "message": "本次任务没有新增或复用需要清理的原视频。",
+            }
+
         result["workflow"] = {
             "mode": "self_service_account_distill",
             "account_id": account_id,
             "media_limit": media_limit,
-            "external_model_calls": 0,
+            "external_model_calls": (
+                1
+                if account_analysis_provider is not None and account_analysis_options is not None
+                else 0
+            ),
+            "knowledge_status": (
+                "distilled"
+                if account_analysis_provider is not None and account_analysis_options is not None
+                else "evidence_ready"
+            ),
             "knowledge_exported": export_knowledge,
+            "raw_videos_deleted_after_success": True,
         }
         result["workflow_coverage"] = _workflow_coverage(
             result,
@@ -486,5 +589,13 @@ class AccountDistillWorkflow:
             vision_requested=local_vision is not None,
         )
         result["project_root"] = str(self.project.root)
-        progress(1.0, "completed", "账号蒸馏完成")
+        progress(
+            1.0,
+            "completed",
+            (
+                "账号知识蒸馏完成"
+                if account_analysis_provider is not None and account_analysis_options is not None
+                else "账号数据与证据分析完成；经营知识蒸馏待运行"
+            ),
+        )
         return result

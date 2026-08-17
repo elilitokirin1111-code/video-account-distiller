@@ -60,7 +60,7 @@ class AccountCollectionRequest(StrictModel):
     sort: CollectionSort = CollectionSort.LATEST
     provider: CollectionProviderKind = CollectionProviderKind.MEDIACRAWLER
     comments_per_video: int = Field(default=10, ge=0, le=20)
-    comment_video_limit: int = Field(default=3, ge=1, le=200)
+    comment_video_limit: int = Field(default=3, ge=1, le=20_000)
 
     @field_validator("profile_url")
     @classmethod

@@ -256,9 +256,7 @@ class OllamaTextProvider:
         except ValidationError:
             # Local models produce noisy keys and free-text enum values.
             # Coerce once against the schema before giving up.
-            coerced = self._coerce_to_schema(
-                parsed, response_model.model_json_schema()
-            )
+            coerced = self._coerce_to_schema(parsed, response_model.model_json_schema())
             try:
                 return response_model.model_validate(coerced)
             except ValidationError as exc:
@@ -318,9 +316,7 @@ class OllamaTextProvider:
             if kind == "array" and isinstance(value, list):
                 items = resolved.get("items") or {}
                 return [
-                    item
-                    for item in (coerce(entry, items) for entry in value)
-                    if item is not None
+                    item for item in (coerce(entry, items) for entry in value) if item is not None
                 ]
             enum = resolved.get("enum")
             if enum and value not in enum:
@@ -384,7 +380,9 @@ class LlamaCppTextProvider(OllamaTextProvider):
             with urlopen(request, timeout=self.timeout_seconds) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
         except (HTTPError, URLError, TimeoutError, UnicodeError, json.JSONDecodeError) as exc:
-            raise ModelSchemaFailure(f"llama.cpp text request failed: {type(exc).__name__}") from exc
+            raise ModelSchemaFailure(
+                f"llama.cpp text request failed: {type(exc).__name__}"
+            ) from exc
         if not isinstance(result, dict):
             raise ModelSchemaFailure("llama.cpp returned a non-dict response")
         choices = result.get("choices")

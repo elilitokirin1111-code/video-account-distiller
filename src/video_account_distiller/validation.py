@@ -46,7 +46,7 @@ from video_account_distiller.utils.ids import stable_id
 from video_account_distiller.utils.io import read_json
 from video_account_distiller.validators import (
     validate_collection_batches,
-    validate_openkb_artifacts,
+    validate_knowledge_artifacts,
 )
 
 PERFORMANCE_KEYS = {
@@ -165,6 +165,38 @@ def _validate_video_analysis(path: Path, project: ProjectLayout) -> list[str]:
     return [f"{project.relative(path)}: {message}" for message in errors]
 
 
+def _has_intentional_media_cleanup(
+    project: ProjectLayout,
+    analysis: MediaAnalysis,
+) -> bool:
+    cleanup_root = (
+        project.root
+        / "analyses"
+        / "accounts"
+        / analysis.account_id
+        / "media-cleanups"
+    )
+    if not cleanup_root.is_dir():
+        return False
+    for cleanup_path in cleanup_root.glob("*.json"):
+        try:
+            payload = read_json(cleanup_path)
+        except (OSError, ValueError, TypeError):
+            continue
+        if not isinstance(payload, dict) or payload.get("account_id") != analysis.account_id:
+            continue
+        for entry in payload.get("entries", []):
+            if not isinstance(entry, dict):
+                continue
+            if (
+                entry.get("raw_media_path") == analysis.raw_media_path
+                and entry.get("media_hash") == analysis.metadata.media_hash
+                and isinstance(entry.get("deleted_at"), str)
+            ):
+                return True
+    return False
+
+
 def _validate_media_analysis(path: Path, project: ProjectLayout) -> list[str]:
     errors: list[str] = []
     directory = path.parent
@@ -207,8 +239,11 @@ def _validate_media_analysis(path: Path, project: ProjectLayout) -> list[str]:
     raw_media = (project.root / analysis.raw_media_path).resolve()
     if not raw_media.is_relative_to(project.root):
         errors.append("raw_media_path escapes the project root")
-    elif not raw_media.is_file() or sha256_file(raw_media) != analysis.metadata.media_hash:
-        errors.append("immutable raw media is missing or its hash changed")
+    elif raw_media.is_file():
+        if sha256_file(raw_media) != analysis.metadata.media_hash:
+            errors.append("immutable raw media hash changed")
+    elif not _has_intentional_media_cleanup(project, analysis):
+        errors.append("immutable raw media is missing without a cleanup record")
     evidence_items = {item.evidence_id: item for item in evidence.items}
     media_items = [item for item in evidence.items if item.kind == "media"]
     if not any(
@@ -934,15 +969,15 @@ def validate_project(project: ProjectLayout, *, persist: bool = True) -> Quality
                 )
             )
 
-    openkb_errors, openkb_artifact_count = validate_openkb_artifacts(project)
-    for message in openkb_errors:
+    knowledge_errors, knowledge_artifact_count = validate_knowledge_artifacts(project)
+    for message in knowledge_errors:
         issues.append(
             DataQualityIssue(
-                issue_id=stable_id("dqi_", manifest.run_id, "openkb", message),
+                issue_id=stable_id("dqi_", manifest.run_id, "local_knowledge", message),
                 run_id=manifest.run_id,
                 severity="error",
                 code="knowledge_artifact_invalid",
-                entity="openkb_knowledge",
+                entity="local_knowledge",
                 message=message,
             )
         )
@@ -986,7 +1021,7 @@ def validate_project(project: ProjectLayout, *, persist: bool = True) -> Quality
             "phase7_artifacts": len(phase7_paths) + int(team_config.is_file()),
             "phase7_raw": len(raw_collaboration_paths),
             "phase8_collections": len(collection_batch_paths),
-            "openkb_artifacts": openkb_artifact_count,
+            "knowledge_artifacts": knowledge_artifact_count,
             "errors": sum(issue.severity == "error" for issue in issues),
             "warnings": sum(issue.severity == "warning" for issue in issues) + len(warnings),
         },

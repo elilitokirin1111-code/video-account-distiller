@@ -116,9 +116,7 @@ async def delete_cloud_model_credential(
 async def init_project(body: ProjectInitRequest) -> dict[str, Any]:
     """Initialise a new distiller project at *path*."""
     template = (
-        Path(body.config_template).expanduser() / "distiller.yaml"
-        if body.config_template
-        else None
+        Path(body.config_template).expanduser() / "distiller.yaml" if body.config_template else None
     )
     layout, already = ProjectLayout.initialize(
         Path(body.path),

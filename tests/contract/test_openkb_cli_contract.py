@@ -11,7 +11,7 @@ from video_account_distiller.utils.ids import stable_id
 runner = CliRunner()
 
 
-def test_openkb_export_and_sync_dry_runs_are_offline_json(
+def test_local_knowledge_package_export_is_offline_json(
     normalized_project: ProjectLayout,
 ) -> None:
     account_id = stable_id("acc_", "douyin", "hotel-demo")
@@ -19,7 +19,7 @@ def test_openkb_export_and_sync_dry_runs_are_offline_json(
         app,
         [
             "knowledge",
-            "openkb",
+            "package",
             "export",
             "--project",
             str(normalized_project.root),
@@ -33,47 +33,10 @@ def test_openkb_export_and_sync_dry_runs_are_offline_json(
     export_payload = json.loads(exported.stdout)
     assert export_payload["dry_run"] is True
 
-    synced = runner.invoke(
-        app,
-        [
-            "knowledge",
-            "openkb",
-            "sync",
-            "--project",
-            str(normalized_project.root),
-            "--account",
-            account_id,
-            "--base-url",
-            "https://openkb.example.com",
-            "--dry-run",
-            "--json",
-        ],
-    )
-    assert synced.exit_code == 0, synced.output
-    sync_payload = json.loads(synced.stdout)
-    assert sync_payload["dry_run"] is True
-    assert sync_payload["would_upload"] is True
-    assert sync_payload["target"]["token_configured"] is False
+    assert export_payload["document_path"].startswith("knowledge-outbox/local/")
 
 
-def test_openkb_sync_requires_explicit_model_confirmation(
-    normalized_project: ProjectLayout,
-) -> None:
-    account_id = stable_id("acc_", "douyin", "hotel-demo")
-    result = runner.invoke(
-        app,
-        [
-            "knowledge",
-            "openkb",
-            "sync",
-            "--project",
-            str(normalized_project.root),
-            "--account",
-            account_id,
-            "--json",
-        ],
-    )
+def test_openkb_cli_group_is_retired() -> None:
+    result = runner.invoke(app, ["knowledge", "openkb", "--help"])
 
-    assert result.exit_code == 20
-    payload = json.loads(result.stdout)
-    assert payload["error"]["code"] == "E_PROVIDER_COST_CONFIRMATION_REQUIRED"
+    assert result.exit_code != 0

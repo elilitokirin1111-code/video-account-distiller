@@ -17,6 +17,7 @@ from typing import Any, Literal
 from jinja2 import Environment, StrictUndefined
 
 from video_account_distiller.config import load_config
+from video_account_distiller.distillation.craft import PACING_FAST_MS, PACING_MEDIUM_MS
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.media.backend import (
     FFmpegMediaBackend,
@@ -26,6 +27,7 @@ from video_account_distiller.media.backend import (
 from video_account_distiller.media.providers import (
     StructuredVisionFileProvider,
     VisionModelProvider,
+    VisionProviderUnavailable,
     VisionSchemaFailure,
 )
 from video_account_distiller.models import (
@@ -39,6 +41,7 @@ from video_account_distiller.models import (
     MediaVisionAnnotation,
     MediaVisionBundle,
     ShotSegment,
+    ShotVisualAnnotation,
     SilenceInterval,
     VisionInputKeyframe,
     VisionInputShot,
@@ -52,6 +55,75 @@ from video_account_distiller.utils.io import atomic_write_json, atomic_write_tex
 from video_account_distiller.utils.lookup import resolve_video
 
 MEDIA_ANALYSIS_VERSION = "1.1.1"
+
+
+def _pacing_tags(average_shot_duration_ms: float | None) -> list[str]:
+    """Derive an editing-rhythm tag from the measured average shot duration."""
+    if average_shot_duration_ms is None:
+        return []
+    if average_shot_duration_ms < PACING_FAST_MS:
+        return ["快节奏剪辑"]
+    if average_shot_duration_ms <= PACING_MEDIUM_MS:
+        return ["中等节奏剪辑"]
+    return ["慢节奏剪辑"]
+
+
+def _opening_technique_tags(annotation: ShotVisualAnnotation | None) -> list[str]:
+    """Derive opening-technique tags from the first shot's visible craft labels.
+
+    The opening is the strongest expression-form signal for short-video hooks:
+    which shot scale, camera motion, and text style a video leads with. Tags stay
+    readable Chinese labels such as 特写开场 / 固定机位开场 / 开场大字标题.
+    """
+    if annotation is None:
+        return []
+    tags: list[str] = []
+    tags.extend(f"{value}开场" for value in annotation.shot_scale)
+    tags.extend(f"{value}开场" for value in annotation.camera_movement)
+    tags.extend(f"开场{value}" for value in annotation.text_overlay_styles)
+    if annotation.ocr_observation_ids:
+        tags.append("开场即出字幕")
+    return sorted(dict.fromkeys(tags))
+
+
+CRAFT_TAG_ATTRIBUTES: tuple[tuple[str, str], ...] = (
+    ("景别", "shot_scale"),
+    ("运镜手法", "camera_movement"),
+    ("机位角度", "camera_angle"),
+    ("构图", "composition"),
+    ("光线", "lighting"),
+    ("字幕与艺术字", "text_overlay_styles"),
+    ("动效与贴纸", "motion_graphics"),
+    ("品牌露出", "branding"),
+)
+
+
+def _media_craft_summary(analysis: MediaAnalysis) -> dict[str, Any]:
+    """Count visible craft labels per category for the per-video media report."""
+    summary: dict[str, Any] = {"categories": {}, "opening_techniques": [], "pacing_tags": []}
+    annotations = analysis.vision.shot_annotations if analysis.vision else []
+    first = None
+    if analysis.shots:
+        first_shot = min(analysis.shots, key=lambda item: (item.start_ms, item.index))
+        first = next(
+            (item for item in annotations if item.shot_id == first_shot.shot_id),
+            None,
+        )
+    for label, attribute in CRAFT_TAG_ATTRIBUTES:
+        counts: dict[str, int] = {}
+        for annotation in annotations:
+            for value in getattr(annotation, attribute):
+                counts[value] = counts.get(value, 0) + 1
+        summary["categories"][label] = sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))
+    opening = _opening_technique_tags(first)
+    if opening:
+        summary["opening_techniques"] = opening
+    pacing = _pacing_tags(
+        fmean(item.duration_ms for item in analysis.shots) if analysis.shots else None
+    )
+    if pacing:
+        summary["pacing_tags"] = pacing
+    return summary
 
 
 def _preserve_provider_responses(
@@ -347,6 +419,7 @@ def _generate_vision(
             errors=["visual/OCR provider not supplied; fields remain unknown"],
         )
     errors: list[str] = []
+    provider_unavailable = False
     valid_shots = {item.shot_id for item in bundle.shots}
     valid_keyframes = {item.keyframe_id for item in bundle.keyframes}
     for attempt in range(1, max_attempts + 1):
@@ -363,9 +436,23 @@ def _generate_vision(
                 status="success",
                 errors=errors,
             )
+        except VisionProviderUnavailable as exc:
+            provider_unavailable = True
+            errors.append(str(exc)[:500])
         except (VisionSchemaFailure, ValueError, TypeError) as exc:
             errors.append(str(exc)[:500])
     if strict:
+        if provider_unavailable:
+            raise DistillerError(
+                ErrorCode.MODEL_UNAVAILABLE,
+                f"Vision model service remained unavailable after {max_attempts} attempts",
+                details={
+                    "provider": provider.provider_name,
+                    "model": provider.model_name,
+                    "attempts": max_attempts,
+                    "errors": errors,
+                },
+            )
         raise DistillerError(
             ErrorCode.MODEL_SCHEMA_INVALID,
             f"Vision output remained invalid after {max_attempts} attempts",
@@ -765,6 +852,17 @@ class LocalMediaAnalysisService:
                 provider_output_hashes,
             )
             if paths["analysis"].is_file():
+                # Raw videos are intentionally pruned after successful distillation.
+                # A later targeted reparse may download the same blob again; restore
+                # the verified raw copy for the duration of that new processing run.
+                if not raw_media_path.is_file():
+                    raw_media_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(source, raw_media_path)
+                if sha256_file(raw_media_path) != media_hash:
+                    raise DistillerError(
+                        ErrorCode.RAW_INTEGRITY,
+                        "Restored raw media hash mismatch",
+                    )
                 return {
                     "ok": True,
                     "dry_run": False,
@@ -872,10 +970,20 @@ class LocalMediaAnalysisService:
             )
             atomic_write_text(
                 paths["report"],
-                template.render(analysis=analysis.model_dump(mode="python")).strip() + "\n",
+                template.render(
+                    analysis=analysis.model_dump(mode="python"),
+                    craft_summary=_media_craft_summary(analysis),
+                ).strip()
+                + "\n",
             )
             feature_id = stable_id("mdf_", analysis_id)
             visual_annotations = vision.shot_annotations if vision else []
+            annotations_by_shot = {item.shot_id: item for item in visual_annotations}
+            first_annotation = None
+            if shots:
+                first_shot = min(shots, key=lambda item: (item.start_ms, item.index))
+                first_annotation = annotations_by_shot.get(first_shot.shot_id)
+            average_shot_duration_ms = fmean(item.duration_ms for item in shots) if shots else None
             feature = MediaFeatureRecord(
                 record_id=feature_id,
                 media_feature_id=feature_id,
@@ -887,9 +995,7 @@ class LocalMediaAnalysisService:
                 height=metadata.height,
                 shot_count=len(shots),
                 keyframe_count=len(keyframes),
-                average_shot_duration_ms=(
-                    fmean(item.duration_ms for item in shots) if shots else None
-                ),
+                average_shot_duration_ms=average_shot_duration_ms,
                 silence_ratio=audio.silence_ratio,
                 rms_dbfs=audio.rms_dbfs,
                 ocr_observation_count=len(vision.ocr_observations) if vision else 0,
@@ -916,6 +1022,23 @@ class LocalMediaAnalysisService:
                 branding_tags=sorted(
                     {value for item in visual_annotations for value in item.branding}
                 ),
+                shot_scale_tags=sorted(
+                    {value for item in visual_annotations for value in item.shot_scale}
+                ),
+                camera_movement_tags=sorted(
+                    {value for item in visual_annotations for value in item.camera_movement}
+                ),
+                camera_angle_tags=sorted(
+                    {value for item in visual_annotations for value in item.camera_angle}
+                ),
+                composition_tags=sorted(
+                    {value for item in visual_annotations for value in item.composition}
+                ),
+                lighting_tags=sorted(
+                    {value for item in visual_annotations for value in item.lighting}
+                ),
+                opening_technique_tags=_opening_technique_tags(first_annotation),
+                pacing_tags=_pacing_tags(average_shot_duration_ms),
                 analysis_status=status,
                 analysis_path=self.project.relative(paths["analysis"]),
                 source_platform=video.source_platform,

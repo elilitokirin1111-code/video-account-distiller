@@ -5,10 +5,12 @@ from array import array
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
 from video_account_distiller.media import (
     AccountMediaEnrichmentService,
     DownloadedMedia,
+    DownloadedMediaCleanupService,
     SceneDetectionResult,
     TranscribedMedia,
 )
@@ -118,6 +120,28 @@ class UnknownFixtureTranscriber(FixtureTranscriber):
         )
 
 
+class NoSpeechFixtureTranscriber(FixtureTranscriber):
+    def transcribe(
+        self,
+        source: Path,
+        destination: Path,
+        *,
+        language: str,
+    ) -> TranscribedMedia:
+        assert source.is_file()
+        atomic_write_json(
+            destination,
+            {"segments": [], "warnings": ["no_speech_detected"]},
+        )
+        return TranscribedMedia(
+            path=destination,
+            provider=self.provider_name,
+            model=self.model_name,
+            language=language,
+            segment_count=0,
+        )
+
+
 class FixtureMediaBackend:
     available = True
     name = "fixture-ffmpeg"
@@ -174,7 +198,12 @@ class FixtureMediaBackend:
         return array("h", [1200] * 72_000).tobytes()
 
 
-def _write_provider_batch(project: ProjectLayout, *, video_count: int = 1) -> Path:
+def _write_provider_batch(
+    project: ProjectLayout,
+    *,
+    video_count: int = 1,
+    source_shape: Literal["detail", "listing", "missing", "image_post"] = "detail",
+) -> Path:
     fetched_at = datetime(2026, 7, 23, 8, 0, tzinfo=UTC)
     videos = [
         CollectedVideo(
@@ -197,26 +226,54 @@ def _write_provider_batch(project: ProjectLayout, *, video_count: int = 1) -> Pa
         )
         for video in videos
     ]
-    raw_pages = [
-        ProviderRawPage(
-            endpoint=f"/aweme/v1/web/aweme/detail/?aweme_id={video.platform_video_id}",
-            fetched_at=fetched_at,
-            payload={
-                "aweme_id": video.platform_video_id,
-                "video": {
-                    "play_addr_h264": {
-                        "url_list": [
-                            (
-                                "https://v11-weba.douyinvod.com/"
-                                f"{video.platform_video_id}.mp4?signed_token=fixture-opaque"
-                            )
-                        ]
-                    }
-                },
-            },
-        )
-        for video in videos
-    ]
+    retained_items: list[dict[str, object]] = []
+    for video in videos:
+        item: dict[str, object] = {"aweme_id": video.platform_video_id}
+        if source_shape == "image_post":
+            item.update(
+                {
+                    "aweme_type": 68,
+                    "media_type": 42,
+                    "images": [{"url_list": ["https://example.invalid/image.jpeg"]}],
+                    "video": {
+                        "duration": 0,
+                        "play_addr": {
+                            "url_list": [
+                                "https://sf6-cdn-tos.douyinstatic.com/obj/background-audio"
+                            ]
+                        },
+                    },
+                }
+            )
+        elif source_shape != "missing":
+            item["video"] = {
+                "play_addr_h264": {
+                    "url_list": [
+                        (
+                            "https://v11-weba.douyinvod.com/"
+                            f"{video.platform_video_id}.mp4?signed_token=fixture-opaque"
+                        )
+                    ]
+                }
+            }
+        retained_items.append(item)
+    if source_shape == "detail":
+        raw_pages = [
+            ProviderRawPage(
+                endpoint=f"/aweme/v1/web/aweme/detail/?aweme_id={item['aweme_id']}",
+                fetched_at=fetched_at,
+                payload=item,
+            )
+            for item in retained_items
+        ]
+    else:
+        raw_pages = [
+            ProviderRawPage(
+                endpoint="/aweme/v1/web/aweme/post/",
+                fetched_at=fetched_at,
+                payload={"aweme_list": retained_items},
+            )
+        ]
     batch = AccountCollectionBatch(
         provider=CollectionProviderKind.MEDIACRAWLER,
         profile_url="https://www.douyin.com/user/phase2-hotel",
@@ -273,6 +330,7 @@ def test_account_media_enrichment_completes_traceable_video_to_distillation_chai
     assert enrichment.completed_count == 1
     assert enrichment.degraded_count == 0
     assert item.media_analysis_id is not None
+    assert item.media_analysis_path is not None
     assert item.transcription.segment_count == 2
     assert item.text_analysis_id is not None
     assert item.text_analysis_status == "degraded"
@@ -281,6 +339,12 @@ def test_account_media_enrichment_completes_traceable_video_to_distillation_chai
     assert distillation.content_clusters[0].name != "unknown"
     assert distillation.positioning.visual_and_audio_identity
     assert "竖屏" in " ".join(distillation.positioning.visual_and_audio_identity)
+    # Without a vision provider the craft profile stays empty but structured.
+    assert distillation.craft_profile is not None
+    assert distillation.craft_profile.analyzed_media_count == 1
+    assert distillation.craft_profile.annotated_media_count == 0
+    assert any("画面语义标注" in item for item in distillation.craft_profile.unknowns)
+    assert any("拍摄手法与表现形式" in item for item in distillation.positioning.unknowns)
     serialized = json.dumps(result, ensure_ascii=False)
     assert "signed_token" not in serialized
     assert "fixture-opaque" not in serialized
@@ -294,8 +358,47 @@ def test_account_media_enrichment_completes_traceable_video_to_distillation_chai
     assert validation.error_count == 0
     assert validation.stats["media_enrichments"] == 1
 
+    analysis_path = item.media_analysis_path
+    raw_media_path = (
+        phase2_project.root / read_json(phase2_project.root / analysis_path)["raw_media_path"]
+    )
+    assert raw_media_path.is_file()
 
-def test_account_media_enrichment_advances_past_valid_unknown_analysis(
+    cleanup = DownloadedMediaCleanupService(phase2_project).cleanup_account(
+        account_id=account_id,
+        media_analysis_paths=[analysis_path],
+    )
+
+    assert cleanup["ok"] is True
+    assert cleanup["deleted_count"] == 1
+    assert cleanup["deleted_bytes"] > 0
+    assert not raw_media_path.exists()
+    assert (phase2_project.root / item.media_analysis_path).is_file()
+    assert validate_project(phase2_project, persist=False).error_count == 0
+
+    reparsed = service.enrich(
+        account_id=account_id,
+        limit=1,
+        selection_mode="selected",
+        video_ids=[item.video_id],
+        refresh_media=True,
+    )
+    reparsed_item = AccountMediaEnrichment.model_validate(reparsed["enrichment"]).videos[0]
+    assert reparsed_item.media_analysis_path is not None
+    restored_analysis = read_json(phase2_project.root / reparsed_item.media_analysis_path)
+    restored_raw = phase2_project.root / restored_analysis["raw_media_path"]
+    assert restored_raw.is_file()
+
+    cleanup_again = DownloadedMediaCleanupService(phase2_project).cleanup_account(
+        account_id=account_id,
+        media_analysis_paths=[reparsed_item.media_analysis_path],
+        reason="test_post_reparse_cleanup",
+    )
+    assert cleanup_again["deleted_count"] == 1
+    assert not restored_raw.exists()
+
+
+def test_account_media_enrichment_advances_past_metadata_grounded_fallback_analysis(
     phase2_project: ProjectLayout,
 ) -> None:
     _write_provider_batch(phase2_project, video_count=2)
@@ -313,7 +416,7 @@ def test_account_media_enrichment_advances_past_valid_unknown_analysis(
     first_item = first.videos[0]
     assert first_item.text_analysis_path is not None
     first_analysis = read_json(phase2_project.root / first_item.text_analysis_path)
-    assert first_analysis["blind_analysis"]["semantics"]["primary_pillar"] == "unknown"
+    assert first_analysis["blind_analysis"]["semantics"]["primary_pillar"] == "客房与清洁管理"
 
     second = AccountMediaEnrichment.model_validate(
         service.enrich(account_id=account_id, limit=1)["enrichment"]
@@ -322,3 +425,150 @@ def test_account_media_enrichment_advances_past_valid_unknown_analysis(
     assert first_item.platform_video_id == "p2-01"
     assert second.videos[0].platform_video_id == "p2-02"
     assert second.enrichment_id != first.enrichment_id
+
+
+def test_account_media_enrichment_keeps_strict_workflow_running_for_no_speech(
+    phase2_project: ProjectLayout,
+) -> None:
+    _write_provider_batch(phase2_project)
+    account_id = stable_id("acc_", "douyin", "phase2-hotel")
+    service = AccountMediaEnrichmentService(
+        phase2_project,
+        downloader=FixtureDownloader(),
+        transcriber=NoSpeechFixtureTranscriber(),
+        media_backend=FixtureMediaBackend(),
+    )
+
+    enrichment = AccountMediaEnrichment.model_validate(
+        service.enrich(account_id=account_id, limit=1, strict=True)["enrichment"]
+    )
+    item = enrichment.videos[0]
+
+    assert enrichment.completed_count == 1
+    assert enrichment.failed_count == 0
+    assert item.status == "complete"
+    assert item.transcription.status == "complete"
+    assert item.transcription.segment_count == 0
+    assert item.transcription.warnings == ["no_speech_detected"]
+    assert "no_speech_detected" in item.warnings
+    assert "text_analysis_skipped_no_speech" in item.warnings
+    assert item.text_analysis_id is None
+    assert enrichment.distillation_path is not None
+    assert validate_project(phase2_project, persist=False).error_count == 0
+
+
+def test_account_media_enrichment_uses_retained_account_listing_video_source(
+    phase2_project: ProjectLayout,
+) -> None:
+    _write_provider_batch(phase2_project, source_shape="listing")
+    account_id = stable_id("acc_", "douyin", "phase2-hotel")
+    service = AccountMediaEnrichmentService(
+        phase2_project,
+        downloader=FixtureDownloader(),
+        transcriber=FixtureTranscriber(),
+        media_backend=FixtureMediaBackend(),
+    )
+
+    enrichment = AccountMediaEnrichment.model_validate(
+        service.enrich(account_id=account_id, limit=1, strict=True)["enrichment"]
+    )
+
+    assert enrichment.completed_count == 1
+    assert enrichment.failed_count == 0
+    assert enrichment.videos[0].media_analysis_id is not None
+
+
+def test_account_media_enrichment_records_missing_retained_source_without_aborting(
+    phase2_project: ProjectLayout,
+) -> None:
+    _write_provider_batch(phase2_project, source_shape="missing")
+    account_id = stable_id("acc_", "douyin", "phase2-hotel")
+    service = AccountMediaEnrichmentService(
+        phase2_project,
+        downloader=FixtureDownloader(),
+        transcriber=FixtureTranscriber(),
+        media_backend=FixtureMediaBackend(),
+    )
+
+    enrichment = AccountMediaEnrichment.model_validate(
+        service.enrich(account_id=account_id, limit=1, strict=True)["enrichment"]
+    )
+    item = enrichment.videos[0]
+
+    assert enrichment.completed_count == 0
+    assert enrichment.failed_count == 1
+    assert item.status == "failed"
+    assert "retained_source_unavailable" in item.warnings
+    assert enrichment.distillation_path is not None
+
+
+def test_account_media_enrichment_skips_retained_image_post_audio_without_retry(
+    phase2_project: ProjectLayout,
+) -> None:
+    _write_provider_batch(phase2_project, source_shape="image_post")
+    account_id = stable_id("acc_", "douyin", "phase2-hotel")
+    service = AccountMediaEnrichmentService(
+        phase2_project,
+        downloader=FixtureDownloader(),
+        transcriber=FixtureTranscriber(),
+        media_backend=FixtureMediaBackend(),
+    )
+
+    enrichment = AccountMediaEnrichment.model_validate(
+        service.enrich(account_id=account_id, limit=1, strict=True)["enrichment"]
+    )
+    item = enrichment.videos[0]
+
+    assert enrichment.completed_count == 0
+    assert enrichment.failed_count == 1
+    assert item.status == "failed"
+    assert "retained_non_video_post" in item.warnings
+    assert enrichment.distillation_path is not None
+    reparsing = service.reparse_candidates(account_id=account_id)
+    assert reparsing["candidates"][0]["retry_recommended"] is False
+
+
+def test_account_media_reparse_selects_degraded_or_explicit_videos(
+    phase2_project: ProjectLayout,
+) -> None:
+    _write_provider_batch(phase2_project, video_count=2)
+    account_id = stable_id("acc_", "douyin", "phase2-hotel")
+    service = AccountMediaEnrichmentService(
+        phase2_project,
+        downloader=FixtureDownloader(),
+        transcriber=FixtureTranscriber(),
+        media_backend=FixtureMediaBackend(),
+    )
+    first = AccountMediaEnrichment.model_validate(
+        service.enrich(account_id=account_id, limit=1)["enrichment"]
+    )
+    assert first.videos[0].text_analysis_status == "degraded"
+
+    candidates = service.reparse_candidates(account_id=account_id)
+    assert candidates["candidate_count"] == 2
+    assert candidates["retry_recommended_count"] == 1
+    assert candidates["candidates"][0]["retry_recommended"] is True
+    assert candidates["candidates"][1]["status"] == "not_analyzed"
+
+    preview = service.enrich(
+        account_id=account_id,
+        limit=1,
+        selection_mode="selected",
+        video_ids=["p2-01"],
+        refresh_media=True,
+        dry_run=True,
+    )
+    assert preview["selection_policy"] == "media_reparse_selected"
+    assert preview["refresh_media"] is True
+    assert preview["selected"][0]["platform_video_id"] == "p2-01"
+
+    reparsed = AccountMediaEnrichment.model_validate(
+        service.enrich(
+            account_id=account_id,
+            limit=1,
+            selection_mode="failed_or_degraded",
+            refresh_media=True,
+        )["enrichment"]
+    )
+    assert reparsed.selection_policy == "media_reparse_failed_or_degraded"
+    assert reparsed.videos[0].platform_video_id == "p2-01"

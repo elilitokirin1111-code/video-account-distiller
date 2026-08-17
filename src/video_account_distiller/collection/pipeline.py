@@ -14,9 +14,9 @@ from video_account_distiller.collection.planning import (
 )
 from video_account_distiller.collection.providers import AccountCollectionProvider
 from video_account_distiller.comments import CommentAnalysisService
-from video_account_distiller.features import TextModelProvider
 from video_account_distiller.distillation import AccountDistillationService
 from video_account_distiller.errors import DistillerError, ErrorCode
+from video_account_distiller.features import TextModelProvider
 from video_account_distiller.ingestion import ImportService
 from video_account_distiller.ingestion.importer import EntityName
 from video_account_distiller.metrics import MetricsService

@@ -30,6 +30,8 @@ class CommentIntent(StrEnum):
     REQUEST_LINK = "request_link"
     PURCHASE_INTENT = "purchase_intent"
     SHARE_EXPERIENCE = "share_experience"
+    SUGGESTION = "suggestion"
+    KNOWLEDGE_CONTRIBUTION = "knowledge_contribution"
     QUESTION_EVIDENCE = "question_evidence"
     PRICE_OBJECTION = "price_objection"
     FEATURE_OBJECTION = "feature_objection"
@@ -163,6 +165,7 @@ class Pattern(StrictModel):
         "posting_time",
         "comment_trigger",
         "conversion",
+        "craft",
         "failure",
     ]
     name: str
@@ -210,6 +213,52 @@ class AccountPositioning(StrictModel):
     unknowns: list[str] = Field(default_factory=list)
 
 
+class CraftTagSummary(StrictModel):
+    """One shooting-technique or expression-form tag with its video coverage."""
+
+    schema_version: str = DISTILLATION_SCHEMA_VERSION
+    tag: str
+    video_count: int = Field(ge=1)
+    video_ids: list[str] = Field(min_length=1)
+    coverage: float = Field(ge=0, le=1)
+
+    @model_validator(mode="after")
+    def validate_count(self) -> CraftTagSummary:
+        if self.video_count != len(set(self.video_ids)):
+            raise ValueError("video_count must equal unique video_ids")
+        return self
+
+
+class CraftEditingRhythm(StrictModel):
+    """Deterministic editing-rhythm summary over analyzed media."""
+
+    schema_version: str = DISTILLATION_SCHEMA_VERSION
+    analyzed_with_shots: int = Field(ge=0)
+    median_shot_duration_ms: float | None = Field(default=None, ge=0)
+    pace_label: str | None = None
+    shot_count_median: float | None = Field(default=None, ge=0)
+
+
+class CraftProfile(StrictModel):
+    """Account-level distillation of visible shooting techniques and expression forms.
+
+    Categories aggregate per-video craft tags deterministically. Each summary's
+    coverage is relative to the category denominator stored in
+    `category_denominators` (vision-annotated media for visual categories, all
+    shot-bearing media for pacing). Tags come from the local vision model and
+    remain observations, not causal rules.
+    """
+
+    schema_version: str = DISTILLATION_SCHEMA_VERSION
+    analyzed_media_count: int = Field(ge=0)
+    annotated_media_count: int = Field(ge=0)
+    categories: dict[str, list[CraftTagSummary]] = Field(default_factory=dict)
+    category_denominators: dict[str, int] = Field(default_factory=dict)
+    editing_rhythm: CraftEditingRhythm | None = None
+    signature_style: list[str] = Field(default_factory=list)
+    unknowns: list[str] = Field(default_factory=list)
+
+
 class AccountDistillation(StrictModel):
     schema_version: str = DISTILLATION_SCHEMA_VERSION
     distillation_id: str
@@ -227,6 +276,7 @@ class AccountDistillation(StrictModel):
     noncopyable_factors: list[str]
     action_recommendations: list[str]
     experiment_plan: list[str]
+    craft_profile: CraftProfile | None = None
     evidence_index_path: str
     warnings_path: str
     warnings: list[str] = Field(default_factory=list)
@@ -310,6 +360,7 @@ class AccountBenchmarkProfile(StrictModel):
     content_interactions: list[ContentInteractionSummary] = Field(default_factory=list)
     content_pillars: list[str] = Field(default_factory=list)
     visual_and_audio_identity: list[str] = Field(default_factory=list)
+    craft_identity: CraftProfile | None = None
     input_hashes: list[str]
     warnings: list[str] = Field(default_factory=list)
 

@@ -55,6 +55,14 @@ def test_health_openapi_and_missing_task_contract(tmp_path: Path) -> None:
         assert "/api/tasks/{task_id}/cancel" in _json(openapi)["paths"]
         assert "/api/tasks/{task_id}/retry" in _json(openapi)["paths"]
         assert "/api/doctor/task-recovery-drill" in _json(openapi)["paths"]
+        assert (
+            "/api/projects/{project_path}/analyze/accounts/{account_id}/media/reparse"
+            in _json(openapi)["paths"]
+        )
+        assert (
+            "/api/projects/{project_path}/analyze/accounts/{account_id}/media/"
+            "reparse-candidates" in _json(openapi)["paths"]
+        )
 
         missing = client.get("/api/tasks/missing")
         assert missing.status_code == 404
@@ -151,9 +159,9 @@ def test_collection_dry_run_uses_bounded_default_and_completes_task(
         assert task["retryable"] is True
         result = task["result"]
         assert result["request"]["provider"] == "tikhub"
-        assert result["request"]["count"] == 20
+        assert result["request"]["count"] == 50
         assert result["request"]["comments_per_video"] == 0
-        assert result["provider_calls"]["total_max"] == 3
+        assert result["provider_calls"]["total_max"] == 5
 
 
 def test_self_service_workflow_dry_run_reports_local_readiness(
@@ -197,7 +205,7 @@ def test_self_service_workflow_dry_run_reports_local_readiness(
             params={"dry_run": "true"},
             json={
                 "url": "https://v.douyin.com/demo/",
-                "media_limit": 21,
+                "media_limit": 20_001,
             },
         )
         assert invalid.status_code == 422
@@ -415,6 +423,57 @@ def test_account_distill_task_can_retry_from_persisted_inputs(
         assert task["result"]["request"]["count"] == 20
 
 
+def test_account_distill_budget_failure_retries_with_automatic_budget(
+    project: ProjectLayout,
+    tmp_path: Path,
+) -> None:
+    task_db = tmp_path / "tasks.sqlite3"
+    app = create_app(task_db)
+    with TestClient(app) as client:
+        store: TaskStore = app.state.tasks
+        body = {
+            "url": "https://v.douyin.com/demo/",
+            "count": 50,
+            "comments_per_video": 20,
+            "comment_video_limit": 50,
+            "max_provider_calls": 100,
+        }
+        store.create(
+            "task_budget_retryable",
+            initial={
+                "task_type": "account_distill",
+                "retryable": True,
+                "task_metadata": {
+                    "project_path": str(project.root),
+                    "body": body,
+                    "dry_run": True,
+                },
+            },
+        )
+        store.update(
+            "task_budget_retryable",
+            status="failed",
+            error={
+                "code": "E_COLLECTION_BUDGET_EXCEEDED",
+                "message": "planned calls exceed custom budget",
+                "details": {
+                    "max_provider_calls": 100,
+                    "planned_provider_calls_max": 105,
+                },
+            },
+        )
+
+        retried = client.post("/api/tasks/task_budget_retryable/retry")
+        assert retried.status_code == 200
+        task = _wait_for_task(client, str(_json(retried)["task_id"]))
+
+        assert task["status"] == "completed"
+        assert task["task_metadata"]["body"]["max_provider_calls"] is None
+        assert task["result"]["budget"]["max_provider_calls"] is None
+        assert task["result"]["budget"]["within_limit"] is True
+        assert task["result"]["provider_calls"]["total_max"] == 105
+
+
 def test_generic_durable_task_can_retry_from_serialized_job(
     phase2_project: ProjectLayout,
     tmp_path: Path,
@@ -494,7 +553,7 @@ def test_growth_and_analysis_context_endpoints(
         )
         assert context.status_code == 200
         payload = _json(context)
-        assert payload["context_version"] == "1.0.0"
+        assert payload["context_version"] == "1.1.0"
         assert payload["account"]["account_id"] == account_id
         assert payload["analysis_contract"]
 
@@ -675,7 +734,9 @@ def test_cloud_model_settings_and_ephemeral_gpt_analysis_contract(
     assert secret not in (call["body"] or b"").decode("utf-8")
 
     outputs = task["result"]["outputs"]
-    assert len(outputs) == 4
+    assert len(outputs) == 6
+    assert task["result"]["knowledge_export"]["document_path"] in outputs
+    assert task["result"]["knowledge_export"]["evidence_document_path"] in outputs
     for relative in outputs:
         path = normalized_project.root / relative
         assert path.is_file()
@@ -685,7 +746,7 @@ def test_cloud_model_settings_and_ephemeral_gpt_analysis_contract(
     audit = task["result"]["audit"]
     assert audit["privacy"]["api_key_source"] == "OPENAI_API_KEY"
     assert audit["response"]["estimated_cost"]["estimated_total_usd"] is not None
-    assert task["result"]["evaluation"]["evaluation_version"] == "account-analysis-eval-v1"
+    assert task["result"]["evaluation"]["evaluation_version"] == "account-analysis-eval-v2"
 
 
 class _BailianContractExecutor(_OpenAIContractExecutor):
@@ -834,7 +895,7 @@ def test_bailian_credential_is_validated_persisted_and_used_without_request_secr
         assert secret.encode("utf-8") not in database_file.read_bytes()
 
 
-def test_openkb_export_and_confirmation_contract(
+def test_local_knowledge_export_replaces_openkb_routes(
     normalized_project: ProjectLayout,
     tmp_path: Path,
 ) -> None:
@@ -843,7 +904,7 @@ def test_openkb_export_and_confirmation_contract(
 
     with TestClient(create_app(tmp_path / "tasks.sqlite3")) as client:
         exported = client.post(
-            f"/api/projects/{encoded}/knowledge/openkb/accounts/{account_id}/export",
+            f"/api/projects/{encoded}/knowledge/local/accounts/{account_id}/export",
             params={"dry_run": "true"},
             json={},
         )
@@ -852,16 +913,11 @@ def test_openkb_export_and_confirmation_contract(
         assert export_payload["dry_run"] is True
         assert export_payload["manifest"]["account_id"] == account_id
 
-        sync = client.post(
-            f"/api/projects/{encoded}/knowledge/openkb/accounts/{account_id}/sync",
+        assert export_payload["document_path"].startswith("knowledge-outbox/local/")
+
+        retired = client.post(
+            f"/api/projects/{encoded}/knowledge/openkb/accounts/{account_id}/export",
+            params={"dry_run": "true"},
             json={},
         )
-        assert sync.status_code == 402
-        assert _json(sync)["error"]["code"] == "E_PROVIDER_COST_CONFIRMATION_REQUIRED"
-
-        query = client.post(
-            f"/api/projects/{encoded}/knowledge/openkb/query",
-            json={"question": "What changed?"},
-        )
-        assert query.status_code == 402
-        assert _json(query)["error"]["code"] == "E_PROVIDER_COST_CONFIRMATION_REQUIRED"
+        assert retired.status_code == 404
