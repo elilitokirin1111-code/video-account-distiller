@@ -52,6 +52,20 @@ MODEL_MAX_INPUT_TOKENS = 922_000
 LONG_CONTEXT_THRESHOLD_TOKENS = 272_000
 _EVALUATION_RUN_KEY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$")
 
+# Model Studio MaaS caps qwen-max/qwen-plus/qwen-turbo input at 30,720 tokens;
+# ~3.3 UTF-8 bytes per token for Chinese gives roughly 100 KB. Use a conservative
+# byte budget so the analysis context is trimmed before the provider rejects it.
+_MODEL_INPUT_BUDGET_BYTES: dict[str, int] = {
+    "qwen3.8-max": 1_000_000,
+    "qwen-max": 80_000,
+    "qwen-plus": 80_000,
+    "qwen-turbo": 80_000,
+    "qwen3.7-max": 400_000,
+    "qwen3.7-plus": 400_000,
+    "qwen3.6-max": 400_000,
+    "qwen-long": 1_400_000,
+}
+
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -64,6 +78,7 @@ class OpenAIModel(StrEnum):
 
 
 class BailianModel(StrEnum):
+    QWEN_3_8_MAX = "qwen3.8-max"
     QWEN_3_7_PLUS = "qwen3.7-plus"
     QWEN_3_7_MAX = "qwen3.7-max"
     QWEN_MAX = "qwen-max"
@@ -377,6 +392,7 @@ class PreparedAnalysisContext:
     instructions: str
     prompt_hash: str
     schema_hash: str
+    effective_max_video_analyses: int
 
 
 def _usage_int(usage: dict[str, Any], key: str) -> int | None:
@@ -710,7 +726,7 @@ class BailianChatCompletionsProvider:
         self.retry_policy = retry_policy or RetryPolicy(
             max_retries=2,
             base_seconds=1.0,
-            timeout_seconds=180,
+            timeout_seconds=300,
         )
         self.url = _bailian_chat_completions_url(base_url)
         self._credential_loader = credential_loader or (
@@ -1305,14 +1321,44 @@ def _prepare_analysis_context(
     account_id: str,
     options: GptAnalysisOptions,
 ) -> PreparedAnalysisContext:
+    model_budget = _MODEL_INPUT_BUDGET_BYTES.get(
+        options.model.value,
+        MAX_CLOUD_CONTEXT_BYTES,
+    )
+    requested_video_analyses = options.max_video_analyses
+    effective_video_analyses = requested_video_analyses
     context = AnalysisContextService(project).build(
         account_id=account_id,
-        max_video_analyses=options.max_video_analyses,
+        max_video_analyses=effective_video_analyses,
     )
     if context.get("account") is None:
         raise DistillerError(
             ErrorCode.INPUT_MISSING,
             f"No normalized account found for GPT analysis: {account_id}",
+        )
+    # Trim per-video evidence until the serialized context fits the selected
+    # model's input budget. Small-context models (e.g. MaaS qwen-max at 30K
+    # tokens) would otherwise be rejected with HTTP 400 "input length".
+    while effective_video_analyses > 1:
+        cloud_context = _cloud_safe(context)
+        if not isinstance(cloud_context, dict):
+            raise AssertionError("analysis context must remain an object")
+        catalog = _evidence_catalog(cloud_context)
+        cloud_context["evidence_catalog"] = catalog
+        context_json = json.dumps(
+            cloud_context,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+        context_bytes = len(context_json.encode("utf-8"))
+        if context_bytes <= model_budget:
+            break
+        effective_video_analyses = max(1, effective_video_analyses // 2)
+        context = AnalysisContextService(project).build(
+            account_id=account_id,
+            max_video_analyses=effective_video_analyses,
         )
     cloud_context = _cloud_safe(context)
     if not isinstance(cloud_context, dict):
@@ -1338,6 +1384,28 @@ def _prepare_analysis_context(
                 "hint": "reduce max_video_analyses",
             },
         )
+    if effective_video_analyses < requested_video_analyses:
+        limitations = list(context.get("limitations") or [])
+        limitations.append(
+            f"模型输入上限限制：逐视频证据已从 {requested_video_analyses} 缩减到 "
+            f"{effective_video_analyses} 条（上下文约 {context_bytes // 1024} KB）。"
+        )
+        context["limitations"] = limitations
+        cloud_context["limitations"] = limitations
+    if context_bytes > model_budget:
+        raise DistillerError(
+            ErrorCode.SCHEMA_INVALID,
+            "账号分析上下文超出所选模型的输入上限",
+            details={
+                "model": options.model.value,
+                "context_bytes": context_bytes,
+                "model_input_budget_bytes": model_budget,
+                "next": (
+                    "请选择上下文更大的模型，例如百炼 qwen3.8-max / qwen-long，"
+                    "或在知识分析页减少“纳入逐视频详细证据数”。"
+                ),
+            },
+        )
 
     stable_context = dict(cloud_context)
     stable_context.pop("generated_at", None)
@@ -1356,6 +1424,7 @@ def _prepare_analysis_context(
         instructions=instructions,
         prompt_hash=prompt_hash,
         schema_hash=schema_hash,
+        effective_max_video_analyses=effective_video_analyses,
     )
 
 
@@ -1657,6 +1726,7 @@ class RemoteAccountAnalysisService:
                 "context_bytes": prepared.context_bytes,
                 "request_bytes": request_bytes,
                 "max_video_analyses": options.max_video_analyses,
+                "effective_max_video_analyses": prepared.effective_max_video_analyses,
                 "included_artifacts": included_artifacts,
                 "evidence_refs_available": len(prepared.allowed_refs),
                 "redacted_keys": sorted(_CLOUD_REDACTED_KEYS),

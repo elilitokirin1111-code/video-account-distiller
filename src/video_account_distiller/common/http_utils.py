@@ -136,10 +136,16 @@ def request_json(
                 details={"attempts": attempt + 1},
             )
         if response.status < 200 or response.status >= 300:
+            body_preview = ""
+            if response.body:
+                try:
+                    body_preview = response.body.decode("utf-8", errors="replace")[:500]
+                except Exception:
+                    body_preview = ""
             raise DistillerError(
                 ErrorCode.ADAPTER_RESPONSE,
                 "API returned an unexpected response",
-                details={"http_status": response.status},
+                details={"http_status": response.status, "body_preview": body_preview},
             )
         try:
             decoded = json.loads(response.body.decode("utf-8"))

@@ -59,7 +59,8 @@ models_by_provider = {
         "高效率（GPT-5.6 Luna）": "gpt-5.6-luna",
     },
     "bailian": {
-        "千问 qwen-max（质量优先，推荐）": "qwen-max",
+        "千问 3.8 Max（推荐，大上下文）": "qwen3.8-max",
+        "千问 qwen-max（质量优先）": "qwen-max",
         "千问 qwen-plus（均衡）": "qwen-plus",
         "千问 qwen-turbo（高性价比）": "qwen-turbo",
         "千问 qwen3.7-max": "qwen3.7-max",
