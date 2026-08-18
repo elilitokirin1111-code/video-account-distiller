@@ -39,6 +39,20 @@ def _normalize_https_base_url(url: str) -> str:
     return value
 
 
+def _chat_completions_url(base_url: str) -> str:
+    """Join the chat-completions path onto an OpenAI-compatible base URL.
+
+    Alibaba Model Studio compatible endpoints already end with
+    ``/compatible-mode/v1``, so appending ``/v1/chat/completions`` would create a
+    duplicate path. Plain OpenAI-compatible roots (DeepSeek, llama.cpp, ...)
+    keep the ``/v1`` segment.
+    """
+    normalized = _normalize_https_base_url(base_url).rstrip("/")
+    if normalized.endswith("/compatible-mode/v1"):
+        return f"{normalized}/chat/completions"
+    return f"{normalized}/v1/chat/completions"
+
+
 class ModelSchemaFailure(Exception):
     """A provider response could not satisfy the requested schema."""
 
@@ -390,7 +404,7 @@ class LlamaCppTextProvider(OllamaTextProvider):
                 "stream": False,
             }
         ).encode()
-        url = f"{self.base_url}/v1/chat/completions"
+        url = _chat_completions_url(self.base_url)
         request_headers = {"Content-Type": "application/json"}
         if self.api_key:
             request_headers["Authorization"] = f"Bearer {self.api_key}"

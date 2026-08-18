@@ -724,7 +724,7 @@ class LlamaCppVisionProvider(OllamaVisionProvider):
                         },
                     ]
             payload = self.executor.request_json(
-                url=f"{self.base_url}/v1/chat/completions",
+                url=_chat_completions_url(self.base_url),
                 method="POST",
                 payload={
                     "model": self.model_name,
@@ -762,6 +762,21 @@ class LlamaCppVisionProvider(OllamaVisionProvider):
             "llama.cpp vision remained schema-invalid after 2 model-level attempts: "
             + " | ".join(errors)
         )
+
+
+def _chat_completions_url(base_url: str) -> str:
+    """Join the chat-completions path onto an OpenAI-compatible base URL.
+
+    Alibaba Model Studio compatible endpoints already end with
+    ``/compatible-mode/v1``; plain OpenAI-compatible roots keep the ``/v1``
+    segment. Scheme-less hosts are defaulted to HTTPS.
+    """
+    normalized = (base_url or "").strip().rstrip("/")
+    if normalized and "://" not in normalized:
+        normalized = f"https://{normalized}"
+    if normalized.endswith("/compatible-mode/v1"):
+        return f"{normalized}/chat/completions"
+    return f"{normalized}/v1/chat/completions"
 
 
 class CloudVisionProvider(LlamaCppVisionProvider):

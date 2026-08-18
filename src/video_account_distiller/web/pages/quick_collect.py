@@ -60,9 +60,10 @@ models_by_provider = {
     },
     "bailian": {
         "千问 3.7 Plus": "qwen3.7-plus",
-        "千问 qwen-max（质量优先）": "qwen-max-latest",
-        "千问 qwen-plus（均衡）": "qwen-plus-latest",
-        "千问 qwen-turbo（高性价比）": "qwen-turbo-latest",
+        "千问 3.7 Max（质量优先）": "qwen3.7-max",
+        "千问 qwen-max（质量优先）": "qwen-max",
+        "千问 qwen-plus（均衡）": "qwen-plus",
+        "千问 qwen-turbo（高性价比）": "qwen-turbo",
         "千问 qwen-long（长上下文）": "qwen-long",
     },
     "deepseek": {

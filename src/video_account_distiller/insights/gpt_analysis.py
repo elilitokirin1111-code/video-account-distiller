@@ -65,10 +65,12 @@ class OpenAIModel(StrEnum):
 
 class BailianModel(StrEnum):
     QWEN_3_7_PLUS = "qwen3.7-plus"
-    QWEN_MAX_LATEST = "qwen-max-latest"
-    QWEN_PLUS_LATEST = "qwen-plus-latest"
-    QWEN_TURBO_LATEST = "qwen-turbo-latest"
+    QWEN_3_7_MAX = "qwen3.7-max"
+    QWEN_MAX = "qwen-max"
+    QWEN_PLUS = "qwen-plus"
+    QWEN_TURBO = "qwen-turbo"
     QWEN_LONG = "qwen-long"
+    QWEN_PLUS_LATEST = "qwen-plus-latest"
 
 
 class DeepSeekModel(StrEnum):

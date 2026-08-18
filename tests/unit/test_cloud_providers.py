@@ -5,6 +5,7 @@ import pytest
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.features.providers import (
     CloudChatTextProvider,
+    _chat_completions_url,
     _normalize_https_base_url,
 )
 from video_account_distiller.insights.gpt_analysis import (
@@ -31,6 +32,34 @@ from video_account_distiller.media.providers import CloudVisionProvider
 )
 def test_normalize_https_base_url_defaults_scheme(raw: str, expected: str) -> None:
     assert _normalize_https_base_url(raw) == expected
+
+
+@pytest.mark.parametrize(
+    ("base_url", "expected"),
+    [
+        (
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+        ),
+        (
+            "ws-e8t5qxy8pxu50zz0.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+            "https://ws-e8t5qxy8pxu50zz0.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions",
+        ),
+        (
+            "https://api.deepseek.com",
+            "https://api.deepseek.com/v1/chat/completions",
+        ),
+        (
+            "http://127.0.0.1:8082",
+            "http://127.0.0.1:8082/v1/chat/completions",
+        ),
+    ],
+)
+def test_chat_completions_url_avoids_duplicate_v1_path(
+    base_url: str,
+    expected: str,
+) -> None:
+    assert _chat_completions_url(base_url) == expected
 
 
 def test_cloud_text_provider_normalizes_scheme_less_maas_gateway() -> None:
@@ -73,9 +102,9 @@ def test_cloud_vision_provider_rejects_plain_http_remote() -> None:
 def test_gpt_analysis_options_accept_qwen_models_for_bailian() -> None:
     options = GptAnalysisOptions(
         provider="bailian",
-        model=BailianModel.QWEN_MAX_LATEST,
+        model=BailianModel.QWEN_MAX,
     )
-    assert options.model == "qwen-max-latest"
+    assert options.model == "qwen-max"
 
     chat = GptAnalysisOptions(
         provider="deepseek",
@@ -86,6 +115,6 @@ def test_gpt_analysis_options_accept_qwen_models_for_bailian() -> None:
 
 def test_gpt_analysis_options_infers_bailian_from_qwen_model() -> None:
     options = GptAnalysisOptions.model_validate(
-        {"model": "qwen-plus-latest", "template": "content_strategy"}
+        {"model": "qwen-plus", "template": "content_strategy"}
     )
     assert options.provider.value == "bailian"
