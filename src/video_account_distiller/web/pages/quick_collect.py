@@ -414,7 +414,8 @@ def _render_retry_with_overrides(task_id: str) -> None:
                 "知识分析模型",
                 list(ka_models),
                 index=0,
-                key=f"retry_ka_model_{task_id}",
+                # key 跟随服务商，切换服务商时重建模型下拉。
+                key=f"retry_ka_model_{task_id}_{ka_provider_key}",
             )
             cloud_base = st.text_input(
                 "云端服务地址（留空保持原配置）",
@@ -840,7 +841,13 @@ def _render_gpt_analysis(account_id: str) -> None:
 
     model_column, template_column, reasoning_column = st.columns(3)
     with model_column:
-        model_label = st.selectbox("分析模型", list(model_labels))
+        model_label = st.selectbox(
+            "分析模型",
+            list(model_labels),
+            index=0,
+            # key 跟随服务商：切换服务商时重建模型下拉，显示该服务商模型。
+            key=f"gpt_model_{provider_key}",
+        )
     with template_column:
         template_label = st.selectbox("分析模板", list(template_labels))
     with reasoning_column:
@@ -1705,7 +1712,9 @@ with st.form("self_service_distill_form"):
                     "知识分析模型",
                     list(knowledge_models),
                     index=0,
-                    key="knowledge_model_label",
+                    # key 跟随服务商：切换服务商时重建模型下拉，避免 Streamlit
+                    # 记住旧服务商的模型选项。
+                    key=f"knowledge_model_{knowledge_provider_key}",
                 )
                 st.caption(
                     f"需要先在设置页开启云模型权限，并把 {knowledge_provider_label} API Key "
