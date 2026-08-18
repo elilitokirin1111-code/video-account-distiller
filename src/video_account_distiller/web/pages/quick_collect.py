@@ -1615,6 +1615,8 @@ with st.form("self_service_distill_form"):
             cloud_api_key = str(template.get("cloud_api_key") or "")
             cloud_text_model = str(template.get("cloud_text_model") or "deepseek-v4-flash")
             cloud_vision_model = str(template.get("cloud_vision_model") or "qwen-vl-max-latest")
+            # 知识分析服务商跟随云端服务商：一次选择，文本/视觉/知识分析全部联动。
+            knowledge_provider_key = "deepseek"
             if text_source.startswith("云端") or vision_choice.startswith("云端"):
                 st.caption("云端配置仅用于本次任务；长期密钥请在设置页验证并保存。")
                 cloud_endpoint_choices = {
@@ -1640,6 +1642,18 @@ with st.form("self_service_distill_form"):
                 # 选择预设服务商时自动带出对应地址，避免"百炼 key + DeepSeek 地址"错配。
                 if cloud_endpoint_label != "自定义" and chosen_endpoint:
                     cloud_base_url = chosen_endpoint
+                if "dashscope" in cloud_endpoint_label or "MaaS" in cloud_endpoint_label:
+                    knowledge_provider_key = "bailian"
+                elif "DeepSeek" in cloud_endpoint_label:
+                    knowledge_provider_key = "deepseek"
+                elif "OpenAI" in cloud_endpoint_label:
+                    knowledge_provider_key = "openai"
+                else:  # 自定义：按地址内容推断
+                    lowered = cloud_base_url.casefold()
+                    if "dashscope" in lowered or "maas.aliyuncs.com" in lowered:
+                        knowledge_provider_key = "bailian"
+                    elif "deepseek" in lowered:
+                        knowledge_provider_key = "deepseek"
                 cloud_base_url = st.text_input(
                     "云端服务地址（OpenAI 兼容）",
                     value=cloud_base_url,
@@ -1687,38 +1701,28 @@ with st.form("self_service_distill_form"):
             confirm_knowledge_cost = False
             knowledge_analysis_payload: dict[str, Any] | None = None
             if knowledge_synthesis:
-                saved_analysis = template.get("knowledge_analysis") or {}
-                saved_provider = str(
-                    (saved_analysis if isinstance(saved_analysis, dict) else {}).get("provider")
-                    or "deepseek"
-                )
-                provider_label_options = list(provider_labels)
-                knowledge_provider_label = st.selectbox(
-                    "知识分析服务商",
-                    provider_label_options,
-                    index=(
-                        provider_label_options.index("阿里云百炼")
-                        if saved_provider == "bailian"
-                        else provider_label_options.index("OpenAI")
-                        if saved_provider == "openai"
-                        else 0
+                # 服务商跟随上方“云端服务商”（无独立下拉）：切到阿里云百炼后，
+                # 这里自动使用百炼 + qwen 模型，模型下拉同步联动。
+                knowledge_provider_label = next(
+                    (
+                        label
+                        for label, key in provider_labels.items()
+                        if key == knowledge_provider_key
                     ),
-                    key="knowledge_provider_label",
-                    help="选择「阿里云百炼」即可使用 qwen 系列模型。",
+                    "DeepSeek",
                 )
-                knowledge_provider_key = provider_labels[knowledge_provider_label]
                 knowledge_models = models_by_provider[knowledge_provider_key]
                 knowledge_model_label = st.selectbox(
                     "知识分析模型",
                     list(knowledge_models),
                     index=0,
-                    # key 跟随服务商：切换服务商时重建模型下拉，避免 Streamlit
-                    # 记住旧服务商的模型选项。
+                    # key 跟随服务商：切换服务商时重建模型下拉。
                     key=f"knowledge_model_{knowledge_provider_key}",
                 )
                 st.caption(
-                    f"需要先在设置页开启云模型权限，并把 {knowledge_provider_label} API Key "
-                    "安全保存到当前 Windows 用户凭据。"
+                    f"知识分析使用上方「云端服务商」= {knowledge_provider_label}；"
+                    "需要先在设置页开启云模型权限，并把该服务商 API Key 安全保存到"
+                    "当前 Windows 用户凭据。"
                 )
                 confirm_knowledge_upload = st.checkbox(
                     f"我确认将脱敏、受限的账号分析上下文发送给 {knowledge_provider_label}",
