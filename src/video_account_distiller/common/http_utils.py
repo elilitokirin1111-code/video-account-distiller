@@ -52,6 +52,34 @@ def compute_retry_after(response: HttpResponse, attempt: int, policy: RetryPolic
     return min(policy.base_seconds * float(2**attempt), 60.0)
 
 
+def _auth_failure_message(response: Any, *, status: int) -> str:
+    """Turn 401/403 responses into actionable messages.
+
+    Alibaba Model Studio MaaS returns 403 with ``insufficient_quota`` when the
+    workspace's free tier for a model is exhausted; surfacing that directly is
+    far more useful than a generic credential-scope message.
+    """
+    if status in {401, 403} and response.body:
+        try:
+            payload = json.loads(response.body.decode("utf-8"))
+        except (UnicodeError, json.JSONDecodeError):
+            payload = {}
+        error = payload.get("error") if isinstance(payload, dict) else None
+        if isinstance(error, dict):
+            code = str(error.get("code") or "").casefold()
+            message = str(error.get("message") or "")
+            if code == "insufficient_quota" or "quota" in message.casefold():
+                return (
+                    "云模型额度不足（insufficient_quota）：请在阿里云百炼控制台充值，"
+                    "或关闭“仅使用免费额度”模式后重试，或更换模型。"
+                )
+            if code == "invalid_api_key" or "api key" in message.casefold():
+                return "API Key 无效或与所选服务商不匹配，请检查密钥保存的服务商槽位。"
+            if code == "access_denied" or "permission" in message.casefold():
+                return "API Key 无权访问该模型或接口，请在服务商控制台检查模型授权。"
+    return "API rejected the credential or permission scope"
+
+
 def request_json(
     executor: HttpExecutor,
     *,
@@ -94,7 +122,7 @@ def request_json(
         if response.status in {401, 403}:
             raise DistillerError(
                 ErrorCode.ADAPTER_AUTH,
-                "API rejected the credential or permission scope",
+                _auth_failure_message(response, status=response.status),
                 details={"http_status": response.status},
             )
         retryable = response.status == 429 or response.status >= 500

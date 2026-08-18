@@ -118,3 +118,40 @@ def test_gpt_analysis_options_infers_bailian_from_qwen_model() -> None:
         {"model": "qwen-plus", "template": "content_strategy"}
     )
     assert options.provider.value == "bailian"
+
+
+class _StubResponse:
+    def __init__(self, status: int, body: bytes) -> None:
+        self.status = status
+        self.body = body
+
+
+def test_auth_failure_message_maps_insufficient_quota() -> None:
+    from video_account_distiller.common.http_utils import _auth_failure_message
+
+    message = _auth_failure_message(
+        _StubResponse(
+            403,
+            b'{"error":{"code":"insufficient_quota","message":"Free quota exhausted."}}',
+        ),
+        status=403,
+    )
+    assert "额度不足" in message
+    assert "insufficient_quota" in message
+
+
+def test_auth_failure_message_maps_invalid_api_key() -> None:
+    from video_account_distiller.common.http_utils import _auth_failure_message
+
+    message = _auth_failure_message(
+        _StubResponse(401, b'{"error":{"code":"invalid_api_key","message":"bad key"}}'),
+        status=401,
+    )
+    assert "API Key 无效" in message
+
+
+def test_auth_failure_message_falls_back_to_generic() -> None:
+    from video_account_distiller.common.http_utils import _auth_failure_message
+
+    message = _auth_failure_message(_StubResponse(403, b"nope"), status=403)
+    assert message == "API rejected the credential or permission scope"

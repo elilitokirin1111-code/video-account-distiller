@@ -59,11 +59,11 @@ models_by_provider = {
         "高效率（GPT-5.6 Luna）": "gpt-5.6-luna",
     },
     "bailian": {
-        "千问 3.7 Plus": "qwen3.7-plus",
-        "千问 3.7 Max（质量优先）": "qwen3.7-max",
-        "千问 qwen-max（质量优先）": "qwen-max",
+        "千问 qwen-max（质量优先，推荐）": "qwen-max",
         "千问 qwen-plus（均衡）": "qwen-plus",
         "千问 qwen-turbo（高性价比）": "qwen-turbo",
+        "千问 qwen3.7-max": "qwen3.7-max",
+        "千问 qwen3.7-plus": "qwen3.7-plus",
         "千问 qwen-long（长上下文）": "qwen-long",
     },
     "deepseek": {
@@ -1547,24 +1547,24 @@ with st.form("self_service_distill_form"):
                     index=(
                         list(cloud_endpoint_choices).index("阿里云百炼 DashScope（qwen）")
                         if "dashscope" in cloud_base_url
+                        else list(cloud_endpoint_choices).index("阿里云百炼 MaaS 工作空间（自定义域名）")
+                        if "maas.aliyuncs.com" in cloud_base_url
                         else list(cloud_endpoint_choices).index("DeepSeek（https://api.deepseek.com）")
                         if "deepseek" in cloud_base_url
                         else 0
                     ),
                 )
                 chosen_endpoint = cloud_endpoint_choices[cloud_endpoint_label]
+                # 选择预设服务商时自动带出对应地址，避免"百炼 key + DeepSeek 地址"错配。
+                if cloud_endpoint_label != "自定义" and chosen_endpoint:
+                    cloud_base_url = chosen_endpoint
                 cloud_base_url = st.text_input(
                     "云端服务地址（OpenAI 兼容）",
-                    value=cloud_base_url if cloud_endpoint_label != "自定义" else cloud_base_url,
-                    placeholder=(
-                        chosen_endpoint
-                        if cloud_endpoint_label == "自定义"
-                        else chosen_endpoint
-                    ),
+                    value=cloud_base_url,
+                    placeholder=chosen_endpoint or "https://...",
                     help=(
                         "无协议前缀的地址会自动补全 https://。"
-                        "百炼 MaaS 域名（ws-*.maas.aliyuncs.com）可直接使用，"
-                        "无需手动加 https://。"
+                        "选择预设服务商后地址自动带出；百炼 MaaS 域名直接使用即可。"
                     ),
                 )
                 cloud_api_key = st.text_input(
@@ -1578,7 +1578,10 @@ with st.form("self_service_distill_form"):
                     cloud_text_model = st.text_input(
                         "云端文本模型",
                         value=cloud_text_model,
-                        help="文本盲分析与深度蒸馏使用的模型。",
+                        help=(
+                            "百炼推荐 qwen-max / qwen-plus；DeepSeek 用 deepseek-v4-flash。"
+                            "请与所选服务商一致。"
+                        ),
                     )
                 with cloud_models[1]:
                     cloud_vision_model = st.text_input(
