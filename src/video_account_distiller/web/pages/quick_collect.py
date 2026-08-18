@@ -1719,6 +1719,23 @@ with st.form("self_service_distill_form"):
                     # key 跟随服务商：切换服务商时重建模型下拉。
                     key=f"knowledge_model_{knowledge_provider_key}",
                 )
+                knowledge_reasoning_label = st.selectbox(
+                    "推理强度",
+                    ["高（知识蒸馏推荐，较慢）", "中", "低（更快）"],
+                    index=0,
+                    key=f"knowledge_reasoning_{knowledge_provider_key}",
+                    help=(
+                        "大模型（如 qwen3.8-max）大上下文推理可能超过一分钟；"
+                        "超时时可降低推理强度重试。"
+                    ),
+                )
+                knowledge_reasoning = (
+                    "high"
+                    if knowledge_reasoning_label.startswith("高")
+                    else "low"
+                    if knowledge_reasoning_label.startswith("低")
+                    else "medium"
+                )
                 st.caption(
                     f"知识分析使用上方「云端服务商」= {knowledge_provider_label}；"
                     "需要先在设置页开启云模型权限，并把该服务商 API Key 安全保存到"
@@ -1736,7 +1753,7 @@ with st.form("self_service_distill_form"):
                     "provider": knowledge_provider_key,
                     "model": knowledge_models[knowledge_model_label],
                     "template": "content_strategy",
-                    "reasoning_effort": "high",
+                    "reasoning_effort": knowledge_reasoning,
                     "max_video_analyses": max(
                         1,
                         min(

@@ -91,7 +91,7 @@ class AuthorizedExportManifest(StrictModel):
 class RetryPolicy(StrictModel):
     max_retries: int = Field(default=3, ge=0, le=8)
     base_seconds: float = Field(default=0.5, ge=0, le=30)
-    timeout_seconds: int = Field(default=30, ge=1, le=300)
+    timeout_seconds: int = Field(default=30, ge=1, le=1800)
 
 
 class FeishuBitableConfig(StrictModel):

@@ -724,9 +724,9 @@ class BailianChatCompletionsProvider:
         self.credential_source = credential_source
         self.executor = executor or UrllibHttpExecutor()
         self.retry_policy = retry_policy or RetryPolicy(
-            max_retries=2,
+            max_retries=1,
             base_seconds=1.0,
-            timeout_seconds=300,
+            timeout_seconds=600,
         )
         self.url = _bailian_chat_completions_url(base_url)
         self._credential_loader = credential_loader or (
@@ -771,6 +771,7 @@ class BailianChatCompletionsProvider:
             ],
             "response_format": {"type": "json_object"},
             "enable_thinking": self.reasoning_effort is not ReasoningEffort.NONE,
+            "max_tokens": 8_000,
         }
         response = request_json(
             self.executor,
