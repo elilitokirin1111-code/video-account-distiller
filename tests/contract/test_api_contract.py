@@ -423,6 +423,89 @@ def test_account_distill_task_can_retry_from_persisted_inputs(
         assert task["result"]["request"]["count"] == 20
 
 
+def test_account_distill_task_can_retry_with_overrides(
+    project: ProjectLayout,
+    tmp_path: Path,
+) -> None:
+    task_db = tmp_path / "tasks.sqlite3"
+    app = create_app(task_db)
+    with TestClient(app) as client:
+        store: TaskStore = app.state.tasks
+        store.create(
+            "task_overridable",
+            initial={
+                "task_type": "account_distill",
+                "retryable": True,
+                "task_metadata": {
+                    "project_path": str(project.root),
+                    "body": {
+                        "url": "https://v.douyin.com/demo/",
+                        "count": 20,
+                        "text_provider": "cloud",
+                        "cloud_base_url": "https://api.deepseek.com",
+                        "cloud_text_model": "deepseek-v4-flash",
+                        "knowledge_analysis": {
+                            "provider": "bailian",
+                            "model": "qwen3.7-plus",
+                            "template": "content_strategy",
+                            "reasoning_effort": "high",
+                            "max_video_analyses": 20,
+                            "confirm_cloud_upload": True,
+                            "confirm_cost": True,
+                        },
+                    },
+                    "dry_run": True,
+                },
+            },
+        )
+        store.update(
+            "task_overridable",
+            status="failed",
+            error={
+                "code": "E_ADAPTER_AUTH",
+                "message": "quota exhausted",
+                "details": {"http_status": 403},
+            },
+        )
+
+        retried = client.post(
+            "/api/tasks/task_overridable/retry",
+            json={
+                "overrides": {
+                    "knowledge_analysis": {
+                        "provider": "bailian",
+                        "model": "qwen-max",
+                        "template": "content_strategy",
+                        "reasoning_effort": "high",
+                        "max_video_analyses": 20,
+                        "confirm_cloud_upload": True,
+                        "confirm_cost": True,
+                    },
+                    "cloud_base_url": "https://ws-demo.maas.aliyuncs.com/compatible-mode/v1",
+                    "cloud_text_model": "qwen-max",
+                }
+            },
+        )
+        assert retried.status_code == 200
+        submission = _json(retried)
+        task = _wait_for_task(client, str(submission["task_id"]))
+        assert task["status"] == "completed"
+        body = task["task_metadata"]["body"]
+        assert body["knowledge_analysis"]["model"] == "qwen-max"
+        assert body["cloud_base_url"].endswith("/compatible-mode/v1")
+        assert body["cloud_text_model"] == "qwen-max"
+
+        # Non-allowlisted fields are rejected before enqueueing.
+        rejected = client.post(
+            "/api/tasks/task_overridable/retry",
+            json={"overrides": {"cloud_api_key": "sk-should-not-be-overridden"}},
+        )
+        assert rejected.status_code == 422 or (
+            rejected.status_code == 200
+            and not isinstance(_json(rejected).get("task_id"), str)
+        )
+
+
 def test_account_distill_budget_failure_retries_with_automatic_budget(
     project: ProjectLayout,
     tmp_path: Path,

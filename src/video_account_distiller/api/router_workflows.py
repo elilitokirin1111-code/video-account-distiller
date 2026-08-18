@@ -50,8 +50,44 @@ def _enqueue_account_distill(
     )
 
 
-def retry_account_distill_task(tasks: TaskStore, task: TaskData) -> TaskData:
-    """Recreate a self-service workflow from its persisted, secret-free inputs."""
+_RETRY_OVERRIDE_FIELDS = frozenset(
+    {
+        "provider",
+        "count",
+        "all_videos",
+        "sort",
+        "comments_per_video",
+        "comment_video_limit",
+        "max_provider_calls",
+        "media_limit",
+        "text_provider",
+        "whisper_backend",
+        "whisper_model",
+        "whisper_command",
+        "vision_provider",
+        "vision_model",
+        "cloud_base_url",
+        "cloud_text_model",
+        "cloud_vision_model",
+        "vision_batch_size",
+        "knowledge_analysis",
+        "export_knowledge",
+    }
+)
+
+
+def retry_account_distill_task(
+    tasks: TaskStore,
+    task: TaskData,
+    *,
+    overrides: dict[str, Any] | None = None,
+) -> TaskData:
+    """Recreate a self-service workflow from its persisted, secret-free inputs.
+
+    Optional *overrides* replace allowlisted workflow inputs (cloud provider,
+    models, endpoint, scope) before re-enqueueing, so a failed run can resume
+    from its last safe checkpoint with, for example, a different Qwen model.
+    """
     metadata = task.get("task_metadata")
     if not isinstance(metadata, dict):
         raise DistillerError(
@@ -72,6 +108,18 @@ def retry_account_distill_task(tasks: TaskStore, task: TaskData) -> TaskData:
         and error.get("code") == ErrorCode.COLLECTION_BUDGET_EXCEEDED.value
     ):
         retry_body_payload["max_provider_calls"] = None
+    if overrides:
+        for field, value in overrides.items():
+            if field not in _RETRY_OVERRIDE_FIELDS:
+                raise DistillerError(
+                    ErrorCode.SCHEMA_INVALID,
+                    f"Field is not overridable on retry: {field}",
+                    details={"allowlist": sorted(_RETRY_OVERRIDE_FIELDS)},
+                )
+            if field == "knowledge_analysis":
+                retry_body_payload["knowledge_analysis"] = value
+            else:
+                retry_body_payload[field] = value
     body = AccountDistillWorkflowParams.model_validate(retry_body_payload)
     checkpoint = task.get("checkpoint")
     resume_state = checkpoint if isinstance(checkpoint, dict) else None

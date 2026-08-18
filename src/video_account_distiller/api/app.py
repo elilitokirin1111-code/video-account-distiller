@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from video_account_distiller.api.schemas import TaskRetryRequest
 from video_account_distiller.api.task_jobs import TASK_HANDLERS
 from video_account_distiller.api.tasks import (
     TaskQueueSettings,
@@ -126,7 +127,10 @@ def create_app(
         return task_store.request_cancel(task_id)
 
     @app.post("/api/tasks/{task_id}/retry", tags=["Tasks"])
-    async def retry_task(task_id: str) -> dict[str, Any]:
+    async def retry_task(
+        task_id: str,
+        body: TaskRetryRequest | None = None,
+    ) -> dict[str, Any]:
         task = task_store.get(task_id)
         if task is None:
             raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
@@ -147,7 +151,11 @@ def create_app(
                 retry_account_distill_task,
             )
 
-            return retry_account_distill_task(task_store, task)
+            return retry_account_distill_task(
+                task_store,
+                task,
+                overrides=body.overrides if body is not None else None,
+            )
         return retry_persistent_task(task_store, task)
 
     app.state.tasks = task_store

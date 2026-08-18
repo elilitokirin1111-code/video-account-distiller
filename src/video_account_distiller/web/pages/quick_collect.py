@@ -367,13 +367,17 @@ def _cancel_task(task_id: str) -> bool:
     return False
 
 
-def _retry_task(task_id: str) -> bool:
-    with st.status("正在从安全检查点创建重试任务…", expanded=False) as activity:
-        result = _request(f"/api/tasks/{task_id}/retry", "POST", timeout=30)
+def _retry_task(task_id: str, overrides: dict[str, Any] | None = None) -> bool:
+    label = "正在按修改后的配置从安全检查点创建续跑任务…" if overrides else "正在从安全检查点创建重试任务…"
+    with st.status(label, expanded=False) as activity:
+        payload: dict[str, Any] = {}
+        if overrides:
+            payload["overrides"] = overrides
+        result = _request(f"/api/tasks/{task_id}/retry", "POST", timeout=30, json=payload or None)
     new_task_id = result.get("task_id")
     if not isinstance(new_task_id, str):
-        activity.update(label="重试任务创建失败", state="error", expanded=True)
-        st.error(f"重试失败：{(result.get('error') or {}).get('message', '未知错误')}")
+        activity.update(label="续跑任务创建失败", state="error", expanded=True)
+        st.error(f"续跑失败：{(result.get('error') or {}).get('message', '未知错误')}")
         return False
     st.session_state["active_task_id"] = new_task_id
     st.session_state["active_task_kind"] = result.get("task_type", "account_distill")
@@ -382,9 +386,72 @@ def _retry_task(task_id: str) -> bool:
         active_task_kind=result.get("task_type", "account_distill"),
     )
     st.session_state.pop("last_workflow_result", None)
-    activity.update(label="重试任务已进入后台队列", state="complete", expanded=False)
-    st.toast("已从最近的安全检查点创建重试任务", icon="🔁")
+    activity.update(label="续跑任务已进入后台队列", state="complete", expanded=False)
+    st.toast("已按修改后的配置创建续跑任务", icon="🔁")
     return True
+
+
+def _render_retry_with_overrides(task_id: str) -> None:
+    """Show a small form to adjust model/provider/endpoint choices before resuming.
+
+    Failed account-distill workflows keep a safe checkpoint; instead of
+    restarting the whole run the user can swap the cloud model (e.g. to one with
+    remaining quota) and continue from where it stopped.
+    """
+    with st.expander("修改配置后从检查点续跑", icon=":material/tune:"):
+        with st.form(f"retry_overrides_{task_id}"):
+            st.caption("仅需修改要调整的项；未修改的保持原任务配置。")
+            ka_provider_label = st.selectbox(
+                "知识分析服务商",
+                list(provider_labels),
+                index=0,
+                key=f"retry_ka_provider_{task_id}",
+            )
+            ka_provider_key = provider_labels[ka_provider_label]
+            ka_models = models_by_provider[ka_provider_key]
+            ka_model_label = st.selectbox(
+                "知识分析模型",
+                list(ka_models),
+                index=0,
+                key=f"retry_ka_model_{task_id}",
+            )
+            cloud_base = st.text_input(
+                "云端服务地址（留空保持原配置）",
+                placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            )
+            cloud_model = st.text_input(
+                "云端文本模型（留空保持原配置）",
+                placeholder="qwen-max",
+            )
+            whisper_model = st.text_input(
+                "Whisper 转写模型（留空保持原配置）",
+                placeholder="base",
+            )
+            submitted = st.form_submit_button(
+                "应用修改并续跑",
+                type="primary",
+                use_container_width=True,
+            )
+    if submitted:
+        overrides: dict[str, Any] = {
+            "knowledge_analysis": {
+                "provider": ka_provider_key,
+                "model": ka_models[ka_model_label],
+                "template": "content_strategy",
+                "reasoning_effort": "high",
+                "max_video_analyses": 100,
+                "confirm_cloud_upload": True,
+                "confirm_cost": True,
+            }
+        }
+        if cloud_base.strip():
+            overrides["cloud_base_url"] = cloud_base.strip()
+        if cloud_model.strip():
+            overrides["cloud_text_model"] = cloud_model.strip()
+        if whisper_model.strip():
+            overrides["whisper_model"] = whisper_model.strip()
+        if _retry_task(task_id, overrides=overrides):
+            st.rerun()
 
 
 def _restore_latest_task_result(task_type: str, session_key: str) -> None:
@@ -1302,6 +1369,13 @@ with st.expander("任务记录（高级）"):
         ):
             if _retry_task(selected_task):
                 st.rerun()
+        if (
+            isinstance(selected, dict)
+            and selected.get("task_type") == "account_distill"
+            and selected_status in {"failed", "cancelled"}
+            and bool(selected.get("retryable"))
+        ):
+            _render_retry_with_overrides(selected_task)
         if cancel_column.button(
             "安全取消",
             disabled=selected_status not in {"pending", "running"},

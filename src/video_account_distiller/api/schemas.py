@@ -41,6 +41,17 @@ class CloudCredentialUpdate(BaseModel):
     api_key: SecretStr = Field(min_length=8, max_length=8_192)
 
 
+class TaskRetryRequest(BaseModel):
+    """Optional field overrides applied when retrying a failed workflow task.
+
+    Only allowlisted workflow inputs may be overridden (model/provider/endpoint
+    choices and scope), so a user can resume from the last safe checkpoint with
+    a different cloud model instead of restarting the whole run.
+    """
+
+    overrides: dict[str, Any] | None = Field(default=None)
+
+
 class TaskStatus(BaseModel):
     task_id: str
     status: Literal["pending", "running", "cancelling", "completed", "failed", "cancelled"]
