@@ -248,6 +248,12 @@ blind-analysis, Markdown report, evidence index, and warnings paths. Never promo
 labels to an account rule. Run `distiller validate` after generation to verify the complete artifact
 and evidence chain.
 
+For a deeper per-video reference card (选材/表现形式/拍摄手法/可复制清单), add `--deep` — optionally
+with `--deep-provider ollama|llamacpp|cloud`, `--deep-model`, `--deep-base-url`, `--deep-api-key`,
+or offline `--deep-output`; without a provider it degrades deterministically. This works on one
+video from an account the user does not follow and never needs account performance bands. Read
+`references/video-analysis.md`.
+
 ### Analyze local media
 
 Run only after the video exists in normalized Parquet:

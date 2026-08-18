@@ -1,0 +1,235 @@
+from __future__ import annotations
+
+import json
+from array import array
+from pathlib import Path
+
+from video_account_distiller.distillation.video import SingleVideoDistillationService
+from video_account_distiller.features import VideoAnalysisService
+from video_account_distiller.media import LocalMediaAnalysisService, SceneDetectionResult
+from video_account_distiller.models import (
+    MediaMetadata,
+    MediaVisionAnnotation,
+    MediaVisionBundle,
+    ShotVisualAnnotation,
+    SingleVideoDistillation,
+)
+from video_account_distiller.storage.project import ProjectLayout
+from video_account_distiller.utils.io import read_json
+from video_account_distiller.validation import validate_project
+
+
+class FixtureMediaBackend:
+    available = True
+    name = "fixture-ffmpeg"
+    version = "1"
+
+    def probe(self, source: Path, media_hash: str) -> MediaMetadata:
+        return MediaMetadata(
+            media_hash=media_hash,
+            container="mp4",
+            duration_ms=9000,
+            width=1080,
+            height=1920,
+            frame_rate=25,
+            video_codec="h264",
+            audio_codec="aac",
+            audio_channels=1,
+            audio_sample_rate=8000,
+            file_size_bytes=source.stat().st_size,
+            backend=self.name,
+            backend_version=self.version,
+        )
+
+    def detect_scenes(
+        self, source: Path, *, duration_ms: int, threshold: float, max_shots: int
+    ) -> SceneDetectionResult:
+        del source, duration_ms, threshold, max_shots
+        return SceneDetectionResult([0, 2000, 5000, 9000], [])
+
+    def extract_frame(self, source: Path, *, timestamp_ms: int, width: int, output: Path) -> None:
+        del source, width
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(f"jpeg-{timestamp_ms}".encode())
+
+    def decode_audio_pcm(self, source: Path, *, sample_rate: int, max_seconds: int) -> bytes:
+        del source, sample_rate, max_seconds
+        return array("h", [1200] * 72_000).tobytes()
+
+
+class FixtureVisionProvider:
+    provider_name = "fixture-vision"
+    model_name = "fixture-v1"
+
+    def __init__(self) -> None:
+        self.raw_responses: list[dict[str, object]] = []
+
+    @property
+    def input_hash(self) -> str | None:
+        return None
+
+    def analyze(self, bundle: MediaVisionBundle) -> MediaVisionAnnotation:
+        annotations = []
+        for index, shot in enumerate(bundle.shots):
+            annotations.append(
+                ShotVisualAnnotation(
+                    annotation_id=f"ann_{index}",
+                    shot_id=shot.shot_id,
+                    summary=f"镜头{index}",
+                    labels=[],
+                    shot_scale=["特写"] if index == 0 else ["全景"],
+                    camera_movement=["手持"] if index == 0 else ["固定机位"],
+                    camera_angle=["平视"],
+                    composition=["居中构图"] if index == 0 else ["对称构图"],
+                    lighting=["自然光"],
+                    text_overlay_styles=["大字标题"] if index == 0 else [],
+                    ocr_observation_ids=[],
+                )
+            )
+        return MediaVisionAnnotation(shot_annotations=annotations, ocr_observations=[])
+
+
+def _deep_candidate() -> dict[str, object]:
+    return {
+        "topic": {
+            "topic_statement": "一条关于酒店客诉处理的深度拆解",
+            "topic_angle": "痛点切入：先讲客诉场景",
+            "target_audience": ["酒店前台", "店长"],
+            "information_increment": "完整服务流程与话术",
+            "memory_point": "三步处理法",
+            "topic_formula": "痛点场景 + 流程拆解",
+            "selection_notes": ["选材：真实工作场景"],
+        },
+        "expression": {
+            "opening_form": "口播提问开场",
+            "subtitle_style": "大字标题",
+            "packaging_features": ["进度条贴纸"],
+            "audio_expression": "口播 + 轻快 BGM",
+            "editing_style": "快节奏切换",
+            "expression_notes": [],
+        },
+        "craft": {
+            "shot_scale_profile": "特写为主",
+            "camera_profile": "手持跟拍",
+            "composition_profile": "居中构图",
+            "lighting_profile": "自然光",
+            "opening_technique": "特写开场",
+            "pacing": "快节奏剪辑",
+            "craft_notes": [],
+        },
+        "copy_checklist": {
+            "topic": ["客诉场景切入", "流程拆解"],
+            "structure": ["问题-流程-结果"],
+            "craft": ["手持跟拍"],
+            "expression": ["大字标题"],
+            "avoid": ["避免空泛说教"],
+        },
+        "unknowns": [],
+        "evidence_segment_ids": [],
+        "evidence_shot_ids": [],
+    }
+
+
+def _write_deep_output(path: Path, candidate: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {"model_name": "fixture-deep", "single_video_deep_distillation": [candidate]},
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _analyze_text(project: ProjectLayout) -> None:
+    VideoAnalysisService(project).analyze(video_id="p2-01")
+
+
+def test_single_video_deep_distillation_full_chain_with_model(
+    phase3_project: ProjectLayout, tmp_path: Path
+) -> None:
+    _analyze_text(phase3_project)
+    source = tmp_path / "hotel.mp4"
+    source.write_bytes(b"offline-hotel-media")
+    LocalMediaAnalysisService(phase3_project, backend=FixtureMediaBackend()).analyze(
+        video_id="p2-01",
+        file=source,
+        provider=FixtureVisionProvider(),
+    )
+    deep_file = tmp_path / "deep.json"
+    _write_deep_output(deep_file, _deep_candidate())
+
+    result = SingleVideoDistillationService(phase3_project).distill(
+        video_id="p2-01", model_output=deep_file
+    )
+    assert result["ok"] is True
+    distillation = SingleVideoDistillation.model_validate(result["distillation"])
+    assert distillation.status == "complete"
+    assert distillation.deep_trace is not None
+    assert distillation.deep_trace.status == "success"
+    assert distillation.media_analysis_id is not None
+    assert distillation.text_analysis_id is not None
+    assert distillation.craft_summary.analyzed_shots == 3
+    assert "特写" in distillation.craft_summary.shot_scale
+    assert distillation.craft_summary.opening_techniques == ["开场大字标题", "手持开场", "特写开场"]
+    assert distillation.topic.topic_statement == "一条关于酒店客诉处理的深度拆解"
+    assert distillation.copy_checklist.topic == ["客诉场景切入", "流程拆解"]
+    assert not any(warning.startswith("deep_model") for warning in distillation.warnings)
+    assert all(path for path in result["outputs"])
+    assert all((phase3_project.root / path).is_file() for path in result["outputs"])
+
+    report = (phase3_project.root / result["outputs"][1]).read_text(encoding="utf-8")
+    assert "## 选材（为什么值得做）" in report
+    assert "## 表现形式（怎么讲）" in report
+    assert "## 拍摄手法（怎么拍）" in report
+    assert "## 可复制清单" in report
+    assert "镜头级画像" in report
+
+    repeated = SingleVideoDistillationService(phase3_project).distill(
+        video_id="p2-01", model_output=deep_file
+    )
+    assert repeated["already_generated"] is True
+    assert repeated["distillation"]["distillation_id"] == distillation.distillation_id
+
+    validation = validate_project(phase3_project)
+    assert validation.error_count == 0
+
+
+def test_single_video_deep_distillation_degrades_without_model(
+    phase3_project: ProjectLayout,
+) -> None:
+    _analyze_text(phase3_project)
+    result = SingleVideoDistillationService(phase3_project).distill(video_id="p2-01")
+    distillation = SingleVideoDistillation.model_validate(result["distillation"])
+    assert distillation.status == "degraded"
+    assert distillation.deep_trace is not None
+    assert distillation.deep_trace.status == "degraded"
+    assert "deep_model_unavailable_deterministic_fallback" in distillation.warnings
+    assert distillation.topic.topic_statement
+    assert distillation.copy_checklist.topic
+    assert distillation.media_analysis_id is None
+    assert any("缺少本地媒体分析" in item for item in distillation.unknowns)
+    assert validate_project(phase3_project, persist=False).error_count == 0
+
+
+def test_single_video_deep_distillation_uses_media_analysis_when_present(
+    phase3_project: ProjectLayout, tmp_path: Path
+) -> None:
+    _analyze_text(phase3_project)
+    source = tmp_path / "hotel.mp4"
+    source.write_bytes(b"offline-hotel-media")
+    LocalMediaAnalysisService(phase3_project, backend=FixtureMediaBackend()).analyze(
+        video_id="p2-01",
+        file=source,
+        provider=FixtureVisionProvider(),
+    )
+    result = SingleVideoDistillationService(phase3_project).distill(video_id="p2-01")
+    distillation = SingleVideoDistillation.model_validate(result["distillation"])
+    assert distillation.media_analysis_id is not None
+    assert distillation.craft_summary.analyzed_shots == 3
+    assert "特写" in distillation.craft.shot_scale_profile
+    assert distillation.status == "degraded"
+    # The fallback must still surface the measured craft evidence.
+    evidence = read_json(phase3_project.root / distillation.evidence_index_path)
+    assert any(item["label"] == "video.craft_summary" for item in evidence["items"])
+    assert validate_project(phase3_project, persist=False).error_count == 0

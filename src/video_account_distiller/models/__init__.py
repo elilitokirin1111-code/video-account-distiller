@@ -196,6 +196,15 @@ from video_account_distiller.models.text_analysis import (
     VideoPerformanceContext,
     VideoSemanticAnnotation,
 )
+from video_account_distiller.models.video_distillation import (
+    CopyChecklist,
+    CraftDistillation,
+    ExpressionDistillation,
+    SingleVideoCraftSummary,
+    SingleVideoDeepOutput,
+    SingleVideoDistillation,
+    TopicDistillation,
+)
 
 __all__ = [
     "AccountCollectionBatch",
@@ -277,6 +286,8 @@ __all__ = [
     "CraftEditingRhythm",
     "CraftProfile",
     "CraftTagSummary",
+    "CopyChecklist",
+    "CraftDistillation",
     "CtaAnnotation",
     "CtaType",
     "DataQualityFlag",
@@ -293,6 +304,7 @@ __all__ = [
     "EvidenceSource",
     "EmotionLabel",
     "EmotionPoint",
+    "ExpressionDistillation",
     "Experiment",
     "ExtractedFact",
     "FeishuBitableConfig",
@@ -344,6 +356,9 @@ __all__ = [
     "ScheduledSnapshotTask",
     "ScalarStatistic",
     "SingleVideoAnalysis",
+    "SingleVideoCraftSummary",
+    "SingleVideoDeepOutput",
+    "SingleVideoDistillation",
     "ShotSegment",
     "ShotVisualAnnotation",
     "SilenceInterval",
@@ -355,6 +370,7 @@ __all__ = [
     "SyncReceipt",
     "TeamConfig",
     "TeamConnectorPolicy",
+    "TopicDistillation",
     "TeamMember",
     "TeamRole",
     "TranscriptInputSegment",

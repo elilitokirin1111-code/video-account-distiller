@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 import typer
 
@@ -39,6 +39,7 @@ from video_account_distiller.distillation import (
     AccountDistillationService,
     BenchmarkComparisonService,
 )
+from video_account_distiller.distillation.video import SingleVideoDistillationService
 from video_account_distiller.doctor import doctor_report
 from video_account_distiller.errors import EXIT_CODES, DistillerError, ErrorCode
 from video_account_distiller.features import VideoAnalysisService
@@ -975,6 +976,29 @@ def analyze_video_command(
         "--strict-model",
         help="Fail instead of using deterministic low-confidence fallback.",
     ),
+    deep: bool = typer.Option(
+        False,
+        "--deep",
+        help="Also run single-video deep distillation (topic/expression/craft/copy checklist).",
+    ),
+    deep_provider: str | None = typer.Option(
+        None,
+        "--deep-provider",
+        help="Optional deep-distillation model provider: ollama, llamacpp, or cloud.",
+    ),
+    deep_model: str | None = typer.Option(None, "--deep-model"),
+    deep_base_url: str | None = typer.Option(None, "--deep-base-url"),
+    deep_api_key: str | None = typer.Option(None, "--deep-api-key"),
+    deep_output: Path | None = typer.Option(
+        None,
+        "--deep-output",
+        help="Offline JSON containing one single_video_deep_distillation candidate.",
+    ),
+    strict_deep: bool = typer.Option(
+        False,
+        "--strict-deep",
+        help="Fail instead of using deterministic deep-distillation fallback.",
+    ),
     json_output: bool = typer.Option(False, "--json"),
     dry_run: bool = typer.Option(False, "--dry-run"),
 ) -> None:
@@ -991,10 +1015,36 @@ def analyze_video_command(
         json_output=json_output,
     )
     analysis = result["analysis"]
+    outputs = list(result["outputs"])
+    human = f"Analyzed {video} with status={analysis['status']}: {result['outputs'][0]}"
+    if deep:
+        deep_result = _execute(
+            lambda: SingleVideoDistillationService(ProjectLayout.open(project)).distill(
+                video_id=video,
+                deep_provider=(
+                    cast(Literal["ollama", "llamacpp", "cloud", "none"], deep_provider)
+                    if deep_provider in {"ollama", "llamacpp", "cloud", "none"}
+                    else None
+                ),
+                deep_model=deep_model,
+                deep_base_url=deep_base_url,
+                deep_api_key=deep_api_key,
+                model_output=deep_output,
+                max_attempts=max_attempts,
+                strict_model=strict_deep,
+                dry_run=dry_run,
+            ),
+            json_output=json_output,
+        )
+        result["deep_distillation"] = deep_result
+        outputs.extend(deep_result["outputs"])
+        deep_status = deep_result["distillation"]["status"]
+        human += f"; deep distillation status={deep_status}: {deep_result['outputs'][0]}"
+    result["outputs"] = outputs
     _emit(
         result,
         json_output=json_output,
-        human=(f"Analyzed {video} with status={analysis['status']}: {result['outputs'][0]}"),
+        human=human,
     )
 
 

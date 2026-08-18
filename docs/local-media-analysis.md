@@ -93,7 +93,10 @@ deterministic derived lists:
 - `pacing_tags`: 快节奏剪辑 (<1.5 s average shot) / 中等节奏剪辑 (≤3.5 s) / 慢节奏剪辑.
 
 The account-level distillation aggregates these into a `craft_profile`; see
-`comment-and-account-distillation.md`.
+`comment-and-account-distillation.md`. The per-video craft summary also feeds the optional
+single-video deep distillation (`distiller analyze video --deep`), which merges the blind text
+analysis with these media features into one 选材/表现形式/拍摄手法/可复制清单 reference card; see
+`text-video-analysis.md`.
 
 ## Privacy boundary
 

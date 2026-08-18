@@ -179,7 +179,12 @@ class VideoSemanticAnnotation(StrictModel):
 
 
 class ModelTaskTrace(StrictModel):
-    task: Literal["video_fact_extraction", "video_semantic_labeling", "comment_intent"]
+    task: Literal[
+        "video_fact_extraction",
+        "video_semantic_labeling",
+        "comment_intent",
+        "single_video_deep_distillation",
+    ]
     prompt_version: str
     prompt_hash: str
     provider: str

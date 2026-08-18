@@ -42,6 +42,8 @@ Chrome，登录和平台验证由用户手动完成。项目不调用代理池�
 - 从镜头级视觉标注蒸馏账号拍摄手法与表现形式画像（景别、运镜、机位角度、构图、光线、
   字幕艺术字、动效贴纸、品牌露出、开场手法与剪辑节奏），并把每个手法标签纳入账号内
   表现关联 Pattern 与对标迁移矩阵。
+- 单视频深度蒸馏：对任意一条视频（无需关注其账号）输出选材、表现形式、拍摄手法与
+  可复制清单四层参考卡，可选接入 Ollama/llama.cpp/云端模型深度拆解，无模型时确定性降级。
 - 在评论分析副本中脱敏电话、邮箱、网址、账号和联系方式，不修改原始评论。
 - 输出评论意图、痛点、异议、购买意图、内容机会和带偏差提醒的需求聚类。
 - 将内容簇与账号内表现分层对照，生成同时包含支持样本和反例的可追溯 Pattern。
@@ -365,6 +367,11 @@ uv run distiller analyze video --project ./demo-project \
   --video video-001 \
   --model-output ./structured-output.json --json
 
+# 可选：对单条视频做深度蒸馏（选材/表现形式/拍摄手法/可复制清单）
+# 无 --deep-provider/--deep-output 时自动使用确定性降级，不会调用网络。
+uv run distiller analyze video --project ./demo-project \
+  --video video-001 --deep --json
+
 uv run distiller validate --project ./demo-project --json
 ```
 
@@ -559,10 +566,11 @@ uv run python skills/video-account-distiller/scripts/install-skill.py \
 ## 当前支持范围
 
 支持离线项目、CSV/JSON/JSONL、SRT/VTT/TXT 字幕、七个平台字段映射、Parquet、DuckDB、
-稳健指标、代表性采样、账号体检、单视频文本/本地多模态拆解、评论需求分析、Pattern/反例、账号蒸馏、
-拍摄手法与表现形式画像与 Pattern、对标迁移矩阵、脚本评分、不可变区间预测、发布登记、快照复盘、
-授权导出、飞书多维表格、Google Sheets、批量任务、快照计划、团队策略、FastAPI/Streamlit 工作台，
-以及通过默认 TikHub API 或可选锁定版本 MediaCrawler 进行的抖音公开主页解析与限额评论采样。
+稳健指标、代表性采样、账号体检、单视频文本/本地多模态拆解、单视频深度蒸馏、评论需求分析、
+Pattern/反例、账号蒸馏、拍摄手法与表现形式画像与 Pattern、对标迁移矩阵、脚本评分、
+不可变区间预测、发布登记、快照复盘、授权导出、飞书多维表格、Google Sheets、批量任务、
+快照计划、团队策略、FastAPI/Streamlit 工作台，以及通过默认 TikHub API 或可选锁定版本
+MediaCrawler 进行的抖音公开主页解析与限额评论采样。
 
 尚未实现：登录/验证码自动化、评论回复树、自动批准 Level 4 规则，以及把所有一次性
 API 短任务迁移到持久队列；当前跨进程队列覆盖工作台的自助蒸馏主链路。

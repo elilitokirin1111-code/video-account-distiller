@@ -51,3 +51,28 @@ raw model-output hashes, declared paths, and evidence references in one command.
 Semantic labels are annotations, not causes. One analyzed video cannot establish an account Pattern
 or validated rule. Visual Hook, shots, editing rhythm, on-screen text, music, and sound remain
 unknown until Phase 6. Phase 4 will compare repeated labeled samples, counterexamples, and comments.
+
+## Single-video deep distillation
+
+`distiller analyze video --deep` adds an optional third stage on top of the blind text analysis
+and any existing local media analysis. It builds one content-addressed `svd_*` reference card under
+`analyses/videos/<video-id>/` so you can distill one interesting video from an account you do not
+otherwise follow, without any account-level performance bands:
+
+- **选材 topic**: why the video exists, its angle (痛点/清单/悬念/身份点名…), target audience,
+  information increment, memory point, and a reusable topic formula.
+- **表现形式 expression**: opening form, subtitle/art-text style, packaging (stickers, motion
+  graphics, branding), audio expression, and editing style.
+- **拍摄手法 craft**: shot-scale/camera/composition/lighting profiles, opening technique, and
+  pacing, plus a deterministic per-shot `craft_summary` with counts and measured rhythm.
+- **可复制清单 copy checklist**: what to copy and what to avoid when reproducing the video.
+
+The deep stage accepts `--deep-provider ollama|llamacpp|cloud` with `--deep-model`,
+`--deep-base-url`, `--deep-api-key`, or offline `--deep-output` JSON. Model output is strictly
+validated, citations to `segment_id`/`shot_id` are filtered against real evidence, and invalid
+output is retried up to `max_schema_attempts`. Without a provider the service degrades visibly to a
+deterministic aggregation of the blind labels and measured media features (`status: degraded`,
+`deep_model_unavailable_deterministic_fallback`), which still organizes topic/structure/craft into
+the same report shape. `--strict-deep` fails instead of degrading. `distiller validate` checks the
+`svd_*` artifacts, their evidence index, and the referenced text/media analyses.
+

@@ -32,6 +32,7 @@ from video_account_distiller.models import (
     RunManifest,
     ScoreResult,
     SingleVideoAnalysis,
+    SingleVideoDistillation,
     SnapshotScheduleResult,
     SyncReceipt,
     TeamConfig,
@@ -165,17 +166,74 @@ def _validate_video_analysis(path: Path, project: ProjectLayout) -> list[str]:
     return [f"{project.relative(path)}: {message}" for message in errors]
 
 
+def _validate_video_distillation(path: Path, project: ProjectLayout) -> list[str]:
+    errors: list[str] = []
+    directory = path.parent
+    expected_paths = {
+        "report": directory / "report.md",
+        "evidence": directory / "evidence-index.json",
+        "warnings": directory / "warnings.json",
+    }
+    missing = [name for name, item in expected_paths.items() if not item.is_file()]
+    if missing:
+        return [f"{project.relative(path)}: missing artifacts: {', '.join(sorted(missing))}"]
+    try:
+        distillation = SingleVideoDistillation.model_validate(read_json(path))
+        evidence = ArtifactEvidenceIndex.model_validate(read_json(expected_paths["evidence"]))
+        warnings = read_json(expected_paths["warnings"])
+    except (OSError, ValueError, ValidationError) as exc:
+        return [f"{project.relative(path)}: {exc}"]
+
+    if not isinstance(warnings, list) or not all(isinstance(item, str) for item in warnings):
+        errors.append("warnings.json must contain a JSON array of strings")
+    if distillation.distillation_id != directory.name:
+        errors.append("distillation_id does not match its content-addressed directory")
+    if distillation.video_id != directory.parent.name:
+        errors.append("video_id does not match its distillation directory")
+    if evidence.artifact_id != distillation.distillation_id:
+        errors.append("evidence index identity does not match distillation.json")
+    if distillation.text_analysis_id is not None:
+        text_path = (
+            project.root
+            / "analyses"
+            / "videos"
+            / distillation.video_id
+            / distillation.text_analysis_id
+            / "analysis.json"
+        )
+        if not text_path.is_file():
+            errors.append(f"text analysis is missing: {distillation.text_analysis_id}")
+    if distillation.media_analysis_id is not None:
+        media_path = (
+            project.root
+            / "analyses"
+            / "media"
+            / distillation.video_id
+            / distillation.media_analysis_id
+            / "media-analysis.json"
+        )
+        if not media_path.is_file():
+            errors.append(f"media analysis is missing: {distillation.media_analysis_id}")
+    if not any(item.label == "video.craft_summary" for item in evidence.items):
+        errors.append("craft summary evidence is missing")
+    if distillation.deep_trace is not None and distillation.deep_trace.status == "success":
+        if distillation.status != "complete":
+            errors.append("deep trace success conflicts with degraded status")
+    expected_declared = {
+        "evidence_index_path": project.relative(expected_paths["evidence"]),
+        "warnings_path": project.relative(expected_paths["warnings"]),
+    }
+    for field, expected in expected_declared.items():
+        if getattr(distillation, field) != expected:
+            errors.append(f"{field} does not point to the colocated artifact")
+    return [f"{project.relative(path)}: {message}" for message in errors]
+
+
 def _has_intentional_media_cleanup(
     project: ProjectLayout,
     analysis: MediaAnalysis,
 ) -> bool:
-    cleanup_root = (
-        project.root
-        / "analyses"
-        / "accounts"
-        / analysis.account_id
-        / "media-cleanups"
-    )
+    cleanup_root = project.root / "analyses" / "accounts" / analysis.account_id / "media-cleanups"
     if not cleanup_root.is_dir():
         return False
     for cleanup_path in cleanup_root.glob("*.json"):
@@ -699,6 +757,20 @@ def validate_project(project: ProjectLayout, *, persist: bool = True) -> Quality
                     severity="error",
                     code="analysis_artifact_invalid",
                     entity="video_analyses",
+                    message=message,
+                )
+            )
+
+    svd_paths = sorted((project.root / "analyses" / "videos").glob("*/svd_*/distillation.json"))
+    for path in svd_paths:
+        for message in _validate_video_distillation(path, project):
+            issues.append(
+                DataQualityIssue(
+                    issue_id=stable_id("dqi_", manifest.run_id, project.relative(path), message),
+                    run_id=manifest.run_id,
+                    severity="error",
+                    code="analysis_artifact_invalid",
+                    entity="video_distillations",
                     message=message,
                 )
             )

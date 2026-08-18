@@ -74,6 +74,13 @@ changes.
   动效贴纸/品牌露出/开场手法/剪辑节奏 with per-tag coverage), `signature_style`,
   performance-associated `craft` Patterns with support/counterexamples, evidence and warning
   coverage, report sections, benchmark-profile `craft_identity`, and knowledge-base craft lines.
+- Single-video deep distillation: `distiller analyze video --deep` merges the blind text analysis
+  and local media analysis into one content-addressed `svd_*` reference card covering 选材 topic
+  (angle/audience/information increment/memory point/topic formula), 表现形式 expression,
+  拍摄手法 craft (with deterministic per-shot counts), and a 可复制清单 copy checklist; optional
+  `--deep-provider ollama|llamacpp|cloud` or offline `--deep-output`, strict schema validation with
+  segment/shot citation filtering, deterministic degradation without a model, and project
+  validation coverage.
 
 ### Changed
 

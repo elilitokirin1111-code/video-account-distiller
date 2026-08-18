@@ -847,3 +847,23 @@ requirements from later phases.
   so unknowns and low-coverage warnings remain explicit, and craft Patterns are Level 0/1
   observations exactly like text Patterns.
 
+## ID-093 — Deep-distill a single video independently of its account
+
+- **Decision:** Add an optional third stage `distiller analyze video --deep` that merges the blind
+  text analysis and the latest local media analysis into one content-addressed `svd_*` reference
+  card: 选材 topic (angle, audience, information increment, memory point, topic formula),
+  表现形式 expression (opening form, subtitle style, packaging, audio, editing), 拍摄手法 craft
+  (shot scale/camera/composition/lighting profiles plus deterministic per-shot counts), and a
+  可复制清单 copy checklist. The deep model stage is optional (`--deep-provider
+  ollama|llamacpp|cloud`, offline `--deep-output`, or none); output is strictly validated with
+  `segment_id`/`shot_id` citation filtering and retries, and without a provider the service
+  degrades visibly to deterministic aggregation of the existing artifacts (`status: degraded`).
+  The card never requires account-level performance bands.
+- **Reason:** A viewer may find one video interesting inside an account they do not follow, while
+  account distillation is band-relative and sample-based and therefore cannot describe a single
+  foreign video. Keeping the model stage optional preserves the offline/replayable boundary: the
+  deterministic fallback still organizes every observable signal into the same report shape, and
+  the `svd_*` artifact is validated like other Phase 3/6 outputs. One video's deep card remains a
+  reference card, never an account Pattern or a causal rule.
+
+

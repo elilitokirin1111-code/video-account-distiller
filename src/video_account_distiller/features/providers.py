@@ -14,6 +14,7 @@ from pydantic import BaseModel, ValidationError
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.models import (
     CommentSignalAnnotation,
+    SingleVideoDeepOutput,
     VideoFactExtraction,
     VideoSemanticAnnotation,
 )
@@ -68,7 +69,12 @@ class StructuredFileProvider:
         self.model_name = str(payload.get("model_name") or self.path.name)
         self.input_hash = sha256_file(self.path)
         self._responses: dict[str, list[object]] = {}
-        for key in ("video_fact_extraction", "video_semantic_labeling", "comment_intent"):
+        for key in (
+            "video_fact_extraction",
+            "video_semantic_labeling",
+            "comment_intent",
+            "single_video_deep_distillation",
+        ):
             value = payload.get(key)
             if isinstance(value, list):
                 self._responses[key] = list(value)
@@ -84,6 +90,8 @@ class StructuredFileProvider:
             return "video_semantic_labeling"
         if issubclass(response_model, CommentSignalAnnotation):
             return "comment_intent"
+        if issubclass(response_model, SingleVideoDeepOutput):
+            return "single_video_deep_distillation"
         raise ModelSchemaFailure(f"Unsupported response model: {response_model.__name__}")
 
     def generate_structured(
