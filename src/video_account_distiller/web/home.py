@@ -22,7 +22,7 @@ st.set_page_config(
     page_title="概览 · Distiller",
     page_icon=":material/blur_on:",
     layout="wide",
-    initial_sidebar_state="auto",
+    initial_sidebar_state="expanded",
 )
 
 context = setup_page(

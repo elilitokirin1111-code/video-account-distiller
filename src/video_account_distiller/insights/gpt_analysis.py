@@ -65,11 +65,16 @@ class OpenAIModel(StrEnum):
 
 class BailianModel(StrEnum):
     QWEN_3_7_PLUS = "qwen3.7-plus"
+    QWEN_MAX_LATEST = "qwen-max-latest"
+    QWEN_PLUS_LATEST = "qwen-plus-latest"
+    QWEN_TURBO_LATEST = "qwen-turbo-latest"
+    QWEN_LONG = "qwen-long"
 
 
 class DeepSeekModel(StrEnum):
     V4_FLASH = "deepseek-v4-flash"
     V4_PRO = "deepseek-v4-pro"
+    CHAT = "deepseek-chat"
 
 
 class AnalysisProviderKind(StrEnum):

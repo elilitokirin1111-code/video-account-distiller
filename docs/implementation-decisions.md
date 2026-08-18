@@ -866,4 +866,66 @@ requirements from later phases.
   the `svd_*` artifact is validated like other Phase 3/6 outputs. One video's deep card remains a
   reference card, never an account Pattern or a causal rule.
 
+## ID-094 — Sync single-video deep distillations into WeKnora
+
+- **Decision:** Extend the one-way WeKnora chain from accounts to single videos:
+  `WeKnoraSyncService.sync_video_distillation` uploads the latest `svd_*` reference card with
+  `video-account-distiller` provenance metadata (plus `video_id` and `distillation_id`), replacing
+  earlier documents for the same video while leaving unrelated knowledge untouched. Expose it as
+  `distiller knowledge weknora sync-video` and
+  `POST /api/projects/{project}/knowledge/weknora/videos/{video_id}/sync`. The HTTP deep
+  distillation itself (`analyze/video/{video_id}` with `deep: true` and `deep_provider`) never
+  accepts API keys in the request body: `cloud` credentials resolve from the workspace credential
+  store exactly like account GPT analysis, keeping secrets out of the durable task database.
+- **Reason:** The single-video workflow ends with a deep distillation card that previously had no
+  knowledge-base destination; the WeKnora path stopped at account-level exports. Per-video
+  replacement metadata mirrors the account-level semantics already proven in
+  `sync_account` (delete only `distiller`-channel documents owned by the same entity), and reusing
+  the existing list/upload/delete primitives keeps one code path for provenance and error mapping.
+
+## ID-095 — Collect one video by URL for the single-video workflow
+
+- **Decision:** Add a bounded single-video collector to both providers and route it through the
+  same immutable account-collection kernel
+  (`AccountCollectionService.analyze_video_url`: raw batch → accounts/videos/metrics/comments
+  import → normalization → account metrics), skipping account-level reports, comment clustering,
+  and account distillation because a single video cannot form an account sample. TikHub uses the
+  documented `fetch_one_video` endpoint (paid, requires cost confirmation); the MediaCrawler
+  controlled bridge gains a `--video-url` mode that opens the dedicated visible browser, waits
+  for manual login, and calls `get_video_by_id` plus optional top-level comments — mirroring the
+  account homepage provider choice. Expose it as `distiller video collect --url --provider
+  tikhub|mediacrawler`, `POST /collection/analyze-video-url`, and the one-command
+  `distiller video analyze --url ... --deep --weknora-kb-id` workflow. Video IDs are resolved
+  locally from standard `douyin.com/video/<id>` / `/note/<id>` / `modal_id=<id>` URLs; short
+  `v.douyin.com` links are rejected with instructions because they require an extra network hop.
+  The account row derives from the detail's author object, or a minimal placeholder account when
+  the author block is absent.
+- **Reason:** The deep-distillation stage already existed but required the video to be present in
+  the offline kernel first, leaving no "paste one video link" entry. Reusing the existing batch
+  import/normalization path keeps raw evidence, hashing, dedup, and validation semantics identical
+  to account collection, while the placeholder-account fallback lets a foreign video flow through
+  without pretending its owner was fully profiled. Supporting both providers keeps the single
+  video workflow consistent with the account workflow's paid-API and local-browser choices.
+
+## ID-096 — Normalize cloud endpoints and expose Qwen across the full chain
+
+- **Decision:** OpenAI-compatible text/vision providers now complete a missing `https://` scheme on
+  any configured base URL, so pasting an Alibaba Model Studio MaaS gateway
+  (`ws-<workspace>.cn-beijing.maas.aliyuncs.com`) works without manual prefixing. The account-distill
+  task form replaces the hard-coded DeepSeek knowledge-synthesis block with a provider picker
+  (DeepSeek/OpenAI/阿里云百炼) and matching Qwen/DeepSeek model lists; `BailianModel` grows
+  `qwen-max-latest`, `qwen-plus-latest`, `qwen-turbo-latest`, and `qwen-long`, and
+  `DeepSeekModel` gains `deepseek-chat`. The cloud form documents endpoint choice and warns that a
+  key saved under the wrong provider slot returns 401 (`E_ADAPTER_AUTH`).
+- **Reason:** The investigation found a failed `account_distill` task whose cloud text config
+  pointed at a scheme-less Bailian MaaS host while its knowledge-analysis step selected DeepSeek and
+  used a Bailian key saved in the DeepSeek credential slot — the classic 401. Normalizing the
+  scheme fixes the transport; exposing Bailian as a first-class picker with Qwen models fixes the
+  configuration mismatch, and the docs/UI guidance makes the provider/key pairing diagnosable
+  instead of surfacing an opaque "API rejected the credential or permission scope".
+
+
+
+
+
 

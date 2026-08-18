@@ -59,8 +59,57 @@ _THEME_BRIDGE = component(
 )
 
 
+_DIAG_BRIDGE = component(
+    "distiller_sidebar_diag",
+    html='<span aria-hidden="true"></span>',
+    css=":host, span { display: none !important; }",
+    js="""
+    export default function() {
+      function update() {
+        const doc = window.parent.document;
+        const nodes = doc.querySelectorAll('#ds-sidebar-diag, #ds-page-diag');
+        if (!nodes.length) return;
+        const sidebar = doc.querySelector('[data-testid="stSidebar"]');
+        const visible = sidebar ? sidebar.getBoundingClientRect().width >= 8 : false;
+        const text = 'build 20260818c · 窗口 ' + window.parent.innerWidth + 'px · 侧边栏 '
+          + (visible ? '可见' : '隐藏');
+        nodes.forEach(function(el) { el.textContent = text; });
+      }
+      // One-shot recovery only: if the browser remembered a collapsed sidebar,
+      // expand it once on page load. Users can still collapse/expand freely
+      // afterwards. The narrow mobile layout keeps its bottom navigation.
+      function expandOnce() {
+        const doc = window.parent.document;
+        if (window.parent.innerWidth < 641) return;
+        const button = doc.querySelector('[data-testid="stExpandSidebarButton"]');
+        if (button) button.click();
+      }
+      update();
+      setTimeout(expandOnce, 900);
+      const timer = setInterval(update, 800);
+      window.addEventListener('beforeunload', function() { clearInterval(timer); });
+    }
+    """,
+)
+
+
 def _default_api_url() -> str:
     return os.environ.get("DISTILLER_API_URL", "http://127.0.0.1:8000").rstrip("/")
+
+
+def _inject_sidebar_diagnostics() -> None:
+    """Show a small runtime badge with viewport width and sidebar visibility.
+
+    The badge lives in both the sidebar and the main area so it remains
+    readable even when the sidebar is collapsed, which makes browser-side
+    layout issues diagnosable without opening dev tools.
+    """
+
+    st.markdown(
+        '<div id="ds-page-diag" class="ds-build-mark">诊断载入中…</div>',
+        unsafe_allow_html=True,
+    )
+    _DIAG_BRIDGE(key="distiller_sidebar_diag_bridge", height=1, width=1)
 
 
 def _default_project_path() -> str:
@@ -210,6 +259,28 @@ def _inject_design_system(theme: Theme) -> None:
         [data-testid="stToolbar"],
         [data-testid="stStatusWidget"],
         [data-testid="stAppDeployButton"] {
+          display: none !important;
+        }
+
+        /* Streamlit renders the expand-sidebar button inside stToolbar when
+           the sidebar is collapsed. Keep that one toolbar visible as a small
+           floating control so a collapsed sidebar can always be reopened. */
+        [data-testid="stToolbar"]:has([data-testid="stExpandSidebarButton"]) {
+          display: flex !important;
+          position: fixed;
+          top: 0.85rem;
+          left: 0.85rem;
+          z-index: 999998;
+          height: auto;
+          background: var(--ds-surface-raised);
+          border: 1px solid var(--ds-border);
+          border-radius: 11px;
+          box-shadow: var(--ds-shadow-md);
+        }
+        [data-testid="stToolbar"]:has([data-testid="stExpandSidebarButton"])
+          [data-testid="stStatusWidget"],
+        [data-testid="stToolbar"]:has([data-testid="stExpandSidebarButton"])
+          [data-testid="stAppDeployButton"] {
           display: none !important;
         }
 
@@ -1076,6 +1147,17 @@ def _inject_design_system(theme: Theme) -> None:
           display: none;
         }
 
+        .ds-build-mark {
+          margin: 0.6rem 0.25rem;
+          padding: 0.35rem 0.5rem;
+          border-radius: 8px;
+          background: rgba(127, 127, 255, 0.08);
+          color: var(--ds-text-muted);
+          font-size: 0.62rem;
+          font-weight: 600;
+          letter-spacing: 0.02em;
+        }
+
         @media (max-width: 980px) {
           [data-testid="stMainBlockContainer"] { padding: 1rem 1rem 3rem; }
           .ds-stepper { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 1rem; }
@@ -1200,6 +1282,10 @@ def _render_sidebar(current_page: str) -> tuple[str, str]:
             """,
             unsafe_allow_html=True,
         )
+        st.markdown(
+            '<div id="ds-sidebar-diag" class="ds-build-mark">诊断载入中…</div>',
+            unsafe_allow_html=True,
+        )
 
     mobile_items = (
         ("dashboard", "/", "概览"),
@@ -1268,6 +1354,7 @@ def setup_page(
         eyebrow=eyebrow,
         theme=theme,
     )
+    _inject_sidebar_diagnostics()
     return PageContext(api_url=api_url, project_path=project_path, theme=selected_theme)
 
 

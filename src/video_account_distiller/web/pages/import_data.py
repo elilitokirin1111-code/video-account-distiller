@@ -19,7 +19,7 @@ st.set_page_config(
     page_title="数据导入 · Video Account Distiller",
     page_icon=":material/upload_file:",
     layout="wide",
-    initial_sidebar_state="auto",
+    initial_sidebar_state="expanded",
 )
 
 

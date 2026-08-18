@@ -6,13 +6,17 @@ from pathlib import Path
 from typing import Any
 
 from video_account_distiller.collection.drift import TikHubDriftDetector
+from video_account_distiller.collection.mediacrawler import MediaCrawlerAccountProvider
 from video_account_distiller.collection.planning import (
     CollectionProfile,
     build_collection_plan,
     collection_coverage,
     enforce_collection_budget,
 )
-from video_account_distiller.collection.providers import AccountCollectionProvider
+from video_account_distiller.collection.providers import (
+    AccountCollectionProvider,
+    TikHubAccountProvider,
+)
 from video_account_distiller.comments import CommentAnalysisService
 from video_account_distiller.distillation import AccountDistillationService
 from video_account_distiller.errors import DistillerError, ErrorCode
@@ -226,4 +230,123 @@ class AccountCollectionService:
             "report": report,
             "comment_analysis": comment_analysis,
             "distillation": distillation,
+        }
+
+    def analyze_video_url(
+        self,
+        *,
+        url: str,
+        provider: CollectionProviderKind = CollectionProviderKind.TIKHUB,
+        confirm_provider_cost: bool = False,
+        comments_per_video: int = 0,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Collect one public video and run it through the import and normalization kernel.
+
+        This is the single-video entry: it works for one interesting video from
+        an account the user does not follow. The provider selection mirrors the
+        account workflow (TikHub paid API or MediaCrawler local browser). It
+        persists the immutable provider batch, imports account/video/metrics
+        (and optional comments), normalizes, and calculates account-local
+        metrics, then returns the internal account_id/video_id needed by the
+        deep-distillation and WeKnora steps.
+        """
+        if not isinstance(
+            self.provider,
+            (TikHubAccountProvider, MediaCrawlerAccountProvider),
+        ):
+            raise DistillerError(
+                ErrorCode.PLATFORM_UNSUPPORTED,
+                "Single-video collection requires the TikHub or MediaCrawler provider",
+            )
+        if provider == CollectionProviderKind.TIKHUB and not confirm_provider_cost:
+            raise DistillerError(
+                ErrorCode.PROVIDER_COST_CONFIRMATION_REQUIRED,
+                "Paid provider calls require explicit cost confirmation",
+                details={"next": "pass --confirm-provider-cost after reviewing --dry-run"},
+            )
+        if dry_run:
+            return {
+                "ok": True,
+                "dry_run": True,
+                "url": url,
+                "provider": provider.value,
+                "comments_per_video": comments_per_video,
+            }
+        batch = self.provider.collect_video(
+            url,
+            comments_per_video=comments_per_video,
+        )
+        if len(batch.videos) != 1:
+            raise DistillerError(
+                ErrorCode.ADAPTER_RESPONSE,
+                "Single-video provider batch must contain exactly one video",
+            )
+        batch_payload = batch.model_dump(mode="json")
+        fingerprint = sha256_json(batch_payload)
+        batch_dir = (
+            self.project.root / "raw" / "account-collections" / batch.provider.value / fingerprint
+        )
+        raw_path = batch_dir / "provider-batch.json"
+        account_path = batch_dir / "accounts.json"
+        videos_path = batch_dir / "videos.json"
+        metrics_path = batch_dir / "metrics.json"
+        comments_path = batch_dir / "comments.json"
+        _write_immutable_json(raw_path, batch_payload)
+        _write_immutable_json(account_path, [batch.account.model_dump(mode="json")])
+        _write_immutable_json(videos_path, [item.model_dump(mode="json") for item in batch.videos])
+        _write_immutable_json(
+            metrics_path, [item.model_dump(mode="json") for item in batch.metrics]
+        )
+        comment_rows = [item.model_dump(mode="json") for item in batch.comments]
+        if comment_rows:
+            _write_immutable_json(comments_path, comment_rows)
+
+        importer = ImportService(self.project)
+        imports: dict[str, Any] = {}
+        sources: list[tuple[EntityName, Path]] = [
+            ("accounts", account_path),
+            ("videos", videos_path),
+            ("metrics", metrics_path),
+        ]
+        if comment_rows:
+            sources.append(("comments", comments_path))
+        for entity, source in sources:
+            receipt, quality, already_imported = importer.import_file(
+                entity=entity,
+                source=source,
+                platform=Platform.DOUYIN,
+            )
+            imports[entity] = _quality_payload(receipt, quality, already_imported)
+            if quality.error_count:
+                raise DistillerError(
+                    ErrorCode.SCHEMA_INVALID,
+                    f"Collected {entity} failed strict import validation",
+                    details={"quality": quality.as_dict()},
+                )
+        normalization = NormalizationService(self.project).normalize()
+        account_id = stable_id("acc_", Platform.DOUYIN.value, batch.platform_account_id)
+        video_id = stable_id("vid_", Platform.DOUYIN.value, batch.videos[0].platform_video_id)
+        metrics = MetricsService(self.project).calculate(account_id=account_id)
+        return {
+            "ok": True,
+            "dry_run": False,
+            "url": url,
+            "provider": provider.value,
+            "account_id": account_id,
+            "platform_account_id": batch.platform_account_id,
+            "video_id": video_id,
+            "platform_video_id": batch.videos[0].platform_video_id,
+            "title": batch.videos[0].title,
+            "collection": {
+                "fingerprint": fingerprint,
+                "fetched_at": batch.fetched_at.isoformat(),
+                "videos": len(batch.videos),
+                "comments": len(batch.comments),
+                "raw_artifact": self.project.relative(raw_path),
+                "warnings": batch.warnings,
+            },
+            "imports": imports,
+            "normalization": normalization,
+            "metrics": metrics,
         }

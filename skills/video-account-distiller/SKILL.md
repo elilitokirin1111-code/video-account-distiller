@@ -254,6 +254,12 @@ or offline `--deep-output`; without a provider it degrades deterministically. Th
 video from an account the user does not follow and never needs account performance bands. Read
 `references/video-analysis.md`.
 
+To collect one interesting video by URL (single-video workflow), run
+`distiller video collect --project <dir> --url <video-url> --confirm-provider-cost` (TikHub), or
+use the one-command chain `distiller video analyze --url <video-url> --whisper-model base --deep
+--deep-provider cloud --weknora-kb-id <kb-id>` which collects, locally transcribes, deep-distills,
+and optionally pushes the card to WeKnora. The Web「新建蒸馏」page has a 「单视频蒸馏」mode.
+
 ### Analyze local media
 
 Run only after the video exists in normalized Parquet:

@@ -22,7 +22,7 @@ st.set_page_config(
     page_title="数据中心 · Video Account Distiller",
     page_icon=":material/database:",
     layout="wide",
-    initial_sidebar_state="auto",
+    initial_sidebar_state="expanded",
 )
 
 TABLE_LABELS = {

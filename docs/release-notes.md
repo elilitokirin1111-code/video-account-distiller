@@ -81,6 +81,30 @@ changes.
   `--deep-provider ollama|llamacpp|cloud` or offline `--deep-output`, strict schema validation with
   segment/shot citation filtering, deterministic degradation without a model, and project
   validation coverage.
+- Single-video to WeKnora chain: HTTP deep-distillation support in
+  `analyze/video/{video_id}` (`deep`/`deep_provider` params, cloud credentials from the credential
+  store), `distiller knowledge weknora sync-video` CLI, and
+  `knowledge/weknora/videos/{video_id}/sync` API that uploads the latest `svd_*` reference card
+  with provenance metadata and replaces earlier documents for the same video.
+- Single-video collection: TikHub `fetch_one_video` support
+  (`distiller video collect --url`), `AccountCollectionService.analyze_video_url`, the
+  `POST /collection/analyze-video-url` API, the one-command
+  `distiller video analyze --url ... --deep --weknora-kb-id` workflow
+  (collect → local transcription → deep distillation → WeKnora), and a 「单视频蒸馏」mode in the
+  Web「新建蒸馏」page.
+- Single-video MediaCrawler provider: the controlled bridge gains a `--video-url` mode
+  (`get_video_by_id` for the detail and optional top-level comments); `distiller video collect
+  --provider mediacrawler`, the API `provider` field, and the Web provider selector now mirror
+  the account homepage workflow (visible browser, manual login).
+- Web shell: sidebar defaults to expanded on every page (still collapsible by the user) and a small
+  runtime diagnostic badge reports the build id, viewport width, and sidebar visibility.
+- Qwen (Bailian) across the full cloud chain: scheme-less Model Studio MaaS gateways
+  (`ws-*.maas.aliyuncs.com`) now get `https://` completed automatically in the text and vision
+  providers; the account-distill task form's 知识分析服务商 picker selects DeepSeek/OpenAI/Bailian
+  with Qwen models (`qwen3.7-plus`, `qwen-max-latest`, `qwen-plus-latest`, `qwen-turbo-latest`,
+  `qwen-long`), `deepseek-chat` joins the DeepSeek model enum, and the cloud form guides endpoint
+  choice and key/provider matching. A `401` on cloud tasks is documented as a key/provider
+  mismatch (e.g. a Bailian key saved in the DeepSeek credential slot).
 
 ### Changed
 

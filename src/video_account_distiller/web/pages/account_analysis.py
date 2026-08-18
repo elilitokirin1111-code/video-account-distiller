@@ -21,7 +21,7 @@ st.set_page_config(
     page_title="账号分析 · Video Account Distiller",
     page_icon=":material/monitoring:",
     layout="wide",
-    initial_sidebar_state="auto",
+    initial_sidebar_state="expanded",
 )
 
 

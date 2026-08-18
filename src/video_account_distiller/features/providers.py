@@ -23,6 +23,22 @@ from video_account_distiller.utils.hashing import sha256_file
 ResponseT = TypeVar("ResponseT", bound=BaseModel)
 
 
+def _normalize_https_base_url(url: str) -> str:
+    """Default a scheme-less OpenAI-compatible host to HTTPS.
+
+    Users commonly paste Alibaba Cloud Model Studio MaaS gateways
+    (``ws-<workspace>.cn-beijing.maas.aliyuncs.com``) or other OpenAI-compatible
+    hosts without a scheme. ``urllib`` requires one, so prefer HTTPS and keep
+    explicit ``http://`` loopback URLs unchanged.
+    """
+    value = (url or "").strip()
+    if not value:
+        return value
+    if "://" not in value:
+        return f"https://{value}"
+    return value
+
+
 class ModelSchemaFailure(Exception):
     """A provider response could not satisfy the requested schema."""
 
@@ -352,7 +368,7 @@ class LlamaCppTextProvider(OllamaTextProvider):
         api_key: str | None = None,
     ) -> None:
         self.model_name = model or "local"
-        self.base_url = base_url.rstrip("/")
+        self.base_url = _normalize_https_base_url(base_url).rstrip("/")
         self.timeout_seconds = timeout_seconds
         self.api_key = api_key or os.environ.get("DISTILLER_LLAMACPP_API_KEY")
 

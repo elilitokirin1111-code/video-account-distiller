@@ -43,7 +43,13 @@ Chrome，登录和平台验证由用户手动完成。项目不调用代理池�
   字幕艺术字、动效贴纸、品牌露出、开场手法与剪辑节奏），并把每个手法标签纳入账号内
   表现关联 Pattern 与对标迁移矩阵。
 - 单视频深度蒸馏：对任意一条视频（无需关注其账号）输出选材、表现形式、拍摄手法与
-  可复制清单四层参考卡，可选接入 Ollama/llama.cpp/云端模型深度拆解，无模型时确定性降级。
+  可复制清单四层参考卡，可选接入 Ollama/llama.cpp/云端模型深度拆解，无模型时确定性降级；
+  并可通过 `distiller knowledge weknora sync-video` 把参考卡导入 WeKnora 知识库。
+- 单视频采集入口：`distiller video collect --url <视频链接> [--provider tikhub|mediacrawler]`
+  或工作台「新建蒸馏」页的「单视频蒸馏」模式，采集单条公开视频（元数据/指标/可选评论）
+  入库——采集方式与账号主页一致，支持 TikHub 付费 API 与 MediaCrawler 本地浏览器；
+  `distiller video analyze --url ... --deep --weknora-kb-id <id>` 一条命令完成
+  采集 → 本地转写 → 深度蒸馏 → WeKnora 导入。
 - 在评论分析副本中脱敏电话、邮箱、网址、账号和联系方式，不修改原始评论。
 - 输出评论意图、痛点、异议、购买意图、内容机会和带偏差提醒的需求聚类。
 - 将内容簇与账号内表现分层对照，生成同时包含支持样本和反例的可追溯 Pattern。

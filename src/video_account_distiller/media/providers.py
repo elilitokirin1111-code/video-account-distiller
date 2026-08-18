@@ -795,7 +795,11 @@ class CloudVisionProvider(LlamaCppVisionProvider):
                 ErrorCode.SCHEMA_INVALID,
                 "Vision timeout must be 1 through 1800 seconds",
             )
-        parsed = urlparse(base_url.strip())
+        raw_base_url = base_url.strip()
+        # Users often paste Alibaba Model Studio MaaS gateways without a scheme.
+        if "://" not in raw_base_url:
+            raw_base_url = f"https://{raw_base_url}"
+        parsed = urlparse(raw_base_url)
         if (
             parsed.scheme not in {"http", "https"}
             or parsed.username is not None

@@ -75,6 +75,23 @@ async def sync_account_weknora(
     )
 
 
+@router.post("/{project_path:path}/knowledge/weknora/videos/{video_id}/sync")
+async def sync_video_weknora(
+    project_path: str,
+    video_id: str,
+    body: WeKnoraSyncParams,
+) -> dict[str, Any]:
+    """Upload one video's single-video deep distillation card into WeKnora."""
+
+    layout = resolve_project(project_path)
+    return WeKnoraSyncService(layout).sync_video_distillation(
+        video_id=video_id,
+        base_url=body.base_url,
+        api_key=body.api_key,
+        kb_id=body.kb_id,
+    )
+
+
 @router.post("/{project_path:path}/knowledge/weknora/knowledge-bases")
 async def list_weknora_knowledge_bases(
     project_path: str,

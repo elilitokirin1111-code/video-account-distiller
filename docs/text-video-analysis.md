@@ -76,3 +76,52 @@ deterministic aggregation of the blind labels and measured media features (`stat
 the same report shape. `--strict-deep` fails instead of degrading. `distiller validate` checks the
 `svd_*` artifacts, their evidence index, and the referenced text/media analyses.
 
+The deep stage is also reachable through the HTTP API
+(`POST /api/projects/{project}/analyze/video/{video_id}` with `deep: true` and an optional
+`deep_provider` of `ollama`, `llamacpp`, or `cloud`; cloud credentials resolve from the workspace
+credential store rather than the request body), and the resulting reference card can be pushed to
+WeKnora:
+
+```bash
+distiller knowledge weknora sync-video --project <dir> --video <video-id> \
+  --kb-id <knowledge-base-id> --base-url http://127.0.0.1:8080 \
+  --api-key $env:WEKNORA_API_KEY --json
+```
+
+The same operation is available as
+`POST /api/projects/{project}/knowledge/weknora/videos/{video_id}/sync`. It uploads the latest
+`svd_*` report with `video-account-distiller` provenance metadata and replaces previous documents
+for the same video, mirroring the account-level WeKnora sync semantics.
+
+## Collecting one video by URL
+
+`distiller video collect --project <dir> --url <video-url> --confirm-provider-cost` collects a
+single public Douyin video (metadata, public metrics, optional top-level comments) through the
+documented TikHub `fetch_one_video` endpoint and imports it through the same immutable
+account-collection kernel (raw batch, accounts/videos/metrics/comments, normalization, account
+metrics). It returns the internal `account_id` and `video_id`. Standard URLs
+(`https://www.douyin.com/video/<id>`, `/note/<id>`, `modal_id=<id>`) are resolved locally; short
+`v.douyin.com` links must be expanded to the full address first.
+
+Like the account homepage workflow, single-video collection also supports the local MediaCrawler
+provider (`--provider mediacrawler`): the controlled bridge opens the dedicated visible browser,
+waits for manual Douyin login, and calls `get_video_by_id` for the detail plus optional
+top-level comments. MediaCrawler requires the pinned submodule runtime and manual authentication;
+TikHub is a paid API and still needs `--confirm-provider-cost`.
+
+The one-command workflow joins every stage:
+
+```bash
+uv run distiller video analyze --project <dir> --url <video-url> \
+  --whisper-model base --deep --deep-provider cloud \
+  --weknora-kb-id <knowledge-base-id> --confirm-provider-cost --json
+```
+
+It collects the video, downloads and locally transcribes the media (Whisper provides the
+transcript the deep distillation needs), runs the blind text analysis, deep-distills the
+reference card (optionally with a cloud model), and pushes it to WeKnora when `--weknora-kb-id`
+is set. The same collection step is exposed as
+`POST /api/projects/{project}/collection/analyze-video-url`, and the Web「新建蒸馏」page offers a
+「单视频蒸馏」mode for the collection entry.
+
+

@@ -46,7 +46,7 @@ from video_account_distiller.features import VideoAnalysisService
 from video_account_distiller.growth import AccountGrowthService
 from video_account_distiller.ingestion import ImportService
 from video_account_distiller.insights import AnalysisContextService
-from video_account_distiller.knowledge import KnowledgeExportService
+from video_account_distiller.knowledge import KnowledgeExportService, WeKnoraSyncService
 from video_account_distiller.media import (
     AccountMediaEnrichmentService,
     LocalMediaAnalysisService,
@@ -96,6 +96,14 @@ package_app = typer.Typer(
     help="Build local, privacy-aware knowledge packages.",
     no_args_is_help=True,
 )
+weknora_app = typer.Typer(
+    help="Sync curated reports into a WeKnora knowledge base.",
+    no_args_is_help=True,
+)
+video_app = typer.Typer(
+    help="Collect and deeply distill a single public video by URL.",
+    no_args_is_help=True,
+)
 app.add_typer(import_app, name="import")
 app.add_typer(analyze_app, name="analyze")
 app.add_typer(sync_app, name="sync")
@@ -108,6 +116,8 @@ app.add_typer(backup_app, name="backup")
 app.add_typer(release_app, name="release")
 app.add_typer(gpt_evaluation_app, name="gpt-eval")
 knowledge_app.add_typer(package_app, name="package")
+knowledge_app.add_typer(weknora_app, name="weknora")
+app.add_typer(video_app, name="video")
 
 
 def _vision_provider(
@@ -647,6 +657,268 @@ def knowledge_package_export_command(
             f"{account}: {result['document_path']}"
         ),
     )
+
+
+@weknora_app.command("sync-video")
+def weknora_sync_video_command(
+    project: Path = typer.Option(..., "--project"),
+    video: str = typer.Option(..., "--video"),
+    kb_id: str = typer.Option(..., "--kb-id"),
+    base_url: str = typer.Option("http://127.0.0.1:8080", "--base-url"),
+    api_key: str = typer.Option(..., "--api-key", envvar="WEKNORA_API_KEY"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Upload one video's deep distillation card into a WeKnora knowledge base."""
+
+    result = _execute(
+        lambda: WeKnoraSyncService(ProjectLayout.open(project)).sync_video_distillation(
+            video_id=video,
+            base_url=base_url,
+            api_key=api_key,
+            kb_id=kb_id,
+        ),
+        json_output=json_output,
+    )
+    _emit(
+        result,
+        json_output=json_output,
+        human=(
+            f"Synced single-video distillation {video} -> {result['kb_name']}: "
+            f"{len(result['uploaded'])} uploaded, {len(result['replaced'])} replaced"
+        ),
+    )
+
+
+@weknora_app.command("sync-account")
+def weknora_sync_account_command(
+    project: Path = typer.Option(..., "--project"),
+    account: str = typer.Option(..., "--account"),
+    kb_id: str = typer.Option(..., "--kb-id"),
+    base_url: str = typer.Option("http://127.0.0.1:8080", "--base-url"),
+    api_key: str = typer.Option(..., "--api-key", envvar="WEKNORA_API_KEY"),
+    max_video_analyses: int = typer.Option(10, "--max-video-analyses", min=1, max=1_000),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Upload the account's human-readable analysis reports into WeKnora."""
+
+    result = _execute(
+        lambda: WeKnoraSyncService(ProjectLayout.open(project)).sync_account(
+            account_id=account,
+            base_url=base_url,
+            api_key=api_key,
+            kb_id=kb_id,
+            max_video_analyses=max_video_analyses,
+        ),
+        json_output=json_output,
+    )
+    _emit(
+        result,
+        json_output=json_output,
+        human=(
+            f"Synced account {account} -> {result['kb_name']}: "
+            f"{len(result['uploaded'])} uploaded, {len(result['replaced'])} replaced"
+        ),
+    )
+
+
+@video_app.command("collect")
+def video_collect_command(
+    project: Path = typer.Option(..., "--project"),
+    url: str = typer.Option(..., "--url", help="Douyin single-video URL."),
+    provider: CollectionProviderKind = typer.Option(
+        CollectionProviderKind.TIKHUB,
+        "--provider",
+        help="Collection provider: tikhub (paid API) or mediacrawler (local browser).",
+    ),
+    comments_per_video: int = typer.Option(0, "--comments-per-video", min=0, max=200),
+    confirm_provider_cost: bool = typer.Option(
+        False,
+        "--confirm-provider-cost",
+        help="Acknowledge the paid TikHub call after reviewing --dry-run.",
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Collect one public video and import it into the offline kernel."""
+
+    result = _execute(
+        lambda: AccountCollectionService(
+            ProjectLayout.open(project),
+            build_account_provider(provider),
+        ).analyze_video_url(
+            url=url,
+            provider=provider,
+            confirm_provider_cost=confirm_provider_cost,
+            comments_per_video=comments_per_video,
+            dry_run=dry_run,
+        ),
+        json_output=json_output,
+    )
+    human = "Would collect" if dry_run else "Collected"
+    _emit(
+        result,
+        json_output=json_output,
+        human=(
+            f"{human} {url} via {provider.value}: "
+            f"video_id={result.get('video_id', 'n/a')} "
+            f"account_id={result.get('account_id', 'n/a')}"
+        ),
+    )
+
+
+@video_app.command("analyze")
+def video_analyze_command(
+    project: Path = typer.Option(..., "--project"),
+    url: str = typer.Option(..., "--url", help="Douyin single-video URL."),
+    provider: CollectionProviderKind = typer.Option(
+        CollectionProviderKind.TIKHUB,
+        "--provider",
+        help="Collection provider: tikhub (paid API) or mediacrawler (local browser).",
+    ),
+    comments_per_video: int = typer.Option(0, "--comments-per-video", min=0, max=200),
+    whisper_model: str = typer.Option("base", "--whisper-model"),
+    whisper_command: Path | None = typer.Option(
+        None,
+        "--whisper-command",
+        help="Optional path to a local OpenAI Whisper executable.",
+    ),
+    vision_provider: str | None = typer.Option(
+        None,
+        "--vision-provider",
+        help="Optional local visual provider; currently supports ollama.",
+    ),
+    vision_model: str = typer.Option("qwen3-vl:8b", "--vision-model"),
+    ollama_base_url: str = typer.Option(
+        "http://127.0.0.1:11434",
+        "--ollama-base-url",
+    ),
+    vision_batch_size: int = typer.Option(4, "--vision-batch-size", min=1, max=8),
+    vision_timeout_seconds: int = typer.Option(
+        180,
+        "--vision-timeout-seconds",
+        min=1,
+        max=1800,
+    ),
+    deep: bool = typer.Option(
+        False,
+        "--deep",
+        help="Also run single-video deep distillation (选材/表现/拍摄/可复制清单).",
+    ),
+    deep_provider: str | None = typer.Option(
+        None,
+        "--deep-provider",
+        help="Deep-distillation model provider: ollama, llamacpp, or cloud.",
+    ),
+    deep_model: str | None = typer.Option(None, "--deep-model"),
+    deep_base_url: str | None = typer.Option(None, "--deep-base-url"),
+    deep_api_key: str | None = typer.Option(None, "--deep-api-key"),
+    strict_deep: bool = typer.Option(
+        False,
+        "--strict-deep",
+        help="Fail instead of using deterministic deep-distillation fallback.",
+    ),
+    weknora_kb_id: str | None = typer.Option(
+        None,
+        "--weknora-kb-id",
+        help="When set, push the deep distillation card into this WeKnora knowledge base.",
+    ),
+    weknora_base_url: str = typer.Option("http://127.0.0.1:8080", "--weknora-base-url"),
+    weknora_api_key: str | None = typer.Option(
+        None,
+        "--weknora-api-key",
+        envvar="WEKNORA_API_KEY",
+        help="WeKnora API key (or WEKNORA_API_KEY env var).",
+    ),
+    confirm_provider_cost: bool = typer.Option(
+        False,
+        "--confirm-provider-cost",
+        help="Acknowledge the paid TikHub call after reviewing --dry-run.",
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Collect a video URL, transcribe locally, deep-distill, optionally push to WeKnora."""
+
+    layout = ProjectLayout.open(project)
+
+    def operation() -> dict[str, Any]:
+        collected = AccountCollectionService(
+            layout,
+            build_account_provider(provider),
+        ).analyze_video_url(
+            url=url,
+            provider=provider,
+            confirm_provider_cost=confirm_provider_cost,
+            comments_per_video=comments_per_video,
+            dry_run=dry_run,
+        )
+        if dry_run:
+            return {"ok": True, "dry_run": True, "collection": collected}
+        account_id = collected["account_id"]
+        video_id = collected["video_id"]
+        result: dict[str, Any] = {"collection": collected}
+        enrichment = AccountMediaEnrichmentService(
+            layout,
+            transcriber=WhisperCliTranscriber(
+                command=whisper_command,
+                model=whisper_model,
+            ),
+            vision_provider=_vision_provider(
+                provider=vision_provider,
+                model=vision_model,
+                base_url=ollama_base_url,
+                batch_size=vision_batch_size,
+                timeout_seconds=vision_timeout_seconds,
+            ),
+        ).enrich(
+            account_id=account_id,
+            limit=1,
+            selection_mode="selected",
+            video_ids=[video_id],
+            refresh_media=True,
+        )
+        result["media_enrichment"] = enrichment
+        result["analysis"] = VideoAnalysisService(layout).analyze(video_id=video_id)
+        if deep:
+            deep_result = SingleVideoDistillationService(layout).distill(
+                video_id=video_id,
+                deep_provider=(
+                    cast(Literal["ollama", "llamacpp", "cloud", "none"], deep_provider)
+                    if deep_provider in {"ollama", "llamacpp", "cloud", "none"}
+                    else None
+                ),
+                deep_model=deep_model,
+                deep_base_url=deep_base_url,
+                deep_api_key=deep_api_key,
+                strict_model=strict_deep,
+                dry_run=dry_run,
+            )
+            result["deep_distillation"] = deep_result
+        if weknora_kb_id:
+            if not (weknora_api_key or "").strip():
+                raise DistillerError(
+                    ErrorCode.ADAPTER_AUTH,
+                    "WeKnora API Key is required for --weknora-kb-id",
+                    details={"next": "pass --weknora-api-key or set WEKNORA_API_KEY"},
+                )
+            result["weknora_sync"] = WeKnoraSyncService(layout).sync_video_distillation(
+                video_id=video_id,
+                base_url=weknora_base_url,
+                api_key=weknora_api_key or "",
+                kb_id=weknora_kb_id,
+            )
+        return result
+
+    result = _execute(operation, json_output=json_output)
+    human_parts = [f"Analyzed {url}"]
+    if "analysis" in result:
+        human_parts.append(f"status={result['analysis']['analysis']['status']}")
+    if "deep_distillation" in result:
+        human_parts.append(f"deep={result['deep_distillation']['distillation']['status']}")
+    if "weknora_sync" in result:
+        sync = result["weknora_sync"]
+        human_parts.append(f"weknora={sync['kb_name']}({len(sync['uploaded'])} uploaded)")
+    _emit(result, json_output=json_output, human="; ".join(human_parts))
 
 
 def _import_command(

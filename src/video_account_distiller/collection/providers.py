@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import time
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
@@ -41,11 +42,39 @@ from video_account_distiller.utils.hashing import hash_text
 TIKHUB_BASE_URLS = {"https://api.tikhub.dev", "https://api.tikhub.io"}
 RESOLVE_PATH = "/api/v1/douyin/web/get_sec_user_id"
 PROFILE_PATH = "/api/v1/douyin/app/v3/handler_user_profile"
+VIDEO_DETAIL_PATH = "/api/v1/douyin/web/fetch_one_video"
 COMMENTS_PATH = "/api/v1/douyin/web/fetch_video_comments"
 POSTS_PATHS = {
     "web": "/api/v1/douyin/web/fetch_user_post_videos",
     "app-v3": "/api/v1/douyin/app/v3/fetch_user_post_videos",
 }
+
+_VIDEO_URL_ID_PATTERNS = (
+    re.compile(r"(?:video|note)/(\d{5,})"),
+    re.compile(r"[?&]modal_id=(\d{5,})"),
+    re.compile(r"[?&]aweme_id=(\d{5,})"),
+)
+
+
+def resolve_video_id_from_url(url: str) -> str:
+    """Extract a Douyin aweme id from a standard single-video URL.
+
+    Short share links (v.douyin.com) cannot be resolved without a network
+    request; the caller is asked to open the link and paste the full address.
+    """
+    cleaned = url.strip()
+    for pattern in _VIDEO_URL_ID_PATTERNS:
+        match = pattern.search(cleaned)
+        if match is not None:
+            return match.group(1)
+    raise DistillerError(
+        ErrorCode.PROFILE_URL_INVALID,
+        "Could not resolve a Douyin video id from the URL",
+        details={
+            "url": cleaned,
+            "next": "打开短链后复制完整视频地址（https://www.douyin.com/video/<id>）再重试",
+        },
+    )
 
 
 class AccountCollectionProvider(Protocol):
@@ -595,6 +624,117 @@ class TikHubAccountProvider:
             account=account,
             videos=videos,
             metrics=metrics,
+            comments=comments,
+            raw_pages=pages,
+            warnings=warnings,
+        )
+
+    def collect_video(
+        self,
+        url: str,
+        *,
+        comments_per_video: int = 0,
+    ) -> AccountCollectionBatch:
+        """Collect one public Douyin video detail and optional top-level comments.
+
+        The returned batch carries exactly one video. The account row is derived
+        from the detail's author object when present; otherwise a minimal
+        placeholder account is used so the single video can flow through the
+        existing import and normalization kernel.
+        """
+        fetched_at = datetime.now(UTC)
+        video_id = resolve_video_id_from_url(url)
+        detail_page = self._get(
+            VIDEO_DETAIL_PATH,
+            {"aweme_id": video_id},
+            fetched_at=fetched_at,
+        )
+        detail_data = _provider_data(detail_page.payload)
+        detail = _first_mapping(detail_data, ("aweme_id", "item_id", "statistics", "video"))
+        if detail is None:
+            raise DistillerError(
+                ErrorCode.ADAPTER_RESPONSE,
+                "Provider video detail did not contain a recognizable Douyin video object",
+            )
+        author = _first_mapping(
+            detail.get("author"),
+            ("sec_uid", "uid", "unique_id", "nickname"),
+        ) or _first_mapping(detail, ("sec_uid", "unique_id", "nickname"))
+        platform_account_id = (
+            _text((author or {}).get("sec_uid") or (author or {}).get("uid"))
+            or f"video-owner-{video_id}"
+        )
+        if author is not None:
+            account = _map_profile(
+                author,
+                platform_account_id=platform_account_id,
+                profile_url=url,
+                fetched_at=fetched_at,
+            )
+        else:
+            account = CollectedAccount(
+                platform_account_id=platform_account_id,
+                display_name="单视频采集",
+                profile_url=url,
+                snapshot_at=fetched_at,
+            )
+        mapped = _map_post(
+            detail,
+            platform_account_id=platform_account_id,
+            fetched_at=fetched_at,
+            metric_source="tikhub:douyin-fetch-one-video",
+        )
+        if mapped is None:
+            raise DistillerError(
+                ErrorCode.ADAPTER_RESPONSE,
+                "Provider video detail did not map to a public video",
+                details={"video_id": video_id},
+            )
+        video, metric = mapped
+        pages = [detail_page]
+        comments: list[CollectedComment] = []
+        warnings: list[str] = []
+        if comments_per_video > 0:
+            try:
+                comment_page = self._get(
+                    COMMENTS_PATH,
+                    {
+                        "aweme_id": video_id,
+                        "cursor": 0,
+                        "count": comments_per_video,
+                    },
+                    fetched_at=fetched_at,
+                )
+            except DistillerError as exc:
+                warnings.append(f"comment_collection_degraded:{exc.code.value}")
+            else:
+                pages.append(comment_page)
+                seen: set[str] = set()
+                for item in _first_list(
+                    _provider_data(comment_page.payload),
+                    ("comments", "comment_list", "items"),
+                )[:comments_per_video]:
+                    mapped_comment = _map_comment(
+                        item,
+                        video_id=video_id,
+                        platform_account_id=platform_account_id,
+                    )
+                    if mapped_comment is None or mapped_comment.platform_comment_id in seen:
+                        continue
+                    seen.add(mapped_comment.platform_comment_id)
+                    comments.append(mapped_comment)
+                if not comments:
+                    warnings.append("provider_returned_no_usable_public_comments")
+        if metric.views is None:
+            warnings.append("public_view_count_is_missing")
+        return AccountCollectionBatch(
+            provider=CollectionProviderKind.TIKHUB,
+            profile_url=url,
+            platform_account_id=platform_account_id,
+            fetched_at=fetched_at,
+            account=account,
+            videos=[video],
+            metrics=[metric],
             comments=comments,
             raw_pages=pages,
             warnings=warnings,

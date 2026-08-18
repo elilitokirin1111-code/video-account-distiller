@@ -33,7 +33,16 @@ async def analyze_video(
     project_path: str,
     video_id: str,
     request: Request,
-    body: VideoAnalysisParams = VideoAnalysisParams(model_output=None, max_attempts=None),
+    body: VideoAnalysisParams = VideoAnalysisParams(
+        model_output=None,
+        max_attempts=None,
+        deep=False,
+        deep_provider=None,
+        deep_model=None,
+        deep_base_url=None,
+        deep_output=None,
+        strict_deep=False,
+    ),
     dry_run: bool = False,
 ) -> dict[str, Any]:
     layout = resolve_project(project_path)

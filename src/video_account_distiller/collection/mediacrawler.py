@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tempfile
 import tomllib
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -26,6 +27,7 @@ from video_account_distiller.models import (
     HOMEPAGE_VIDEO_SAFETY_LIMIT,
     AccountCollectionBatch,
     AccountCollectionRequest,
+    CollectedAccount,
     CollectedComment,
     CollectedMetricSnapshot,
     CollectedVideo,
@@ -517,14 +519,18 @@ class MediaCrawlerAccountProvider:
             str(output_path),
         ]
 
-    def _run_bridge(self, request: AccountCollectionRequest) -> MediaCrawlerBridgePayload:
+    def _execute_bridge(
+        self,
+        command_builder: Callable[[Path], list[str]],
+    ) -> MediaCrawlerBridgePayload:
         self._validate_runtime()
         with tempfile.TemporaryDirectory(prefix="distiller-mediacrawler-") as temporary:
             output_path = Path(temporary) / "bridge-result.json"
+            command = command_builder(output_path)
             attempts = 1
             try:
                 result = self.executor.run(
-                    self._command(request, output_path),
+                    command,
                     cwd=self.home,
                     timeout_seconds=self.process_timeout_seconds,
                 )
@@ -534,7 +540,7 @@ class MediaCrawlerAccountProvider:
                 ):
                     attempts += 1
                     result = self.executor.run(
-                        self._command(request, output_path),
+                        command,
                         cwd=self.home,
                         timeout_seconds=self.process_timeout_seconds,
                     )
@@ -561,6 +567,127 @@ class MediaCrawlerAccountProvider:
                     "MediaCrawler bridge result failed schema validation",
                     details={"reason": str(exc.errors(include_url=False)[0]["msg"])},
                 ) from exc
+
+    def _run_bridge(self, request: AccountCollectionRequest) -> MediaCrawlerBridgePayload:
+        return self._execute_bridge(lambda output_path: self._command(request, output_path))
+
+    def _command_video(self, url: str, *, comments_per_video: int, output_path: Path) -> list[str]:
+        assert self.uv_executable is not None
+        return [
+            self.uv_executable,
+            "run",
+            "--project",
+            str(self.home),
+            "--frozen",
+            "python",
+            str(self.bridge_script),
+            "--media-root",
+            str(self.home),
+            "--video-url",
+            url,
+            "--sort",
+            "latest",
+            "--max-pages",
+            str(HOMEPAGE_PAGE_SAFETY_LIMIT),
+            "--max-videos",
+            "1",
+            "--comments-per-video",
+            str(comments_per_video),
+            "--comment-video-limit",
+            "1",
+            "--browser-profile",
+            str(self.browser_profile),
+            "--browser-channel",
+            self.browser_channel,
+            "--login-timeout",
+            str(self.login_timeout_seconds),
+            "--request-interval",
+            str(self.request_interval_seconds),
+            "--output",
+            str(output_path),
+        ]
+
+    def _run_bridge_video(self, url: str, *, comments_per_video: int) -> MediaCrawlerBridgePayload:
+        return self._execute_bridge(
+            lambda output_path: self._command_video(
+                url,
+                comments_per_video=comments_per_video,
+                output_path=output_path,
+            )
+        )
+
+    def collect_video(self, url: str, *, comments_per_video: int = 0) -> AccountCollectionBatch:
+        """Collect one public video detail and optional comments via the local browser."""
+        bridge = self._run_bridge_video(url, comments_per_video=comments_per_video)
+        profile = bridge.profile
+        if profile:
+            account = _map_profile(
+                profile,
+                platform_account_id=bridge.platform_account_id,
+                profile_url=url,
+                fetched_at=bridge.fetched_at,
+            )
+        else:
+            account = CollectedAccount(
+                platform_account_id=bridge.platform_account_id,
+                display_name="单视频采集",
+                profile_url=url,
+                snapshot_at=bridge.fetched_at,
+            )
+        videos: list[CollectedVideo] = []
+        metrics: list[CollectedMetricSnapshot] = []
+        for item in bridge.videos:
+            mapped = _map_post(
+                item,
+                platform_account_id=bridge.platform_account_id,
+                fetched_at=bridge.fetched_at,
+                metric_source=f"mediacrawler:{MEDIACRAWLER_PINNED_COMMIT[:12]}",
+            )
+            if mapped is None or mapped[0].platform_video_id in {
+                v.platform_video_id for v in videos
+            }:
+                continue
+            videos.append(mapped[0])
+            metrics.append(mapped[1])
+        comments: list[CollectedComment] = []
+        seen_comments: set[str] = set()
+        for video_id, items in bridge.comments.items():
+            if video_id not in {item.platform_video_id for item in videos}:
+                continue
+            for item in items:
+                mapped_comment = _map_comment(
+                    item,
+                    video_id=video_id,
+                    platform_account_id=bridge.platform_account_id,
+                )
+                if mapped_comment is None or mapped_comment.platform_comment_id in seen_comments:
+                    continue
+                seen_comments.add(mapped_comment.platform_comment_id)
+                comments.append(mapped_comment)
+        warnings = list(bridge.warnings)
+        if any(metric.views is None for metric in metrics):
+            warnings.append("public_view_count_is_missing")
+        if comments_per_video > 0 and not comments:
+            warnings.append("provider_returned_no_usable_public_comments")
+        return AccountCollectionBatch(
+            provider=CollectionProviderKind.MEDIACRAWLER,
+            profile_url=url,
+            platform_account_id=bridge.platform_account_id,
+            fetched_at=bridge.fetched_at,
+            account=account,
+            videos=videos,
+            metrics=metrics,
+            comments=comments,
+            raw_pages=[
+                ProviderRawPage(
+                    endpoint=page.endpoint,
+                    fetched_at=bridge.fetched_at,
+                    payload=page.payload,
+                )
+                for page in bridge.raw_pages
+            ],
+            warnings=warnings,
+        )
 
     def collect(self, request: AccountCollectionRequest) -> AccountCollectionBatch:
         """Collect one public account and return the complete canonical batch."""

@@ -24,7 +24,7 @@ st.set_page_config(
     page_title="采集任务 · Video Account Distiller",
     page_icon=":material/add_task:",
     layout="wide",
-    initial_sidebar_state="auto",
+    initial_sidebar_state="expanded",
 )
 
 STAGE_LABELS = {
@@ -44,6 +44,32 @@ STAGE_LABELS = {
     "failed": "执行失败",
     "cancelling": "正在安全取消",
     "cancelled": "已取消",
+}
+
+# 云端深度分析服务商与模型选项（模块级共享：GPT 分析页与任务表单都会用到）。
+provider_labels = {
+    "DeepSeek": "deepseek",
+    "OpenAI": "openai",
+    "阿里云百炼": "bailian",
+}
+models_by_provider = {
+    "openai": {
+        "均衡（GPT-5.6 Terra）": "gpt-5.6-terra",
+        "高质量（GPT-5.6 Sol）": "gpt-5.6-sol",
+        "高效率（GPT-5.6 Luna）": "gpt-5.6-luna",
+    },
+    "bailian": {
+        "千问 3.7 Plus": "qwen3.7-plus",
+        "千问 qwen-max（质量优先）": "qwen-max-latest",
+        "千问 qwen-plus（均衡）": "qwen-plus-latest",
+        "千问 qwen-turbo（高性价比）": "qwen-turbo-latest",
+        "千问 qwen-long（长上下文）": "qwen-long",
+    },
+    "deepseek": {
+        "高性价比深度蒸馏（DeepSeek V4 Flash）": "deepseek-v4-flash",
+        "质量优先（DeepSeek V4 Pro）": "deepseek-v4-pro",
+        "DeepSeek Chat": "deepseek-chat",
+    },
 }
 
 
@@ -98,6 +124,108 @@ def _request(
 
 def _encoded_project() -> str:
     return quote(_project_path(), safe="")
+
+
+def _render_single_video_section(project_path: str) -> None:
+    """Single-video entry: collect one interesting video by URL into the kernel.
+
+    The deep distillation needs local transcription, so after collection the
+    page guides the user to the one-command CLI (distiller video analyze) that
+    downloads, transcribes, deep-distills, and optionally pushes to WeKnora.
+    """
+    section_header(
+        "单视频蒸馏",
+        "对一条感兴趣的视频做深度拆解，不关注其账号整体：采集入库后，"
+        "本地转写、云端深度分析与 WeKnora 导入由一条命令完成。",
+    )
+    st.markdown(
+        '<div class="ds-form-intro">适合“不关注这位博主，但这条视频很符合想法”的场景。'
+        "TikHub API（付费，需 TIKHUB_API_KEY）或 MediaCrawler（本地浏览器，需手动登录抖音）。"
+        "短链请先在浏览器打开后复制完整地址。</div>",
+        unsafe_allow_html=True,
+    )
+    with st.form("single_video_collect_form"):
+        video_url = st.text_input(
+            "抖音视频链接",
+            value=str(st.session_state.get("last_single_video_url") or ""),
+            placeholder="https://www.douyin.com/video/<id>",
+        )
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            video_provider = st.selectbox(
+                "采集方式",
+                ["tikhub", "mediacrawler"],
+                index=0,
+                help="TikHub：付费 API；MediaCrawler：本地浏览器手动登录。",
+            )
+        with c2:
+            video_comments = st.number_input("采集评论数", min_value=0, max_value=200, value=0)
+        with c3:
+            confirm_cost = st.checkbox(
+                "我已知晓并确认采集费用/浏览器登录",
+                value=False,
+                help="TikHub 为一次性计费调用；MediaCrawler 会打开浏览器等待手动登录。",
+            )
+        submitted = st.form_submit_button(
+            "采集这条视频",
+            type="primary",
+            disabled=not video_url.strip(),
+            use_container_width=True,
+        )
+    if submitted:
+        if not confirm_cost:
+            st.error("请先勾选确认；TikHub 为计费调用，MediaCrawler 会打开浏览器等待手动登录。")
+        elif project_path:
+            st.session_state["last_single_video_url"] = video_url.strip()
+            with st.spinner("正在采集单条视频并入库…"):
+                response = _request(
+                    f"/api/projects/{_encoded_project()}/collection/analyze-video-url",
+                    method="POST",
+                    timeout=180,
+                    json={
+                        "url": video_url.strip(),
+                        "provider": video_provider,
+                        "comments_per_video": int(video_comments),
+                        "confirm_provider_cost": True,
+                    },
+                )
+            if response.get("ok"):
+                st.session_state["last_single_video"] = response
+                st.success("采集完成，视频已写入当前工作区。")
+            else:
+                st.error(str(response.get("error", {}).get("message") or "单视频采集失败"))
+        else:
+            st.error("尚未选择工作区，请先在左侧边栏设置工作区。")
+
+    last = st.session_state.get("last_single_video")
+    if isinstance(last, dict) and last.get("ok"):
+        collection = last.get("collection") or {}
+        st.markdown("#### 采集结果")
+        st.json(
+            {
+                "标题": last.get("title"),
+                "platform_video_id": last.get("platform_video_id"),
+                "video_id": last.get("video_id"),
+                "account_id": last.get("account_id"),
+                "视频数": collection.get("videos"),
+                "评论数": collection.get("comments"),
+                "原始证据": collection.get("raw_artifact"),
+                "告警": collection.get("warnings"),
+            }
+        )
+        st.info(
+            "下一步（在命令行完成，需要本地 Whisper 环境与工作区）:\n\n"
+            "```bash\n"
+            f'distiller video analyze --project "{project_path}" \\\n'
+            f'  --url "{last.get("url")}" --whisper-model base --deep \\\n'
+            "  --deep-provider cloud   # 云端深度分析（选材/表现/拍摄/可复制清单）\n"
+            "  --weknora-kb-id <知识库ID>   # 可选：导入 WeKnora\n"
+            "```\n\n"
+            "短链需先展开为完整地址；Whisper 转写是深度蒸馏的字幕来源。",
+            icon=":material/terminal:",
+        )
+    elif last is not None:
+        st.error(str(last.get("error", {}).get("message") or "上次单视频采集未成功"))
 
 
 def _account_project() -> str:
@@ -516,25 +644,6 @@ def _render_gpt_analysis(account_id: str) -> None:
             st.error(f"权限更新失败：{(updated.get('error') or {}).get('message', '未知错误')}")
         return
 
-    provider_labels = {
-        "DeepSeek": "deepseek",
-        "OpenAI": "openai",
-        "阿里云百炼": "bailian",
-    }
-    models_by_provider = {
-        "openai": {
-            "均衡（GPT-5.6 Terra）": "gpt-5.6-terra",
-            "高质量（GPT-5.6 Sol）": "gpt-5.6-sol",
-            "高效率（GPT-5.6 Luna）": "gpt-5.6-luna",
-        },
-        "bailian": {
-            "千问 3.7 Plus": "qwen3.7-plus",
-        },
-        "deepseek": {
-            "高性价比深度蒸馏（DeepSeek V4 Flash）": "deepseek-v4-flash",
-            "质量优先（DeepSeek V4 Pro）": "deepseek-v4-pro",
-        },
-    }
     template_labels = {
         "账号体检": "account_health",
         "内容策略": "content_strategy",
@@ -647,25 +756,18 @@ def _render_gpt_analysis(account_id: str) -> None:
             )
         st.session_state[probe_key] = probe
     online_models = probe.get("models", []) if isinstance(probe, dict) and probe.get("ok") else []
-    model_labels = {
-        label: model
-        for label, model in models_by_provider[provider_key].items()
-        if model in online_models
-    }
+    # 模型下拉始终展示该服务商的全部兼容选项：服务商在线模型 ID 与本地枚举
+    # 命名可能不一致（例如百炼返回 qwen-max 而枚举为 qwen-max-latest），
+    # 精确过滤会导致 qwen 选项消失。在线识别只用于连接状态展示。
+    model_labels = models_by_provider[provider_key]
     if credential_configured:
         st.success(
             f"{provider_label} API 已保存并可持续使用"
             + (f"；来源：{credential_source}" if credential_source else "")
+            + (f"；在线识别 {len(online_models)} 个模型" if online_models else "")
         )
     elif isinstance(probe, dict) and not probe.get("ok"):
         st.error(f"在线识别失败：{(probe.get('error') or {}).get('message', '未知错误')}")
-    if not model_labels:
-        model_labels = models_by_provider[provider_key]
-        if credential_configured:
-            st.warning(
-                "暂未从服务商读取到模型列表，已保留该服务商的兼容模型选项。"
-                "这不会阻止提交；服务端会在调用前再次校验模型并返回明确错误。"
-            )
 
     model_column, template_column, reasoning_column = st.columns(3)
     with model_column:
@@ -1221,6 +1323,20 @@ template = st.session_state.get("last_collection_template") or {}
 
 stepper(["粘贴主页", "选择范围", "开始蒸馏"], active=1)
 
+# ── 单视频深度蒸馏入口 ────────────────────────────────────────────────
+# 针对"不关注该博主、但这条视频符合想法"的场景：粘贴单条视频链接，
+# 采集入库后可通过 CLI 完成本地转写与深度蒸馏（distiller video analyze）。
+work_mode = st.radio(
+    "工作流",
+    ["账号蒸馏", "单视频蒸馏"],
+    horizontal=True,
+    index=0,
+    key="collect_work_mode",
+)
+if work_mode == "单视频蒸馏":
+    _render_single_video_section(project_path)
+    st.stop()
+
 with st.form("self_service_distill_form"):
     with st.container(border=True):
         st.markdown("#### 01 · 账号主页")
@@ -1418,33 +1534,63 @@ with st.form("self_service_distill_form"):
             cloud_vision_model = str(template.get("cloud_vision_model") or "qwen-vl-max-latest")
             if text_source.startswith("云端") or vision_choice.startswith("云端"):
                 st.caption("云端配置仅用于本次任务；长期密钥请在设置页验证并保存。")
+                cloud_endpoint_choices = {
+                    "DeepSeek（https://api.deepseek.com）": "https://api.deepseek.com",
+                    "阿里云百炼 DashScope（qwen）": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                    "阿里云百炼 MaaS 工作空间（自定义域名）": "ws-<workspace>.cn-beijing.maas.aliyuncs.com",
+                    "自定义": "",
+                }
+                cloud_endpoint_label = st.selectbox(
+                    "云端服务商",
+                    list(cloud_endpoint_choices),
+                    index=(
+                        list(cloud_endpoint_choices).index("阿里云百炼 DashScope（qwen）")
+                        if "dashscope" in cloud_base_url
+                        else list(cloud_endpoint_choices).index("DeepSeek（https://api.deepseek.com）")
+                        if "deepseek" in cloud_base_url
+                        else 0
+                    ),
+                )
+                chosen_endpoint = cloud_endpoint_choices[cloud_endpoint_label]
                 cloud_base_url = st.text_input(
                     "云端服务地址（OpenAI 兼容）",
-                    value=cloud_base_url,
-                    placeholder="https://api.deepseek.com 或 DashScope compatible-mode",
+                    value=cloud_base_url if cloud_endpoint_label != "自定义" else cloud_base_url,
+                    placeholder=(
+                        chosen_endpoint
+                        if cloud_endpoint_label == "自定义"
+                        else chosen_endpoint
+                    ),
+                    help=(
+                        "无协议前缀的地址会自动补全 https://。"
+                        "百炼 MaaS 域名（ws-*.maas.aliyuncs.com）可直接使用，"
+                        "无需手动加 https://。"
+                    ),
                 )
                 cloud_api_key = st.text_input(
                     "云端 API Key",
                     type="password",
                     value=cloud_api_key,
+                    help="百炼密钥以 sk- 开头，请确保与所选服务商一致；错误配对会在调用时返回 401。",
                 )
                 cloud_models = st.columns(2)
                 with cloud_models[0]:
                     cloud_text_model = st.text_input(
                         "云端文本模型",
                         value=cloud_text_model,
+                        help="文本盲分析与深度蒸馏使用的模型。",
                     )
                 with cloud_models[1]:
                     cloud_vision_model = st.text_input(
                         "云端视觉模型",
                         value=cloud_vision_model,
+                        help="百炼默认 qwen-vl-max-latest。",
                     )
             export_knowledge = st.checkbox(
                 "生成运营学习报告与数据证据附件（用于 Obsidian 与归档）",
                 value=bool(template.get("export_knowledge", True)),
             )
             knowledge_synthesis = st.checkbox(
-                "使用 DeepSeek V4 Flash 提炼可模仿打法、运营启发和经营知识卡",
+                "生成账号级综合知识卡（云端深度分析）",
                 value=bool(template.get("knowledge_analysis")),
                 help=(
                     "在事实与模式整理完成后运行一次高推理强度的账号级综合，"
@@ -1453,16 +1599,62 @@ with st.form("self_service_distill_form"):
             )
             confirm_knowledge_upload = False
             confirm_knowledge_cost = False
+            knowledge_analysis_payload: dict[str, Any] | None = None
             if knowledge_synthesis:
-                st.caption("需要先在设置页开启云模型权限并安全保存 DeepSeek API Key。")
+                saved_analysis = template.get("knowledge_analysis") or {}
+                saved_provider = str(
+                    (saved_analysis if isinstance(saved_analysis, dict) else {}).get("provider")
+                    or "deepseek"
+                )
+                provider_label_options = list(provider_labels)
+                knowledge_provider_label = st.selectbox(
+                    "知识分析服务商",
+                    provider_label_options,
+                    index=(
+                        provider_label_options.index("阿里云百炼")
+                        if saved_provider == "bailian"
+                        else provider_label_options.index("OpenAI")
+                        if saved_provider == "openai"
+                        else 0
+                    ),
+                    key="knowledge_provider_label",
+                    help="选择「阿里云百炼」即可使用 qwen 系列模型。",
+                )
+                knowledge_provider_key = provider_labels[knowledge_provider_label]
+                knowledge_models = models_by_provider[knowledge_provider_key]
+                knowledge_model_label = st.selectbox(
+                    "知识分析模型",
+                    list(knowledge_models),
+                    index=0,
+                    key="knowledge_model_label",
+                )
+                st.caption(
+                    f"需要先在设置页开启云模型权限，并把 {knowledge_provider_label} API Key "
+                    "安全保存到当前 Windows 用户凭据。"
+                )
                 confirm_knowledge_upload = st.checkbox(
-                    "我确认将脱敏、受限的账号分析上下文发送给 DeepSeek",
+                    f"我确认将脱敏、受限的账号分析上下文发送给 {knowledge_provider_label}",
                     value=False,
                 )
                 confirm_knowledge_cost = st.checkbox(
-                    "我确认本次 DeepSeek V4 Flash 调用可能产生费用",
+                    f"我确认本次 {knowledge_model_label} 调用可能产生费用",
                     value=False,
                 )
+                knowledge_analysis_payload = {
+                    "provider": knowledge_provider_key,
+                    "model": knowledge_models[knowledge_model_label],
+                    "template": "content_strategy",
+                    "reasoning_effort": "high",
+                    "max_video_analyses": max(
+                        1,
+                        min(
+                            1_000 if all_videos else int(video_count),
+                            1_000,
+                        ),
+                    ),
+                    "confirm_cloud_upload": confirm_knowledge_upload,
+                    "confirm_cost": confirm_knowledge_cost,
+                }
             strict_media = st.checkbox(
                 "任一视频失败即停止",
                 value=bool(template.get("strict_media_enrichment", False)),
@@ -1566,25 +1758,7 @@ payload = {
     "vision_model": vision_model,
     "strict_media_enrichment": strict_media,
     "strict_vision": strict_vision,
-    "knowledge_analysis": (
-        {
-            "provider": "deepseek",
-            "model": "deepseek-v4-flash",
-            "template": "content_strategy",
-            "reasoning_effort": "high",
-            "max_video_analyses": max(
-                1,
-                min(
-                    1_000 if all_videos else int(video_count),
-                    1_000,
-                ),
-            ),
-            "confirm_cloud_upload": confirm_knowledge_upload,
-            "confirm_cost": confirm_knowledge_cost,
-        }
-        if knowledge_synthesis
-        else None
-    ),
+    "knowledge_analysis": knowledge_analysis_payload if knowledge_synthesis else None,
     "export_knowledge": export_knowledge,
 }
 

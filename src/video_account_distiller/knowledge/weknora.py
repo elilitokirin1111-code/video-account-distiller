@@ -14,7 +14,9 @@ from video_account_distiller.knowledge.obsidian import (
     HUMAN_DIR_NAME,
     ObsidianVaultExporter,
 )
+from video_account_distiller.models import SingleVideoDistillation
 from video_account_distiller.storage.project import ProjectLayout
+from video_account_distiller.utils.io import read_json
 
 DEFAULT_WEKNORA_BASE_URL = "http://127.0.0.1:8080"
 DEFAULT_WEKNORA_KB_NAME = "视频账号蒸馏"
@@ -254,6 +256,224 @@ class WeKnoraSyncService:
             "ok": not errors,
             "kb_id": selected_kb_id,
             "kb_name": kb_name,
+            "replaced": replaced,
+            "uploaded": uploaded,
+            "errors": errors,
+            "error_code": error_code,
+            "message": message,
+        }
+
+    def _latest_video_distillation(
+        self, video_id: str
+    ) -> tuple[SingleVideoDistillation, Path] | None:
+        selected: tuple[SingleVideoDistillation, Path] | None = None
+        for path in sorted(
+            (self.project.root / "analyses" / "videos" / video_id).glob("svd_*/distillation.json")
+        ):
+            try:
+                value = SingleVideoDistillation.model_validate(read_json(path))
+            except (OSError, ValueError):
+                continue
+            if value.video_id != video_id:
+                continue
+            if selected is None or (value.generated_at, value.distillation_id) > (
+                selected[0].generated_at,
+                selected[0].distillation_id,
+            ):
+                selected = (value, path)
+        return selected
+
+    def sync_video_distillation(
+        self,
+        *,
+        video_id: str,
+        base_url: str = DEFAULT_WEKNORA_BASE_URL,
+        api_key: str,
+        kb_id: str,
+    ) -> dict[str, Any]:
+        """Upload one video's deep distillation (选材/表现/拍摄/可复制清单) to WeKnora.
+
+        This covers the single-video workflow: deep-distill one interesting video
+        (optionally with a cloud deep model) and push the reference card into the
+        knowledge base without requiring any account-level artifacts.
+        """
+        selected_kb_id = kb_id.strip()
+        if not selected_kb_id:
+            raise DistillerError(
+                ErrorCode.SCHEMA_INVALID,
+                "WeKnora knowledge base ID is required",
+            )
+        selected = self._latest_video_distillation(video_id)
+        if selected is None:
+            raise DistillerError(
+                ErrorCode.INPUT_MISSING,
+                f"No single-video deep distillation found: {video_id}",
+                details={"next": "run distiller analyze video --deep before WeKnora sync"},
+            )
+        distillation, distillation_path = selected
+        report_path = distillation_path.parent / "report.md"
+        if not report_path.is_file():
+            raise DistillerError(
+                ErrorCode.INPUT_MISSING,
+                f"Single-video deep distillation report is missing: {report_path}",
+            )
+        knowledge_bases = self.list_knowledge_bases(base_url=base_url, api_key=api_key)
+        target = next(
+            (item for item in knowledge_bases if item["id"] == selected_kb_id),
+            None,
+        )
+        if target is None:
+            raise DistillerError(
+                ErrorCode.SCHEMA_INVALID,
+                "WeKnora target knowledge base was not found or is not visible to this API Key",
+                details={
+                    "kb_id": selected_kb_id,
+                    "next": "重新读取该 API Key 可访问的知识库并选择目标库。",
+                },
+            )
+        kb_name = target["name"]
+        headers = {"X-API-Key": api_key.strip()}
+        api = _api_url(base_url)
+        replaced: list[str] = []
+        errors: list[str] = []
+
+        existing: list[dict[str, Any]] = []
+        page = 1
+        while True:
+            try:
+                response = requests.get(
+                    f"{api}/knowledge-bases/{selected_kb_id}/knowledge",
+                    headers=headers,
+                    params={"page": page, "page_size": 100},
+                    timeout=30,
+                )
+            except requests.RequestException as exc:
+                errors.append(f"读取现有知识失败: {exc}")
+                break
+            if not response.ok:
+                errors.append(
+                    f"读取现有知识失败: HTTP {response.status_code} {response.text[:200]}"
+                )
+                break
+            payload = response.json()
+            items = payload.get("data") if isinstance(payload, dict) else None
+            if not isinstance(items, list):
+                errors.append("读取现有知识失败: WeKnora 返回格式无效")
+                break
+            existing.extend(item for item in items if isinstance(item, dict))
+            total = int(payload.get("total") or len(existing))
+            if len(existing) >= total or len(items) < 100:
+                break
+            page += 1
+
+        owned_existing: list[dict[str, Any]] = []
+        for item in existing:
+            metadata = item.get("metadata")
+            if isinstance(metadata, str):
+                try:
+                    metadata = json.loads(metadata)
+                except (TypeError, ValueError):
+                    metadata = {}
+            if not isinstance(metadata, dict):
+                metadata = {}
+            if (
+                item.get("channel") == "distiller"
+                and metadata.get("source") == "video-account-distiller"
+                and metadata.get("video_id") == video_id
+            ):
+                owned_existing.append(item)
+
+        if not errors:
+            for item in owned_existing:
+                knowledge_id = str(item.get("id") or "").strip()
+                if not knowledge_id:
+                    continue
+                try:
+                    response = requests.delete(
+                        f"{api}/knowledge/{knowledge_id}",
+                        headers=headers,
+                        timeout=60,
+                    )
+                    if response.ok:
+                        replaced.append(
+                            str(item.get("file_name") or item.get("title") or knowledge_id)
+                        )
+                    else:
+                        errors.append(
+                            f"删除旧知识 {knowledge_id} 失败: HTTP {response.status_code} "
+                            f"{response.text[:200]}"
+                        )
+                except requests.RequestException as exc:
+                    errors.append(f"删除旧知识 {knowledge_id} 失败: {exc}")
+
+        report_text = report_path.read_text(encoding="utf-8")
+        document = (
+            "---\n"
+            f"source: video-account-distiller\n"
+            f"video_id: {video_id}\n"
+            f"distillation_id: {distillation.distillation_id}\n"
+            f"status: {distillation.status}\n"
+            f"type: single-video-distillation\n"
+            "---\n\n"
+            f"{report_text}"
+        )
+        relative_name = f"videos/{video_id}/single-video-distillation.md"
+        uploaded: list[str] = []
+        if not errors:
+            try:
+                response = requests.post(
+                    f"{api}/knowledge-bases/{selected_kb_id}/knowledge/file",
+                    headers=headers,
+                    files={
+                        "file": (
+                            "single-video-distillation.md",
+                            document.encode("utf-8"),
+                            "text/markdown",
+                        )
+                    },
+                    data={
+                        "fileName": relative_name,
+                        "metadata": json.dumps(
+                            {
+                                "source": "video-account-distiller",
+                                "video_id": video_id,
+                                "distillation_id": distillation.distillation_id,
+                            },
+                            ensure_ascii=False,
+                        ),
+                        "channel": "distiller",
+                    },
+                    timeout=180,
+                )
+                if response.status_code in {200, 201, 202}:
+                    uploaded.append(relative_name)
+                else:
+                    errors.append(
+                        f"single-video-distillation.md: HTTP {response.status_code} "
+                        f"{response.text[:200]}"
+                    )
+            except requests.RequestException as exc:
+                errors.append(f"single-video-distillation.md: {exc}")
+
+        error_code: str | None = None
+        message: str | None = None
+        scope_rejected = any(": HTTP 403" in error and '"code":1002' in error for error in errors)
+        if scope_rejected:
+            error_code = "API_KEY_SCOPE_NOT_ALLOWED"
+            message = (
+                "WeKnora API Key 无权向此知识库上传文件。请在 WeKnora 的 API Key 设置中，"
+                "为目标知识库授予文档上传/编辑权限后重试。"
+            )
+        elif errors:
+            message = "WeKnora 未能完成单视频蒸馏文档上传。"
+
+        return {
+            "ok": not errors,
+            "kb_id": selected_kb_id,
+            "kb_name": kb_name,
+            "video_id": video_id,
+            "distillation_id": distillation.distillation_id,
+            "status": distillation.status,
             "replaced": replaced,
             "uploaded": uploaded,
             "errors": errors,

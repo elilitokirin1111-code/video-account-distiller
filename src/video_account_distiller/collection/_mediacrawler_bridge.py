@@ -336,7 +336,150 @@ def _resolve_douyin_short_url(url: str) -> str:
     return url
 
 
+async def _open_browser_client(
+    playwright: Any,
+    runtime: dict[str, Any],
+    args: argparse.Namespace,
+) -> tuple[Any, Any, Any]:
+    """Launch the dedicated browser, build the authenticated client, and return it.
+
+    The caller keeps the ``playwright`` instance alive with ``async with`` and
+    owns the returned browser context. Manual login remains a user action
+    performed in the visible browser.
+    """
+    browser_profile = Path(args.browser_profile).expanduser().resolve()
+    browser_profile.mkdir(parents=True, exist_ok=True)
+    browser_context = await playwright.chromium.launch_persistent_context(
+        user_data_dir=str(browser_profile),
+        channel=args.browser_channel,
+        headless=False,
+        accept_downloads=False,
+        locale="zh-CN",
+        viewport={"width": 1440, "height": 900},
+    )
+    try:
+        page = browser_context.pages[0] if browser_context.pages else None
+        if page is None:
+            page = await browser_context.new_page()
+        await page.goto(
+            DOUYIN_HOME,
+            wait_until="domcontentloaded",
+            timeout=60_000,
+        )
+        cookie_urls = ["https://www.douyin.com", "https://www.toutiao.com"]
+        cookie_str, cookie_dict = await runtime["utils"].convert_browser_context_cookies(
+            browser_context,
+            urls=cookie_urls,
+        )
+        client = runtime["client_class"](
+            proxy=None,
+            headers={
+                "User-Agent": await page.evaluate("() => navigator.userAgent"),
+                "Cookie": cookie_str,
+                "Host": "www.douyin.com",
+                "Origin": "https://www.douyin.com/",
+                "Referer": "https://www.douyin.com/",
+                "Content-Type": "application/json;charset=UTF-8",
+            },
+            playwright_page=page,
+            cookie_dict=cookie_dict,
+            proxy_ip_pool=None,
+        )
+        await _wait_for_manual_login(
+            client,
+            browser_context,
+            timeout_seconds=args.login_timeout,
+        )
+        return browser_context, page, client
+    except BaseException:
+        await browser_context.close()
+        raise
+
+
+def _video_id_from_url(url: str) -> str:
+    """Extract a Douyin aweme id from a standard or resolved video URL."""
+    import re
+
+    for pattern in (
+        re.compile(r"(?:video|note)/(\d{5,})"),
+        re.compile(r"[?&]modal_id=(\d{5,})"),
+        re.compile(r"[?&]aweme_id=(\d{5,})"),
+    ):
+        match = pattern.search(url)
+        if match is not None:
+            return match.group(1)
+    raise BridgeFailure(
+        "video_url_invalid",
+        "Could not resolve a Douyin video id from the video URL.",
+    )
+
+
+async def _run_video(args: argparse.Namespace) -> dict[str, Any]:
+    """Collect one public video detail and optional top-level comments."""
+    media_root = Path(args.media_root).resolve()
+    runtime = _load_mediacrawler(media_root)
+    fetched_at = datetime.now(UTC)
+    raw_pages: list[dict[str, Any]] = []
+    warnings: list[str] = []
+    video_url = _resolve_douyin_short_url(args.video_url)
+    video_id = _video_id_from_url(video_url)
+    try:
+        async with runtime["async_playwright"]() as playwright:
+            browser_context, _page, client = await _open_browser_client(playwright, runtime, args)
+            try:
+                detail = _mapping(await client.get_video_by_id(video_id))
+                if not detail:
+                    raise BridgeFailure(
+                        "data_fetch_error",
+                        "MediaCrawler returned no public video detail.",
+                    )
+                raw_pages.append(
+                    {
+                        "endpoint": f"/aweme/v1/web/aweme/detail/?aweme_id={video_id}",
+                        "payload": detail,
+                    }
+                )
+                author = _mapping(detail.get("author"))
+                platform_account_id = (
+                    str(author.get("sec_uid") or author.get("uid") or "").strip()
+                    or f"video-owner-{video_id}"
+                )
+                profile = author or {}
+                comments = await _collect_comments(
+                    client,
+                    [detail],
+                    comments_per_video=args.comments_per_video,
+                    comment_video_limit=1,
+                    request_interval=args.request_interval,
+                    raw_pages=raw_pages,
+                    warnings=warnings,
+                )
+            finally:
+                await browser_context.close()
+    except BridgeFailure:
+        raise
+    except Exception as exc:
+        raise BridgeFailure(
+            "browser_or_collection_error",
+            f"{type(exc).__name__}: {exc}",
+        ) from exc
+    return {
+        "schema_version": BRIDGE_SCHEMA_VERSION,
+        "ok": True,
+        "fetched_at": fetched_at.isoformat(),
+        "profile_url": video_url,
+        "platform_account_id": platform_account_id,
+        "profile": profile,
+        "videos": [detail],
+        "comments": comments,
+        "raw_pages": raw_pages,
+        "warnings": warnings,
+    }
+
+
 async def _run(args: argparse.Namespace) -> dict[str, Any]:
+    if getattr(args, "video_url", None):
+        return await _run_video(args)
     media_root = Path(args.media_root).resolve()
     runtime = _load_mediacrawler(media_root)
     browser_profile = Path(args.browser_profile).expanduser().resolve()
@@ -353,50 +496,8 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
 
     try:
         async with runtime["async_playwright"]() as playwright:
-            browser_context = await playwright.chromium.launch_persistent_context(
-                user_data_dir=str(browser_profile),
-                channel=args.browser_channel,
-                headless=False,
-                accept_downloads=False,
-                locale="zh-CN",
-                viewport={"width": 1440, "height": 900},
-            )
+            browser_context, _page, client = await _open_browser_client(playwright, runtime, args)
             try:
-                page = browser_context.pages[0] if browser_context.pages else None
-                if page is None:
-                    page = await browser_context.new_page()
-                await page.goto(
-                    DOUYIN_HOME,
-                    wait_until="domcontentloaded",
-                    timeout=60_000,
-                )
-                cookie_urls = [
-                    "https://www.douyin.com",
-                    "https://www.toutiao.com",
-                ]
-                cookie_str, cookie_dict = await runtime["utils"].convert_browser_context_cookies(
-                    browser_context,
-                    urls=cookie_urls,
-                )
-                client = runtime["client_class"](
-                    proxy=None,
-                    headers={
-                        "User-Agent": await page.evaluate("() => navigator.userAgent"),
-                        "Cookie": cookie_str,
-                        "Host": "www.douyin.com",
-                        "Origin": "https://www.douyin.com/",
-                        "Referer": "https://www.douyin.com/",
-                        "Content-Type": "application/json;charset=UTF-8",
-                    },
-                    playwright_page=page,
-                    cookie_dict=cookie_dict,
-                    proxy_ip_pool=None,
-                )
-                await _wait_for_manual_login(
-                    client,
-                    browser_context,
-                    timeout_seconds=args.login_timeout,
-                )
                 profile = _mapping(await client.get_user_info(sec_user_id))
                 if not profile:
                     raise BridgeFailure(
@@ -481,7 +582,8 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run a controlled MediaCrawler Douyin collection.")
     parser.add_argument("--media-root", required=True)
-    parser.add_argument("--profile-url", required=True)
+    parser.add_argument("--profile-url")
+    parser.add_argument("--video-url")
     parser.add_argument("--count", type=int)
     parser.add_argument("--sort", choices=("latest", "popular"), required=True)
     parser.add_argument(

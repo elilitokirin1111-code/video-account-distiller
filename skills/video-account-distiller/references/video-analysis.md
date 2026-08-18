@@ -46,3 +46,11 @@ to real `segment_id`/`shot_id` evidence. Without a provider the service degrades
 (`status: degraded`) to deterministic aggregation of blind labels and measured media features;
 `--strict-deep` fails instead. `distiller validate` checks the `svd_*` artifacts and their
 evidence links.
+
+To push the reference card into WeKnora, run
+`distiller knowledge weknora sync-video --project <dir> --video <video-id> --kb-id <id>
+--base-url http://127.0.0.1:8080 --api-key $env:WEKNORA_API_KEY` (or the equivalent
+`POST /api/projects/{project}/knowledge/weknora/videos/{video_id}/sync`). The HTTP analyze route
+(`POST /api/projects/{project}/analyze/video/{video_id}` with `deep: true`) supports
+`deep_provider cloud` with credentials resolved from the workspace credential store, never from the
+request body.

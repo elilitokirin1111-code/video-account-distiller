@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Any, Literal, TypeAlias
+from typing import Annotated, Any, Literal, TypeAlias, cast
 
 from pydantic import BaseModel, Field, TypeAdapter
 
@@ -48,6 +48,7 @@ from video_account_distiller.distillation import (
     AccountDistillationService,
     BenchmarkComparisonService,
 )
+from video_account_distiller.distillation.video import SingleVideoDistillationService
 from video_account_distiller.features import VideoAnalysisService
 from video_account_distiller.insights import (
     KeyringCloudCredentialStore,
@@ -310,13 +311,34 @@ def execute_api_job(
         )
 
     if isinstance(job, AnalyzeVideoJob):
-        return VideoAnalysisService(layout).analyze(
+        result = VideoAnalysisService(layout).analyze(
             video_id=job.video_id,
             model_output=Path(job.body.model_output) if job.body.model_output else None,
             max_attempts=job.body.max_attempts,
             strict_model=job.body.strict_model,
             dry_run=job.dry_run,
         )
+        if job.body.deep:
+            deep_provider = (
+                cast(
+                    Literal["ollama", "llamacpp", "cloud", "none"],
+                    job.body.deep_provider,
+                )
+                if job.body.deep_provider in {"ollama", "llamacpp", "cloud", "none"}
+                else None
+            )
+            deep_result = SingleVideoDistillationService(layout).distill(
+                video_id=job.video_id,
+                deep_provider=deep_provider,
+                deep_model=job.body.deep_model,
+                deep_base_url=job.body.deep_base_url,
+                model_output=Path(job.body.deep_output) if job.body.deep_output else None,
+                max_attempts=job.body.max_attempts,
+                strict_model=job.body.strict_deep,
+                dry_run=job.dry_run,
+            )
+            result["deep_distillation"] = deep_result
+        return result
 
     if isinstance(job, AnalyzeCommentsJob):
         return CommentAnalysisService(layout).analyze(

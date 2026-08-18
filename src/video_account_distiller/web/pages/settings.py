@@ -19,7 +19,7 @@ st.set_page_config(
     page_title="系统设置 · Video Account Distiller",
     page_icon=":material/settings:",
     layout="wide",
-    initial_sidebar_state="auto",
+    initial_sidebar_state="expanded",
 )
 
 context = setup_page(

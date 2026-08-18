@@ -20,7 +20,7 @@ st.set_page_config(
     page_title="分析报告 · Video Account Distiller",
     page_icon=":material/description:",
     layout="wide",
-    initial_sidebar_state="auto",
+    initial_sidebar_state="expanded",
 )
 
 

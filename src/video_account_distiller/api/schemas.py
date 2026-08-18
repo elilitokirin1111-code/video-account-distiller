@@ -104,6 +104,17 @@ class VideoAnalysisParams(BaseModel):
     model_output: str | None = Field(None, description="Path to pre-generated model output")
     max_attempts: int | None = Field(None, ge=1, le=5)
     strict_model: bool = False
+    deep: bool = Field(
+        False,
+        description="Also run single-video deep distillation (topic/expression/craft/copy).",
+    )
+    deep_provider: str | None = Field(
+        None, description="Deep distillation model provider: ollama, llamacpp, or cloud."
+    )
+    deep_model: str | None = Field(None, max_length=128)
+    deep_base_url: str | None = Field(None, max_length=2048)
+    deep_output: str | None = Field(None, description="Offline deep-distillation JSON path.")
+    strict_deep: bool = False
 
 
 class CommentAnalysisParams(BaseModel):
@@ -196,6 +207,15 @@ class CollectionAnalyzeParams(BaseModel):
     comments_per_video: int | None = Field(default=None, ge=0, le=20)
     comment_video_limit: int | None = Field(default=None, ge=1, le=20_000)
     max_provider_calls: int | None = Field(default=None, ge=1, le=50_000)
+    confirm_provider_cost: bool = False
+
+
+class VideoUrlCollectParams(BaseModel):
+    """Single-video collection: one public Douyin video URL."""
+
+    url: str = Field(..., min_length=1, max_length=2048)
+    provider: CollectionProviderKind = CollectionProviderKind.TIKHUB
+    comments_per_video: int = Field(default=0, ge=0, le=200)
     confirm_provider_cost: bool = False
 
 

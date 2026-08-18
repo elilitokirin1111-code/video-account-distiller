@@ -95,6 +95,29 @@ allowlist, and the response passes the same local Pydantic and evidence-referenc
 OpenAI path. The provider records the Alibaba response ID, returned model, normalized token usage,
 and a frozen CNY rate snapshot without persisting the raw response.
 
+### Qwen (Bailian) across the full chain
+
+Alibaba Cloud Model Studio works everywhere a cloud provider is selectable:
+
+- **Account-level knowledge analysis**: choose「阿里云百炼」in the GPT analysis page (or the task
+  form's 知识分析服务商 picker) and pick a Qwen model — `qwen3.7-plus`, `qwen-max-latest`,
+  `qwen-plus-latest`, `qwen-turbo-latest`, or `qwen-long`. Save the `sk-` key for the **bailian**
+  slot in the OS credential store; a key saved under the wrong provider (e.g. a Bailian key in the
+  DeepSeek slot) returns `E_ADAPTER_AUTH` (401) against the other provider's endpoint.
+- **Text blind analysis and single-video deep distillation**: set `text_provider=cloud` and either
+  use `https://dashscope.aliyuncs.com/compatible-mode/v1` or paste your Model Studio MaaS gateway
+  (`ws-<workspace>.cn-beijing.maas.aliyuncs.com`) — a missing `https://` scheme is completed
+  automatically. Use a Qwen text model such as `qwen-max-latest`.
+- **Visual analysis**: `vision_provider=cloud` defaults to `qwen-vl-max-latest` on
+  DashScope/MaaS.
+- **CLI deep distillation**: `--deep-provider cloud --deep-model qwen-max-latest
+  --deep-base-url <dashscope-or-maas>`.
+
+Environment fallbacks are `DASHSCOPE_API_KEY`/`DASHSCOPE_BASE_URL` for Bailian and
+`DEEPSEEK_API_KEY`/`DEEPSEEK_BASE_URL` for DeepSeek. A `401` on a task almost always means the key
+does not match the selected provider/endpoint: verify in the「云端模型权限」tab which provider slot
+holds the key and that the task selected the same provider.
+
 Only a redacted context is uploaded. Direct platform account IDs, handles, profile URLs, raw
 hashes, and source-row metadata are removed, while raw comments, provider pages, signed media URLs,
 browser state, and credentials were already excluded by the bounded context contract.
