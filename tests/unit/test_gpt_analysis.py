@@ -288,7 +288,7 @@ def test_bailian_provider_uses_json_mode_and_environment_only_credential() -> No
     assert payload["model"] == "qwen3.7-plus"
     assert payload["response_format"] == {"type": "json_object"}
     assert payload["enable_thinking"] is True
-    assert payload["max_tokens"] == 32_768
+    assert payload["max_tokens"] == 65_536
     assert "JSON Schema" in payload["messages"][0]["content"]
     assert "sk-bailian-temporary-secret" not in call["body"].decode("utf-8")
 

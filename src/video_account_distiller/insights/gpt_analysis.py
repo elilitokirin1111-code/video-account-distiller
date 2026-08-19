@@ -55,13 +55,15 @@ _EVALUATION_RUN_KEY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$")
 # Model Studio MaaS caps qwen-max/qwen-plus/qwen-turbo input at 30,720 tokens;
 # ~3.3 UTF-8 bytes per token for Chinese gives roughly 100 KB. Use a conservative
 # byte budget so the analysis context is trimmed before the provider rejects it.
+# qwen3.7-plus carries a 1M-token context window (max output 65,536), matching
+# qwen3.8-max, so it gets the same generous input budget.
 _MODEL_INPUT_BUDGET_BYTES: dict[str, int] = {
     "qwen3.8-max": 1_000_000,
+    "qwen3.7-plus": 1_000_000,
     "qwen-max": 80_000,
     "qwen-plus": 80_000,
     "qwen-turbo": 80_000,
     "qwen3.7-max": 400_000,
-    "qwen3.7-plus": 400_000,
     "qwen3.6-max": 400_000,
     "qwen-long": 1_400_000,
 }
@@ -76,11 +78,12 @@ _MODEL_INPUT_BUDGET_BYTES: dict[str, int] = {
 # account context already consumed ~13.5K completion tokens, so 16K left no
 # headroom and high-effort runs occasionally truncated. The API accepts up to
 # 65536, so reasoning models get a generous budget that covers thinking plus
-# the full JSON payload.
+# the full JSON payload. qwen3.7-plus advertises a 65,536 max output, so it
+# gets the same ceiling as DeepSeek reasoning models.
 _MODEL_OUTPUT_BUDGET_TOKENS: dict[str, int] = {
     "qwen3.8-max": 32_768,
     "qwen3.7-max": 32_768,
-    "qwen3.7-plus": 32_768,
+    "qwen3.7-plus": 65_536,
     "qwen3.6-max": 32_768,
     "qwen-long": 32_768,
     "qwen-max": 8_192,

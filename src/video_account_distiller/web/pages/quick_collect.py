@@ -65,7 +65,7 @@ models_by_provider = {
         "千问 qwen-plus（均衡）": "qwen-plus",
         "千问 qwen-turbo（高性价比）": "qwen-turbo",
         "千问 qwen3.7-max": "qwen3.7-max",
-        "千问 qwen3.7-plus": "qwen3.7-plus",
+        "千问 qwen3.7-plus（100 万上下文）": "qwen3.7-plus",
         "千问 qwen-long（长上下文）": "qwen-long",
     },
     "deepseek": {
