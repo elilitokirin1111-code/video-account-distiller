@@ -450,7 +450,81 @@ def test_deepseek_v4_flash_provider_enables_thinking_and_json_mode() -> None:
     assert payload["thinking"] == {"type": "enabled"}
     assert payload["reasoning_effort"] == "high"
     assert payload["response_format"] == {"type": "json_object"}
+    assert payload["max_tokens"] == 16_384
     assert "sk-deepseek-temporary-secret" not in executor.calls[0]["body"].decode("utf-8")
+
+
+def test_deepseek_provider_falls_back_to_reasoning_content() -> None:
+    """Thinking-mode DeepSeek may put the whole JSON in reasoning_content."""
+    expected = _analysis()
+    response = {
+        "id": "chatcmpl_deepseek_reasoning",
+        "model": "deepseek-v4-flash",
+        "choices": [
+            {
+                "finish_reason": "stop",
+                "message": {
+                    "role": "assistant",
+                    "content": "",
+                    "reasoning_content": json.dumps(
+                        expected.model_dump(mode="json"), ensure_ascii=False
+                    ),
+                },
+            }
+        ],
+        "usage": {"prompt_tokens": 120, "completion_tokens": 60, "total_tokens": 180},
+    }
+    executor = RecordingExecutor(response)
+    provider = DeepSeekChatCompletionsProvider(
+        model=DeepSeekModel.V4_FLASH,
+        reasoning_effort=ReasoningEffort.HIGH,
+        executor=executor,
+        credential_loader=lambda: "sk-deepseek-temporary-secret",
+    )
+
+    result = provider.analyze(
+        instructions="Analyze with evidence.",
+        context_json='{"account":{"account_id":"acc_test"}}',
+    )
+
+    assert result.analysis == expected
+    assert result.response_id == "chatcmpl_deepseek_reasoning"
+
+
+def test_deepseek_provider_reports_truncated_completion_readably() -> None:
+    """A length-truncated DeepSeek response must surface a readable error."""
+    response = {
+        "id": "chatcmpl_deepseek_truncated",
+        "model": "deepseek-v4-flash",
+        "choices": [
+            {
+                "finish_reason": "length",
+                "message": {
+                    "role": "assistant",
+                    "content": '{"executive_summary": "unfinished...',
+                },
+            }
+        ],
+        "usage": {"prompt_tokens": 100, "completion_tokens": 8_000, "total_tokens": 8_100},
+    }
+    executor = RecordingExecutor(response)
+    provider = DeepSeekChatCompletionsProvider(
+        model=DeepSeekModel.V4_FLASH,
+        reasoning_effort=ReasoningEffort.HIGH,
+        executor=executor,
+        credential_loader=lambda: "sk-deepseek-temporary-secret",
+    )
+
+    with pytest.raises(DistillerError) as exc:
+        provider.analyze(
+            instructions="Analyze with evidence.",
+            context_json='{"account":{"account_id":"acc_test"}}',
+        )
+
+    assert exc.value.code is ErrorCode.MODEL_SCHEMA_INVALID
+    assert "truncated" in exc.value.message
+    assert exc.value.details["finish_reason"] == "length"
+    assert "deepseek-v4-flash" in exc.value.details["hint"]
 
 
 def test_cloud_analysis_options_reject_cross_provider_models() -> None:

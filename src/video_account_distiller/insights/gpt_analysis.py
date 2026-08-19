@@ -81,6 +81,9 @@ _MODEL_OUTPUT_BUDGET_TOKENS: dict[str, int] = {
     "qwen-plus": 8_192,
     "qwen-turbo": 8_192,
     "qwen-plus-latest": 8_192,
+    "deepseek-v4-flash": 16_384,
+    "deepseek-v4-pro": 16_384,
+    "deepseek-chat": 16_384,
 }
 
 
@@ -714,6 +717,50 @@ def _chat_completion_text(payload: dict[str, Any]) -> str:
     return content.strip()
 
 
+def _deepseek_chat_completion_text(payload: dict[str, Any]) -> str:
+    """Extract the final JSON text from a DeepSeek chat-completion response.
+
+    DeepSeek's thinking mode (``thinking.type=disabled`` is the only reliable
+    non-thinking path) may place the *entire* final answer in
+    ``message.reasoning_content`` while leaving ``message.content`` empty,
+    especially when ``response_format=json_object`` is combined with
+    ``thinking.type=enabled``. Prefer ``content`` and fall back to
+    ``reasoning_content`` so the analysis is not rejected as "missing text".
+    """
+    choices = payload.get("choices")
+    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+        raise DistillerError(
+            ErrorCode.MODEL_SCHEMA_INVALID,
+            "DeepSeek response did not contain a completion choice",
+            details={"response_id": payload.get("id")},
+        )
+    first_choice = choices[0]
+    message = first_choice.get("message")
+    content = message.get("content") if isinstance(message, dict) else None
+    if not isinstance(content, str) or not content.strip():
+        content = message.get("reasoning_content") if isinstance(message, dict) else None
+    if not isinstance(content, str) or not content.strip():
+        raise DistillerError(
+            ErrorCode.MODEL_SCHEMA_INVALID,
+            "DeepSeek response did not contain JSON output text",
+            details={"response_id": payload.get("id")},
+        )
+    if first_choice.get("finish_reason") == "length":
+        raise DistillerError(
+            ErrorCode.MODEL_SCHEMA_INVALID,
+            "DeepSeek response was truncated before the JSON object completed",
+            details={
+                "response_id": payload.get("id"),
+                "finish_reason": "length",
+                "hint": (
+                    "输出被模型输出上限截断：请降低推理强度，或改用输出上限更大的模型"
+                    "（如 deepseek-v4-flash / qwen3.8-max）。"
+                ),
+            },
+        )
+    return content.strip()
+
+
 def _chat_usage(payload: Any) -> dict[str, Any]:
     if not isinstance(payload, dict):
         return {}
@@ -905,6 +952,7 @@ class DeepSeekChatCompletionsProvider:
             ensure_ascii=False,
             separators=(",", ":"),
         )
+        output_budget = _MODEL_OUTPUT_BUDGET_TOKENS.get(self.model_name, 16_384)
         payload: dict[str, Any] = {
             "model": self.model_name,
             "messages": [
@@ -919,6 +967,7 @@ class DeepSeekChatCompletionsProvider:
                 {"role": "user", "content": context_json},
             ],
             "response_format": {"type": "json_object"},
+            "max_tokens": output_budget,
         }
         if self.reasoning_effort is ReasoningEffort.NONE:
             payload["thinking"] = {"type": "disabled"}
@@ -940,13 +989,24 @@ class DeepSeekChatCompletionsProvider:
             payload=payload,
         )
         try:
-            decoded = json.loads(_chat_completion_text(response))
+            decoded = json.loads(_deepseek_chat_completion_text(response))
             analysis = GptAccountAnalysis.model_validate(decoded)
+        except DistillerError:
+            raise
         except (json.JSONDecodeError, ValidationError, TypeError, ValueError) as exc:
+            details: dict[str, Any] = {"response_id": response.get("id")}
+            if isinstance(exc, ValidationError):
+                details["validation_errors"] = [
+                    {
+                        "loc": ".".join(str(part) for part in error["loc"]),
+                        "message": error["msg"],
+                    }
+                    for error in exc.errors()
+                ][:12]
             raise DistillerError(
                 ErrorCode.MODEL_SCHEMA_INVALID,
                 "DeepSeek account analysis failed local schema validation",
-                details={"response_id": response.get("id")},
+                details=details,
             ) from exc
         choices = response.get("choices")
         first_choice = choices[0] if isinstance(choices, list) and choices else {}
