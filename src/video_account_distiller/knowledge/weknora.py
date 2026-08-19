@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,136 @@ def _api_url(base_url: str) -> str:
     if normalized.lower().endswith("/api/v1"):
         return normalized
     return normalized + "/api/v1"
+
+
+def _wait_for_duplicate_clear(
+    api: str,
+    headers: dict[str, str],
+    kb_id: str,
+    knowledge_id: str,
+    *,
+    timeout_seconds: float = 60.0,
+    sleep: Any = time.sleep,
+) -> bool:
+    """Poll the knowledge list until an asynchronously-deleted document is gone.
+
+    WeKnora's DELETE is a background task ("Delete task submitted"), so an
+    immediate re-upload of the same file name races the deletion and fails
+    with HTTP 409 ``duplicate_file``. Wait for the old record to disappear
+    from the listing before retrying the upload.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        try:
+            response = requests.get(
+                f"{api}/knowledge-bases/{kb_id}/knowledge",
+                headers=headers,
+                params={"page": 1, "page_size": 100},
+                timeout=30,
+            )
+        except requests.RequestException:
+            sleep(2.0)
+            continue
+        if not response.ok:
+            sleep(2.0)
+            continue
+        payload = response.json()
+        items = payload.get("data") if isinstance(payload, dict) else None
+        if isinstance(items, list) and not any(
+            str(item.get("id") or "") == knowledge_id for item in items if isinstance(item, dict)
+        ):
+            return True
+        sleep(2.0)
+    return False
+
+
+def _upload_markdown(
+    api: str,
+    headers: dict[str, str],
+    kb_id: str,
+    path: Path,
+    relative_name: str,
+    account_id: str,
+    uploaded: list[str],
+    errors: list[str],
+    upload_name: str | None = None,
+    metadata_extra: dict[str, Any] | None = None,
+) -> bool:
+    """Upload one markdown report, retrying after an async-delete race.
+
+    WeKnora deletes documents asynchronously; if an old document with the
+    same ``fileName`` was just deleted, the immediate re-upload can still
+    collide with the not-yet-removed record and return HTTP 409
+    ``duplicate_file``. In that case delete the colliding record, wait for
+    it to disappear, and retry once.
+    """
+    display_name = upload_name or path.name
+    metadata = {
+        "source": "video-account-distiller",
+        "account_id": account_id,
+    }
+    if metadata_extra:
+        metadata.update(metadata_extra)
+    metadata_json = json.dumps(metadata, ensure_ascii=False)
+
+    def _attempt() -> requests.Response:
+        content = path.read_bytes()
+        return requests.post(
+            f"{api}/knowledge-bases/{kb_id}/knowledge/file",
+            headers=headers,
+            files={"file": (display_name, content, "text/markdown")},
+            data={
+                "fileName": relative_name,
+                "metadata": metadata_json,
+                "channel": "distiller",
+                },
+                timeout=180,
+            )
+
+    try:
+        response = _attempt()
+    except requests.RequestException as exc:
+        errors.append(f"{path.name}: {exc}")
+        return False
+    if response.status_code in {200, 201, 202}:
+        uploaded.append(relative_name)
+        return True
+    if response.status_code == 409:
+        try:
+            duplicate = response.json()
+        except ValueError:
+            duplicate = {}
+        duplicate_data = duplicate.get("data") if isinstance(duplicate, dict) else None
+        knowledge_id = (
+            str(duplicate_data.get("id") or "").strip()
+            if isinstance(duplicate_data, dict)
+            else ""
+        )
+        if knowledge_id:
+            try:
+                delete_response = requests.delete(
+                    f"{api}/knowledge/{knowledge_id}",
+                    headers=headers,
+                    timeout=60,
+                )
+                if delete_response.ok:
+                    _wait_for_duplicate_clear(api, headers, kb_id, knowledge_id)
+            except requests.RequestException:
+                pass
+        try:
+            retry = _attempt()
+        except requests.RequestException as exc:
+            errors.append(f"{path.name}: {exc}")
+            return False
+        if retry.status_code in {200, 201, 202}:
+            uploaded.append(relative_name)
+            return True
+        errors.append(
+            f"{path.name}: HTTP {retry.status_code} {retry.text[:200]}"
+        )
+        return False
+    errors.append(f"{path.name}: HTTP {response.status_code} {response.text[:200]}")
+    return False
 
 
 class WeKnoraSyncService:
@@ -205,6 +336,10 @@ class WeKnoraSyncService:
                 account_id=account_id,
                 vault_path=str(vault),
                 max_video_analyses=max_video_analyses,
+                # The Obsidian bundle includes per-video analysis detail and
+                # pattern notes; a full account distillation routinely exceeds
+                # the 1 MB default, so allow the documented 5 MB ceiling.
+                max_export_bytes=5_000_000,
             )
             human_dir = vault / export["account_folder"] / HUMAN_DIR_NAME
             uploaded: list[str] = []
@@ -212,33 +347,16 @@ class WeKnoraSyncService:
                 relative_name = (
                     f"{export['account_folder']}/{HUMAN_DIR_NAME}/{path.name}"
                 ).replace("\\", "/")
-                try:
-                    with path.open("rb") as handle:
-                        response = requests.post(
-                            f"{api}/knowledge-bases/{selected_kb_id}/knowledge/file",
-                            headers=headers,
-                            files={"file": (path.name, handle, "text/markdown")},
-                            data={
-                                "fileName": relative_name,
-                                "metadata": json.dumps(
-                                    {
-                                        "source": "video-account-distiller",
-                                        "account_id": account_id,
-                                    },
-                                    ensure_ascii=False,
-                                ),
-                                "channel": "distiller",
-                            },
-                            timeout=180,
-                        )
-                    if response.status_code in {200, 201, 202}:
-                        uploaded.append(relative_name)
-                    else:
-                        errors.append(
-                            f"{path.name}: HTTP {response.status_code} {response.text[:200]}"
-                        )
-                except requests.RequestException as exc:
-                    errors.append(f"{path.name}: {exc}")
+                _upload_markdown(
+                    api,
+                    headers,
+                    selected_kb_id,
+                    path,
+                    relative_name,
+                    account_id,
+                    uploaded,
+                    errors,
+                )
 
         error_code: str | None = None
         message: str | None = None
@@ -420,40 +538,35 @@ class WeKnoraSyncService:
         relative_name = f"videos/{video_id}/single-video-distillation.md"
         uploaded: list[str] = []
         if not errors:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                suffix=".md",
+                encoding="utf-8",
+                delete=False,
+            ) as handle:
+                handle.write(document)
+                temp_path = Path(handle.name)
             try:
-                response = requests.post(
-                    f"{api}/knowledge-bases/{selected_kb_id}/knowledge/file",
-                    headers=headers,
-                    files={
-                        "file": (
-                            "single-video-distillation.md",
-                            document.encode("utf-8"),
-                            "text/markdown",
-                        )
+                _upload_markdown(
+                    api,
+                    headers,
+                    selected_kb_id,
+                    temp_path,
+                    relative_name,
+                    f"video:{video_id}",
+                    uploaded,
+                    errors,
+                    upload_name="single-video-distillation.md",
+                    metadata_extra={
+                        "video_id": video_id,
+                        "distillation_id": distillation.distillation_id,
                     },
-                    data={
-                        "fileName": relative_name,
-                        "metadata": json.dumps(
-                            {
-                                "source": "video-account-distiller",
-                                "video_id": video_id,
-                                "distillation_id": distillation.distillation_id,
-                            },
-                            ensure_ascii=False,
-                        ),
-                        "channel": "distiller",
-                    },
-                    timeout=180,
                 )
-                if response.status_code in {200, 201, 202}:
-                    uploaded.append(relative_name)
-                else:
-                    errors.append(
-                        f"single-video-distillation.md: HTTP {response.status_code} "
-                        f"{response.text[:200]}"
-                    )
-            except requests.RequestException as exc:
-                errors.append(f"single-video-distillation.md: {exc}")
+            finally:
+                try:
+                    temp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
         error_code: str | None = None
         message: str | None = None

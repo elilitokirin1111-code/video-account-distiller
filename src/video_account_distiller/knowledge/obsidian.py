@@ -1476,7 +1476,11 @@ class ObsidianVaultExporter:
                 details={
                     "byte_size": total_bytes,
                     "max_export_bytes": max_export_bytes,
-                    "suggestion": "Reduce max_video_analyses",
+                    "suggestion": "Reduce max_video_analyses or sync a narrower account period",
+                    "next": (
+                        "导出内容过大：可在同步时减少“纳入逐视频证据数”，"
+                        "或仅同步已蒸馏账号的核心报告。"
+                    ),
                 },
             )
         human_dir = target / HUMAN_DIR_NAME

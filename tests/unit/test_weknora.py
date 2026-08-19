@@ -37,6 +37,7 @@ class _Export:
         account_id: str,
         vault_path: str,
         max_video_analyses: int,
+        max_export_bytes: int = 5_000_000,
     ) -> dict[str, str]:
         report_dir = Path(vault_path) / "account" / HUMAN_DIR_NAME
         report_dir.mkdir(parents=True)
@@ -122,6 +123,66 @@ def test_weknora_scope_rejection_has_actionable_error(
     assert "API Key" in str(result["message"])
     assert post_urls
     assert all("/knowledge-bases/kb-1/" in url for url in post_urls)
+
+
+def test_weknora_upload_retries_after_async_delete_duplicate(
+    project: ProjectLayout, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A 409 duplicate_file right after an async delete must delete and retry."""
+    deleted: list[str] = []
+    upload_attempts: list[int] = []
+
+    def _get(url: str, *args: Any, **kwargs: Any) -> _Response:
+        if url.endswith("/knowledge-bases"):
+            return _Response(200, {"data": [{"id": "kb-1", "name": "target"}]}, "")
+        # Knowledge listing: report no distiller-owned docs (nothing to delete),
+        # and after the duplicate-record delete the old id is gone.
+        return _Response(
+            200,
+            {"data": [], "total": 0},
+            "",
+        )
+
+    def _delete(url: str, *args: Any, **kwargs: Any) -> _Response:
+        deleted.append(url)
+        return _Response(200, {"success": True}, "")
+
+    def _post(url: str, *args: Any, **kwargs: Any) -> _Response:
+        upload_attempts.append(len(upload_attempts) + 1)
+        if upload_attempts[-1] == 1:
+            return _Response(
+                409,
+                {
+                    "error": {"code": 1000, "message": "duplicate_file"},
+                    "data": {"id": "stale-doc"},
+                },
+                "",
+            )
+        return _Response(201, {"success": True}, "")
+
+    monkeypatch.setattr(requests, "get", _get)
+    monkeypatch.setattr(requests, "delete", _delete)
+    monkeypatch.setattr(requests, "post", _post)
+    monkeypatch.setattr(
+        "video_account_distiller.knowledge.weknora._wait_for_duplicate_clear",
+        lambda *args, **kwargs: True,
+    )
+    monkeypatch.setattr(
+        "video_account_distiller.knowledge.weknora.ObsidianVaultExporter",
+        _Export,
+    )
+
+    result = WeKnoraSyncService(project).sync_account(
+        account_id="account-id",
+        base_url="http://localhost:8080",
+        api_key="sk-test",
+        kb_id="kb-1",
+    )
+
+    assert result["ok"] is True
+    assert result["uploaded"]
+    assert deleted == ["http://localhost:8080/api/v1/knowledge/stale-doc"]
+    assert upload_attempts == [1, 2]
 
 
 def test_weknora_sync_replaces_only_distiller_owned_account_documents(
@@ -378,5 +439,6 @@ def test_weknora_sync_video_distillation_replaces_owned_video_documents(
     assert metadata["video_id"] == "vid_local"
     assert upload["data"]["channel"] == "distiller"
     file_tuple = upload["files"]["file"]
-    assert file_tuple[1].startswith(b"---")
-    assert "单视频深度蒸馏" in file_tuple[1].decode("utf-8")
+    file_content = file_tuple[1].read() if hasattr(file_tuple[1], "read") else file_tuple[1]
+    assert file_content.startswith(b"---")
+    assert "单视频深度蒸馏" in file_content.decode("utf-8")
