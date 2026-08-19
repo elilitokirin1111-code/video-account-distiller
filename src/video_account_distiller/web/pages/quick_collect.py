@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+import keyring
 import requests
 import streamlit as st
 
@@ -2017,12 +2018,31 @@ if isinstance(account_id, str):
             placeholder="http://127.0.0.1:8080",
             help="可填写服务根地址，也可填写以 /api/v1 结尾的完整 API 地址。",
         )
+        weknora_key_default = st.session_state.get("weknora_api_key") or ""
+        if not weknora_key_default:
+            try:
+                weknora_key_default = keyring.get_password(
+                    "video-account-distiller",
+                    "weknora:api-key",
+                ) or ""
+            except Exception:
+                weknora_key_default = ""
         weknora_key = st.text_input(
             "WeKnora API Key",
             type="password",
+            value=weknora_key_default,
             key="weknora_api_key",
             placeholder="在 WeKnora 账户页面获取",
-            help="密钥只保存在当前会话，不会写入项目文件。",
+            help=(
+                "可勾选“保存到系统凭据”将密钥存入 Windows 凭据管理器，"
+                "下次打开本页自动读取，无需重复填写。"
+            ),
+        )
+        save_weknora_key = st.checkbox(
+            "将 WeKnora API Key 保存到系统凭据（下次自动读取）",
+            value=False,
+            key="weknora_save_key_checkbox",
+            help="密钥保存在 Windows 凭据管理器（keyring），不会写入项目文件或仓库。",
         )
         if st.button(
             "读取此 API Key 可访问的知识库",
@@ -2049,6 +2069,16 @@ if isinstance(account_id, str):
                 st.session_state["weknora_knowledge_bases"] = knowledge_bases
                 st.session_state["weknora_base_url"] = cleaned_url
                 web_state.set_state(weknora_base_url=cleaned_url)
+                if save_weknora_key and weknora_key.strip():
+                    try:
+                        keyring.set_password(
+                            "video-account-distiller",
+                            "weknora:api-key",
+                            weknora_key.strip(),
+                        )
+                        st.caption("✓ API Key 已保存到系统凭据，下次打开本页自动读取。")
+                    except Exception:
+                        st.caption("API Key 保存到系统凭据失败（不影响本次使用）。")
                 if knowledge_bases:
                     st.success(f"已读取 {len(knowledge_bases)} 个可访问知识库")
                 else:
@@ -2112,6 +2142,15 @@ if isinstance(account_id, str):
             elif not weknora_key.strip():
                 st.error("请填写 WeKnora API Key")
             else:
+                if save_weknora_key:
+                    try:
+                        keyring.set_password(
+                            "video-account-distiller",
+                            "weknora:api-key",
+                            weknora_key.strip(),
+                        )
+                    except Exception:
+                        pass
                 with st.status("正在同步到 WeKnora…", expanded=True) as activity:
                     activity.write("正在打包分析报告并上传到目标知识库…")
                     sync = _request(
