@@ -28,6 +28,13 @@ from video_account_distiller.utils.ids import stable_id
 from video_account_distiller.utils.io import atomic_write_text, read_json
 
 
+@pytest.fixture(autouse=True)
+def _isolate_cloud_base_urls(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests must not depend on the host machine's cloud endpoint environment."""
+    for name in ("DASHSCOPE_BASE_URL", "DEEPSEEK_BASE_URL"):
+        monkeypatch.delenv(name, raising=False)
+
+
 def _analysis(evidence_ref: str = "context://account") -> GptAccountAnalysis:
     return GptAccountAnalysis.model_validate(
         {
@@ -281,8 +288,131 @@ def test_bailian_provider_uses_json_mode_and_environment_only_credential() -> No
     assert payload["model"] == "qwen3.7-plus"
     assert payload["response_format"] == {"type": "json_object"}
     assert payload["enable_thinking"] is True
+    assert payload["max_tokens"] == 16_384
     assert "JSON Schema" in payload["messages"][0]["content"]
     assert "sk-bailian-temporary-secret" not in call["body"].decode("utf-8")
+
+
+def test_bailian_provider_uses_larger_output_budget_for_reasoning_models() -> None:
+    """Long-context reasoning models must not truncate the full JSON analysis."""
+    expected = _analysis()
+    response = {
+        "id": "chatcmpl_bailian_16384",
+        "model": "qwen3.8-max",
+        "choices": [
+            {
+                "finish_reason": "stop",
+                "message": {
+                    "role": "assistant",
+                    "content": json.dumps(expected.model_dump(mode="json"), ensure_ascii=False),
+                },
+            }
+        ],
+        "usage": {"prompt_tokens": 100, "completion_tokens": 60, "total_tokens": 160},
+    }
+    executor = RecordingExecutor(response)
+    provider = BailianChatCompletionsProvider(
+        model=BailianModel.QWEN_3_8_MAX,
+        reasoning_effort=ReasoningEffort.HIGH,
+        executor=executor,
+        credential_loader=lambda: "sk-bailian-temporary-secret",
+    )
+
+    result = provider.analyze(
+        instructions="Analyze with evidence.",
+        context_json='{"account":{"account_id":"acc_test"}}',
+    )
+
+    assert result.analysis == expected
+    payload: Any = json.loads(executor.calls[0]["body"])
+    assert payload["max_tokens"] == 16_384
+
+
+def test_bailian_provider_reports_truncated_completion_readably() -> None:
+    """A length-truncated response must surface as a readable, actionable error."""
+    response = {
+        "id": "chatcmpl_bailian_truncated",
+        "model": "qwen3.8-max",
+        "choices": [
+            {
+                "finish_reason": "length",
+                "message": {
+                    "role": "assistant",
+                    "content": '{"executive_summary": "unfinished...',
+                },
+            }
+        ],
+        "usage": {"prompt_tokens": 100, "completion_tokens": 8_000, "total_tokens": 8_100},
+    }
+    executor = RecordingExecutor(response)
+    provider = BailianChatCompletionsProvider(
+        model=BailianModel.QWEN_3_8_MAX,
+        reasoning_effort=ReasoningEffort.HIGH,
+        executor=executor,
+        credential_loader=lambda: "sk-bailian-temporary-secret",
+    )
+
+    with pytest.raises(DistillerError) as exc:
+        provider.analyze(
+            instructions="Analyze with evidence.",
+            context_json='{"account":{"account_id":"acc_test"}}',
+        )
+
+    assert exc.value.code is ErrorCode.MODEL_SCHEMA_INVALID
+    assert "truncated" in exc.value.message
+    assert exc.value.details["finish_reason"] == "length"
+    assert "qwen3.8-max" in exc.value.details["hint"]
+
+
+def test_bailian_provider_attaches_validation_field_errors() -> None:
+    """Local schema failures must name the offending field for diagnosis."""
+    response = {
+        "id": "chatcmpl_bailian_badfield",
+        "model": "qwen3.8-max",
+        "choices": [
+            {
+                "finish_reason": "stop",
+                "message": {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {
+                            "executive_summary": "x",
+                            "findings": [],
+                            "priority_actions": [
+                                {
+                                    "priority": 9,
+                                    "action": "a",
+                                    "rationale": "r",
+                                    "evidence_refs": ["context://account"],
+                                }
+                            ],
+                            "experiments": [],
+                            "limitations": ["l"],
+                        },
+                        ensure_ascii=False,
+                    ),
+                },
+            }
+        ],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+    }
+    executor = RecordingExecutor(response)
+    provider = BailianChatCompletionsProvider(
+        model=BailianModel.QWEN_3_8_MAX,
+        reasoning_effort=ReasoningEffort.HIGH,
+        executor=executor,
+        credential_loader=lambda: "sk-bailian-temporary-secret",
+    )
+
+    with pytest.raises(DistillerError) as exc:
+        provider.analyze(
+            instructions="Analyze with evidence.",
+            context_json='{"account":{"account_id":"acc_test"}}',
+        )
+
+    assert exc.value.code is ErrorCode.MODEL_SCHEMA_INVALID
+    locations = [item["loc"] for item in exc.value.details["validation_errors"]]
+    assert any("priority" in location for location in locations)
 
 
 def test_deepseek_v4_flash_provider_enables_thinking_and_json_mode() -> None:

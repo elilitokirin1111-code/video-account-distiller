@@ -41,7 +41,7 @@ DEEPSEEK_API_KEY_ENV = "DEEPSEEK_API_KEY"
 DEEPSEEK_BASE_URL_ENV = "DEEPSEEK_BASE_URL"
 DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com"
 GPT_ANALYSIS_VERSION = "1.4.0"
-GPT_PROMPT_VERSION = "account-learning-playbook-v4"
+GPT_PROMPT_VERSION = "account-learning-playbook-v5"
 GPT_EVALUATION_VERSION = "account-analysis-eval-v2"
 GPT_PRICING_SNAPSHOT = "openai-api-pricing-2026-07-28"
 BAILIAN_PRICING_SNAPSHOT = "aliyun-model-studio-pricing-2026-08-04"
@@ -64,6 +64,23 @@ _MODEL_INPUT_BUDGET_BYTES: dict[str, int] = {
     "qwen3.7-plus": 400_000,
     "qwen3.6-max": 400_000,
     "qwen-long": 1_400_000,
+}
+
+# Model Studio reasoning models (qwen3.8-max and friends) consume a large share
+# of the completion budget on thinking tokens before emitting the JSON payload.
+# A hard cap of 8,000 tokens truncated the full account analysis mid-object
+# (finish_reason=length) and surfaced as E_MODEL_SCHEMA_INVALID. Keep the
+# output budget per model well above the observed ~16K-token complete output.
+_MODEL_OUTPUT_BUDGET_TOKENS: dict[str, int] = {
+    "qwen3.8-max": 16_384,
+    "qwen3.7-max": 16_384,
+    "qwen3.7-plus": 16_384,
+    "qwen3.6-max": 16_384,
+    "qwen-long": 16_384,
+    "qwen-max": 8_192,
+    "qwen-plus": 8_192,
+    "qwen-turbo": 8_192,
+    "qwen-plus-latest": 8_192,
 }
 
 
@@ -672,13 +689,27 @@ def _chat_completion_text(payload: dict[str, Any]) -> str:
             "Bailian response did not contain a completion choice",
             details={"response_id": payload.get("id")},
         )
-    message = choices[0].get("message")
+    first_choice = choices[0]
+    message = first_choice.get("message")
     content = message.get("content") if isinstance(message, dict) else None
     if not isinstance(content, str) or not content.strip():
         raise DistillerError(
             ErrorCode.MODEL_SCHEMA_INVALID,
             "Bailian response did not contain JSON output text",
             details={"response_id": payload.get("id")},
+        )
+    if first_choice.get("finish_reason") == "length":
+        raise DistillerError(
+            ErrorCode.MODEL_SCHEMA_INVALID,
+            "Bailian response was truncated before the JSON object completed",
+            details={
+                "response_id": payload.get("id"),
+                "finish_reason": "length",
+                "hint": (
+                    "输出被模型输出上限截断：请降低推理强度，或改用输出上限更大的模型"
+                    "（如 qwen3.8-max / qwen-long）。"
+                ),
+            },
         )
     return content.strip()
 
@@ -756,6 +787,7 @@ class BailianChatCompletionsProvider:
             ensure_ascii=False,
             separators=(",", ":"),
         )
+        output_budget = _MODEL_OUTPUT_BUDGET_TOKENS.get(self.model_name, 16_384)
         payload: dict[str, Any] = {
             "model": self.model_name,
             "messages": [
@@ -771,7 +803,7 @@ class BailianChatCompletionsProvider:
             ],
             "response_format": {"type": "json_object"},
             "enable_thinking": self.reasoning_effort is not ReasoningEffort.NONE,
-            "max_tokens": 8_000,
+            "max_tokens": output_budget,
         }
         response = request_json(
             self.executor,
@@ -784,11 +816,22 @@ class BailianChatCompletionsProvider:
         try:
             decoded = json.loads(_chat_completion_text(response))
             analysis = GptAccountAnalysis.model_validate(decoded)
+        except DistillerError:
+            raise
         except (json.JSONDecodeError, ValidationError, TypeError, ValueError) as exc:
+            details: dict[str, Any] = {"response_id": response.get("id")}
+            if isinstance(exc, ValidationError):
+                details["validation_errors"] = [
+                    {
+                        "loc": ".".join(str(part) for part in error["loc"]),
+                        "message": error["msg"],
+                    }
+                    for error in exc.errors()
+                ][:12]
             raise DistillerError(
                 ErrorCode.MODEL_SCHEMA_INVALID,
                 "Bailian account analysis failed local schema validation",
-                details={"response_id": response.get("id")},
+                details=details,
             ) from exc
         choices = response.get("choices")
         first_choice = choices[0] if isinstance(choices, list) and choices else {}
@@ -923,6 +966,7 @@ def build_account_analysis_provider(
     executor: HttpExecutor | None = None,
     credential: str | None = None,
     credential_source: str | None = None,
+    base_url: str | None = None,
 ) -> AccountAnalysisProvider:
     """Construct the selected provider with a resolved persistent or environment credential."""
 
@@ -952,6 +996,7 @@ def build_account_analysis_provider(
                 executor=executor,
                 credential_loader=lambda: credential,
                 credential_source=credential_source or "operating_system_keyring",
+                base_url=base_url,
             )
         return DeepSeekChatCompletionsProvider.from_environment(
             model=options.model,
@@ -967,6 +1012,7 @@ def build_account_analysis_provider(
             executor=executor,
             credential_loader=lambda: credential,
             credential_source=credential_source or "operating_system_keyring",
+            base_url=base_url,
         )
     return BailianChatCompletionsProvider.from_environment(
         model=options.model,
@@ -1137,6 +1183,11 @@ def _prompt(options: GptAnalysisOptions, allowed_refs: list[str]) -> str:
         "and target metric. A single analysis may produce maturity levels 0 to 3 only; never "
         "claim a level-4 validated rule. Use level 3 only when the card defines a controlled "
         "experiment. Prefer no card over a generic or unfalsifiable card.\n"
+        "Every priority action must carry a priority integer from 1 (most important) to 5 only; "
+        "never emit 0 or any value above 5. Every confidence field must be exactly one of "
+        "low, medium, high. Every maturity_level must be an integer from 0 to 3 only. "
+        "Every list length and field length must stay inside the JSON Schema limits above; "
+        "do not exceed maxLength or maxItems constraints.\n"
         "Never treat unknown, missing, or fallback semantic labels as a content strategy.\n"
         "Never infer missing values, audience demographics, or causal effects.\n"
         "Every finding, imitation playbook, creative extension, action, experiment, and knowledge "

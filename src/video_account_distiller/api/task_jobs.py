@@ -456,6 +456,7 @@ def execute_account_distill(
             analysis_options,
             credential=resolved.value if resolved is not None else None,
             credential_source=resolved.source if resolved is not None else None,
+            base_url=body.cloud_base_url,
         )
     media_limit = body.media_limit
     if media_limit is None:
