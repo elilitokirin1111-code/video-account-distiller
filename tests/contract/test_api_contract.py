@@ -832,6 +832,80 @@ def test_cloud_model_settings_and_ephemeral_gpt_analysis_contract(
     assert task["result"]["evaluation"]["evaluation_version"] == "account-analysis-eval-v2"
 
 
+def test_cloud_preset_round_trips_into_project_config(
+    normalized_project: ProjectLayout,
+    tmp_path: Path,
+) -> None:
+    """Cloud endpoint presets persist in distiller.yaml and never echo the key."""
+    from video_account_distiller.config import load_config
+
+    task_db = tmp_path / "preset-tasks.sqlite3"
+    app = create_app(task_db)
+    app.state.cloud_credentials = _MemoryCloudCredentialStore()
+    encoded = quote(str(normalized_project.root), safe="")
+    secret = "sk-preset-secret-value"
+    preset_path = f"/api/projects/{encoded}/settings/cloud-preset"
+
+    with TestClient(app) as client:
+        empty = client.get(preset_path)
+        assert empty.status_code == 200
+        payload = _json(empty)
+        assert payload["ok"] is True
+        assert payload["cloud_api_key_configured"] is False
+        assert payload["cloud_base_url"] is None
+
+        saved = client.put(
+            preset_path,
+            json={
+                "cloud_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "cloud_api_key": secret,
+                "cloud_text_model": "qwen3.7-plus",
+                "cloud_vision_model": "qwen-vl-max-latest",
+            },
+        )
+        assert saved.status_code == 200
+        saved_payload = _json(saved)
+        assert saved_payload["cloud_api_key_configured"] is True
+        assert saved_payload["cloud_base_url"] == (
+            "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        )
+        assert secret not in json.dumps(saved_payload, ensure_ascii=False)
+
+        config = load_config(normalized_project.config_path)
+        assert config.models.cloud_base_url == (
+            "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        )
+        assert config.models.cloud_api_key == secret
+        assert config.models.cloud_text_model == "qwen3.7-plus"
+        assert config.models.cloud_vision_model == "qwen-vl-max-latest"
+
+        read_back = client.get(preset_path)
+        read_payload = _json(read_back)
+        assert read_payload["cloud_api_key_configured"] is True
+        assert read_payload["cloud_text_model"] == "qwen3.7-plus"
+        assert secret not in json.dumps(read_payload, ensure_ascii=False)
+
+        cleared = client.put(
+            preset_path,
+            json={
+                "cloud_base_url": "",
+                "cloud_api_key": "",
+                "cloud_text_model": "",
+                "cloud_vision_model": "",
+            },
+        )
+        assert cleared.status_code == 200
+        assert _json(cleared)["cloud_api_key_configured"] is False
+        assert _json(cleared)["cloud_base_url"] is None
+        config = load_config(normalized_project.config_path)
+        assert config.models.cloud_api_key is None
+        assert config.models.cloud_base_url is None
+
+    # The preset API key is stored only in the project-local config, never in
+    # the API response bodies or the task database.
+    assert secret.encode("utf-8") not in task_db.read_bytes()
+
+
 class _BailianContractExecutor(_OpenAIContractExecutor):
     def send(
         self,

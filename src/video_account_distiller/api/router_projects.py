@@ -12,6 +12,7 @@ from video_account_distiller.api.deps import resolve_project
 from video_account_distiller.api.schemas import (
     CloudCredentialUpdate,
     CloudModelSettingsUpdate,
+    CloudPresetUpdate,
     ProjectInitRequest,
 )
 from video_account_distiller.config import load_config
@@ -192,4 +193,57 @@ async def update_cloud_model_settings(
         "api_key_configured": providers["openai"]["api_key_configured"],
         "api_key_env": providers["openai"]["api_key_env"],
         "providers": providers,
+    }
+
+
+@router.get("/projects/{project_path:path}/settings/cloud-preset")
+async def get_cloud_preset(project_path: str) -> dict[str, Any]:
+    """Return the persisted OpenAI-compatible cloud endpoint defaults.
+
+    The API key is never echoed back; only whether one is configured is
+    reported so the UI can show a masked placeholder.
+    """
+
+    layout = resolve_project(project_path)
+    config = load_config(layout.config_path)
+    models = config.models
+    return {
+        "ok": True,
+        "cloud_base_url": models.cloud_base_url,
+        "cloud_api_key_configured": bool(models.cloud_api_key),
+        "cloud_text_model": models.cloud_text_model,
+        "cloud_vision_model": models.cloud_vision_model,
+    }
+
+
+@router.put("/projects/{project_path:path}/settings/cloud-preset")
+async def update_cloud_preset(
+    project_path: str,
+    body: CloudPresetUpdate,
+) -> dict[str, Any]:
+    """Persist OpenAI-compatible cloud endpoint defaults into distiller.yaml.
+
+    Blank fields clear the stored value; an API key provided here is stored
+    in the project config (not the OS keyring) so a single project can carry
+    a self-contained cloud endpoint preset without per-user setup.
+    """
+
+    layout = resolve_project(project_path)
+    config = load_config(layout.config_path)
+    models = config.models.model_copy(
+        update={
+            "cloud_base_url": (body.cloud_base_url or "").strip() or None,
+            "cloud_api_key": (body.cloud_api_key or "").strip() or None,
+            "cloud_text_model": (body.cloud_text_model or "").strip() or None,
+            "cloud_vision_model": (body.cloud_vision_model or "").strip() or None,
+        }
+    )
+    updated = config.model_copy(update={"models": models})
+    atomic_write_text(layout.config_path, updated.as_yaml())
+    return {
+        "ok": True,
+        "cloud_base_url": models.cloud_base_url,
+        "cloud_api_key_configured": bool(models.cloud_api_key),
+        "cloud_text_model": models.cloud_text_model,
+        "cloud_vision_model": models.cloud_vision_model,
     }

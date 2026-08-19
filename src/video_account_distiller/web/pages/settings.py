@@ -195,6 +195,96 @@ with model_tab:
                 unsafe_allow_html=True,
             )
 
+    with st.container(border=True):
+        st.markdown("#### 云端 API 预设")
+        st.caption(
+            "保存到当前项目 distiller.yaml：作为媒体文本、画面理解与知识分析的默认"
+            "云端端点。保存后新建蒸馏任务会自动带出，无需每次填写。"
+        )
+        preset_payload: dict[str, Any] = {}
+        try:
+            preset_response = requests.get(
+                f"{context.api_url}/api/projects/{encoded_project}/settings/cloud-preset",
+                timeout=5,
+            )
+            preset_json: Any = preset_response.json()
+            if isinstance(preset_json, dict):
+                preset_payload = preset_json
+        except (requests.RequestException, ValueError):
+            pass
+        preset_base_url = str(preset_payload.get("cloud_base_url") or "")
+        preset_has_key = bool(preset_payload.get("cloud_api_key_configured"))
+        preset_text_model = str(preset_payload.get("cloud_text_model") or "")
+        preset_vision_model = str(preset_payload.get("cloud_vision_model") or "")
+        preset_columns = st.columns(2)
+        with preset_columns[0]:
+            preset_base_input = st.text_input(
+                "云端服务地址（OpenAI 兼容）",
+                value=preset_base_url,
+                placeholder="https://api.deepseek.com",
+                key="settings_cloud_preset_base_url",
+                help=(
+                    "无协议前缀会自动补全 https://。示例："
+                    "https://dashscope.aliyuncs.com/compatible-mode/v1 或 "
+                    "https://ws-<workspace>.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+                ),
+            )
+            preset_text_input = st.text_input(
+                "云端文本模型",
+                value=preset_text_model,
+                placeholder="deepseek-v4-flash",
+                key="settings_cloud_preset_text_model",
+            )
+        with preset_columns[1]:
+            preset_key_placeholder = "已保存（留空保持不变）" if preset_has_key else "输入新的 API Key"
+            preset_key_input = st.text_input(
+                "云端 API Key",
+                type="password",
+                placeholder=preset_key_placeholder,
+                key="settings_cloud_preset_api_key",
+                help="留空时保留项目里已有的 Key；输入新值会覆盖。",
+            )
+            preset_vision_input = st.text_input(
+                "云端视觉模型",
+                value=preset_vision_model,
+                placeholder="qwen-vl-max-latest",
+                key="settings_cloud_preset_vision_model",
+            )
+        if st.button(
+            "保存云端 API 预设",
+            type="primary",
+            icon=":material/cloud_sync:",
+            disabled=not bool(context.project_path),
+            key="settings_cloud_preset_save",
+        ):
+            preset_body: dict[str, Any] = {
+                "cloud_base_url": preset_base_input.strip(),
+                "cloud_api_key": preset_key_input.strip() or None,
+                "cloud_text_model": preset_text_input.strip() or None,
+                "cloud_vision_model": preset_vision_input.strip() or None,
+            }
+            try:
+                preset_response = requests.put(
+                    f"{context.api_url}/api/projects/{encoded_project}/settings/cloud-preset",
+                    json=preset_body,
+                    timeout=10,
+                )
+                preset_result = preset_response.json()
+                if preset_response.ok and preset_result.get("ok"):
+                    st.success(
+                        "云端 API 预设已保存到项目配置。"
+                        + ("（API Key 已更新）" if preset_key_input.strip() else "")
+                    )
+                else:
+                    st.error(
+                        (preset_result.get("error") or {}).get(
+                            "message",
+                            "预设保存失败",
+                        )
+                    )
+            except (requests.RequestException, ValueError) as exc:
+                st.error(f"预设保存失败：{exc}")
+
 with runtime_tab:
     section_header("API 与任务状态", "按需刷新，不让诊断信息抢占日常业务操作。")
     status_column, task_column = st.columns([0.8, 1.2], gap="large")

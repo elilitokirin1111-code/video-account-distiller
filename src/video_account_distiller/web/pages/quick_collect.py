@@ -76,6 +76,18 @@ models_by_provider = {
 }
 
 
+def _infer_provider_from_base_url(base_url: str) -> str:
+    """Guess the analysis provider kind from an OpenAI-compatible endpoint URL."""
+    lowered = (base_url or "").casefold()
+    if "dashscope" in lowered or "maas.aliyuncs.com" in lowered:
+        return "bailian"
+    if "deepseek" in lowered:
+        return "deepseek"
+    if "openai" in lowered or "api.openai" in lowered:
+        return "openai"
+    return "deepseek"
+
+
 def _api_url() -> str:
     value = str(st.session_state.get("api_url") or "").strip().rstrip("/")
     if not value:
@@ -418,6 +430,19 @@ def _render_retry_with_overrides(task_id: str) -> None:
                 # key 跟随服务商，切换服务商时重建模型下拉。
                 key=f"retry_ka_model_{task_id}_{ka_provider_key}",
             )
+            ka_reasoning_label = st.selectbox(
+                "推理强度",
+                ["高（知识蒸馏推荐，较慢）", "中", "低（更快）"],
+                index=0,
+                key=f"retry_ka_reasoning_{task_id}",
+            )
+            ka_reasoning = (
+                "high"
+                if ka_reasoning_label.startswith("高")
+                else "low"
+                if ka_reasoning_label.startswith("低")
+                else "medium"
+            )
             cloud_base = st.text_input(
                 "云端服务地址（留空保持原配置）",
                 placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -441,7 +466,7 @@ def _render_retry_with_overrides(task_id: str) -> None:
                 "provider": ka_provider_key,
                 "model": ka_models[ka_model_label],
                 "template": "content_strategy",
-                "reasoning_effort": "high",
+                "reasoning_effort": ka_reasoning,
                 "max_video_analyses": 100,
                 "confirm_cloud_upload": True,
                 "confirm_cost": True,
@@ -1612,80 +1637,105 @@ with st.form("self_service_distill_form"):
                 ["本地 llama.cpp（qwen3-8b）", "云端 API（OpenAI 兼容）"],
                 index=0 if template.get("text_provider") != "cloud" else 1,
             )
-            cloud_base_url = str(template.get("cloud_base_url") or "https://api.deepseek.com")
+            cloud_base_url = str(template.get("cloud_base_url") or "")
             cloud_api_key = str(template.get("cloud_api_key") or "")
-            cloud_text_model = str(template.get("cloud_text_model") or "deepseek-v4-flash")
-            cloud_vision_model = str(template.get("cloud_vision_model") or "qwen-vl-max-latest")
-            # 知识分析服务商跟随云端服务商：一次选择，文本/视觉/知识分析全部联动。
-            knowledge_provider_key = "deepseek"
-            if text_source.startswith("云端") or vision_choice.startswith("云端"):
-                st.caption("云端配置仅用于本次任务；长期密钥请在设置页验证并保存。")
-                cloud_endpoint_choices = {
-                    "DeepSeek（https://api.deepseek.com）": "https://api.deepseek.com",
-                    "阿里云百炼 DashScope（qwen）": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-                    "阿里云百炼 MaaS 工作空间（自定义域名）": "ws-<workspace>.cn-beijing.maas.aliyuncs.com",
-                    "自定义": "",
-                }
-                cloud_endpoint_label = st.selectbox(
-                    "云端服务商",
-                    list(cloud_endpoint_choices),
-                    index=(
-                        list(cloud_endpoint_choices).index("阿里云百炼 DashScope（qwen）")
-                        if "dashscope" in cloud_base_url
-                        else list(cloud_endpoint_choices).index("阿里云百炼 MaaS 工作空间（自定义域名）")
-                        if "maas.aliyuncs.com" in cloud_base_url
-                        else list(cloud_endpoint_choices).index("DeepSeek（https://api.deepseek.com）")
-                        if "deepseek" in cloud_base_url
-                        else 0
-                    ),
-                )
-                chosen_endpoint = cloud_endpoint_choices[cloud_endpoint_label]
-                # 选择预设服务商时自动带出对应地址，避免"百炼 key + DeepSeek 地址"错配。
-                if cloud_endpoint_label != "自定义" and chosen_endpoint:
-                    cloud_base_url = chosen_endpoint
-                if "dashscope" in cloud_endpoint_label or "MaaS" in cloud_endpoint_label:
-                    knowledge_provider_key = "bailian"
-                elif "DeepSeek" in cloud_endpoint_label:
-                    knowledge_provider_key = "deepseek"
-                elif "OpenAI" in cloud_endpoint_label:
-                    knowledge_provider_key = "openai"
-                else:  # 自定义：按地址内容推断
-                    lowered = cloud_base_url.casefold()
-                    if "dashscope" in lowered or "maas.aliyuncs.com" in lowered:
-                        knowledge_provider_key = "bailian"
-                    elif "deepseek" in lowered:
-                        knowledge_provider_key = "deepseek"
-                cloud_base_url = st.text_input(
-                    "云端服务地址（OpenAI 兼容）",
-                    value=cloud_base_url,
-                    placeholder=chosen_endpoint or "https://...",
-                    help=(
-                        "无协议前缀的地址会自动补全 https://。"
-                        "选择预设服务商后地址自动带出；百炼 MaaS 域名直接使用即可。"
-                    ),
-                )
-                cloud_api_key = st.text_input(
-                    "云端 API Key",
-                    type="password",
-                    value=cloud_api_key,
-                    help="百炼密钥以 sk- 开头，请确保与所选服务商一致；错误配对会在调用时返回 401。",
-                )
-                cloud_models = st.columns(2)
-                with cloud_models[0]:
-                    cloud_text_model = st.text_input(
-                        "云端文本模型",
-                        value=cloud_text_model,
-                        help=(
-                            "百炼推荐 qwen-max / qwen-plus；DeepSeek 用 deepseek-v4-flash。"
-                            "请与所选服务商一致。"
+            cloud_text_model = str(template.get("cloud_text_model") or "")
+            cloud_vision_model = str(template.get("cloud_vision_model") or "")
+            # 云端 API 预设：优先使用项目 distiller.yaml 中持久化的默认端点，
+            # 页面里可以随时覆盖（仅本次任务生效）。
+            if project_path.strip():
+                try:
+                    preset = _request(
+                        (
+                            f"/api/projects/{quote(project_path.strip(), safe='')}"
+                            "/settings/cloud-preset"
                         ),
+                        timeout=8,
                     )
-                with cloud_models[1]:
-                    cloud_vision_model = st.text_input(
-                        "云端视觉模型",
-                        value=cloud_vision_model,
-                        help="百炼默认 qwen-vl-max-latest。",
-                    )
+                    if preset.get("ok"):
+                        cloud_base_url = cloud_base_url or str(
+                            preset.get("cloud_base_url") or ""
+                        )
+                        cloud_text_model = cloud_text_model or str(
+                            preset.get("cloud_text_model") or ""
+                        )
+                        cloud_vision_model = cloud_vision_model or str(
+                            preset.get("cloud_vision_model") or ""
+                        )
+                except Exception:
+                    pass
+            cloud_base_url = cloud_base_url or "https://api.deepseek.com"
+            cloud_text_model = cloud_text_model or "deepseek-v4-flash"
+            cloud_vision_model = cloud_vision_model or "qwen-vl-max-latest"
+            # 知识分析服务商跟随云端端点推断（可手动切换），不再依赖云端文本/视觉开关。
+            knowledge_provider_key = _infer_provider_from_base_url(cloud_base_url)
+            st.caption("云端配置仅用于本次任务；长期密钥与默认端点可在设置页保存为项目预设。")
+            cloud_endpoint_choices = {
+                "DeepSeek（https://api.deepseek.com）": "https://api.deepseek.com",
+                "阿里云百炼 DashScope（qwen）": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "阿里云百炼 MaaS 工作空间（自定义域名）": "ws-<workspace>.cn-beijing.maas.aliyuncs.com",
+                "自定义": "",
+            }
+            cloud_endpoint_label = st.selectbox(
+                "云端服务商",
+                list(cloud_endpoint_choices),
+                index=(
+                    list(cloud_endpoint_choices).index("阿里云百炼 DashScope（qwen）")
+                    if "dashscope" in cloud_base_url
+                    else list(cloud_endpoint_choices).index("阿里云百炼 MaaS 工作空间（自定义域名）")
+                    if "maas.aliyuncs.com" in cloud_base_url
+                    else list(cloud_endpoint_choices).index("DeepSeek（https://api.deepseek.com）")
+                    if "deepseek" in cloud_base_url
+                    else 0
+                ),
+            )
+            chosen_endpoint = cloud_endpoint_choices[cloud_endpoint_label]
+            # 选择预设服务商时自动带出对应地址，避免"百炼 key + DeepSeek 地址"错配。
+            if cloud_endpoint_label != "自定义" and chosen_endpoint:
+                cloud_base_url = chosen_endpoint
+            if "dashscope" in cloud_endpoint_label or "MaaS" in cloud_endpoint_label:
+                knowledge_provider_key = "bailian"
+            elif "DeepSeek" in cloud_endpoint_label:
+                knowledge_provider_key = "deepseek"
+            elif "OpenAI" in cloud_endpoint_label:
+                knowledge_provider_key = "openai"
+            else:  # 自定义：按地址内容推断
+                lowered = cloud_base_url.casefold()
+                if "dashscope" in lowered or "maas.aliyuncs.com" in lowered:
+                    knowledge_provider_key = "bailian"
+                elif "deepseek" in lowered:
+                    knowledge_provider_key = "deepseek"
+            cloud_base_url = st.text_input(
+                "云端服务地址（OpenAI 兼容）",
+                value=cloud_base_url,
+                placeholder=chosen_endpoint or "https://...",
+                help=(
+                    "无协议前缀的地址会自动补全 https://。"
+                    "选择预设服务商后地址自动带出；百炼 MaaS 域名直接使用即可。"
+                ),
+            )
+            cloud_api_key = st.text_input(
+                "云端 API Key",
+                type="password",
+                value=cloud_api_key,
+                help="百炼密钥以 sk- 开头，请确保与所选服务商一致；错误配对会在调用时返回 401。",
+            )
+            cloud_models = st.columns(2)
+            with cloud_models[0]:
+                cloud_text_model = st.text_input(
+                    "云端文本模型",
+                    value=cloud_text_model,
+                    help=(
+                        "百炼推荐 qwen-max / qwen-plus；DeepSeek 用 deepseek-v4-flash。"
+                        "请与所选服务商一致。"
+                    ),
+                )
+            with cloud_models[1]:
+                cloud_vision_model = st.text_input(
+                    "云端视觉模型",
+                    value=cloud_vision_model,
+                    help="百炼默认 qwen-vl-max-latest。",
+                )
             export_knowledge = st.checkbox(
                 "生成运营学习报告与数据证据附件（用于 Obsidian 与归档）",
                 value=bool(template.get("export_knowledge", True)),
@@ -1702,9 +1752,9 @@ with st.form("self_service_distill_form"):
             confirm_knowledge_cost = False
             knowledge_analysis_payload: dict[str, Any] | None = None
             if knowledge_synthesis:
-                # 服务商跟随上方“云端服务商”（无独立下拉）：切到阿里云百炼后，
-                # 这里自动使用百炼 + qwen 模型，模型下拉同步联动。
-                knowledge_provider_label = next(
+                # 知识分析服务商可独立选择：默认跟随云端端点推断，但可手动切换
+                # 到其他服务商（例如云端端点用 DeepSeek、知识分析改用百炼 qwen）。
+                inferred_provider_label = next(
                     (
                         label
                         for label, key in provider_labels.items()
@@ -1712,6 +1762,19 @@ with st.form("self_service_distill_form"):
                     ),
                     "DeepSeek",
                 )
+                ka_provider_label = st.selectbox(
+                    "知识分析服务商",
+                    list(provider_labels),
+                    index=list(provider_labels).index(inferred_provider_label),
+                    # key 跟随任务表单：切换服务商时重建模型下拉。
+                    key="ka_provider_picker",
+                    help=(
+                        "默认跟随上方云端服务商；可独立切换到其他服务商。"
+                        "切换后知识分析模型下拉同步更新。"
+                    ),
+                )
+                ka_provider_key = provider_labels[ka_provider_label]
+                knowledge_provider_key = ka_provider_key
                 knowledge_models = models_by_provider[knowledge_provider_key]
                 knowledge_model_label = st.selectbox(
                     "知识分析模型",
@@ -1738,12 +1801,12 @@ with st.form("self_service_distill_form"):
                     else "medium"
                 )
                 st.caption(
-                    f"知识分析使用上方「云端服务商」= {knowledge_provider_label}；"
+                    f"知识分析服务商 = {ka_provider_label}；"
                     "需要先在设置页开启云模型权限，并把该服务商 API Key 安全保存到"
                     "当前 Windows 用户凭据。"
                 )
                 confirm_knowledge_upload = st.checkbox(
-                    f"我确认将脱敏、受限的账号分析上下文发送给 {knowledge_provider_label}",
+                    f"我确认将脱敏、受限的账号分析上下文发送给 {ka_provider_label}",
                     value=False,
                 )
                 confirm_knowledge_cost = st.checkbox(

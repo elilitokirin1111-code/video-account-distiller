@@ -90,6 +90,20 @@ class CloudModelSettingsUpdate(BaseModel):
     allow_cloud_model_upload: bool
 
 
+class CloudPresetUpdate(BaseModel):
+    """Persisted cloud endpoint defaults (OpenAI-compatible) for a project.
+
+    These values are stored in the project ``distiller.yaml`` ``models``
+    section and become the default endpoint/model for media text, vision,
+    and knowledge-analysis calls unless a task overrides them.
+    """
+
+    cloud_base_url: str | None = Field(default=None, max_length=2048)
+    cloud_api_key: str | None = Field(default=None, max_length=2048)
+    cloud_text_model: str | None = Field(default=None, max_length=128)
+    cloud_vision_model: str | None = Field(default=None, max_length=128)
+
+
 # ---------------------------------------------------------------------------
 # Import
 # ---------------------------------------------------------------------------
