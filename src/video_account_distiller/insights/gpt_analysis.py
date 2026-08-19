@@ -71,19 +71,25 @@ _MODEL_INPUT_BUDGET_BYTES: dict[str, int] = {
 # A hard cap of 8,000 tokens truncated the full account analysis mid-object
 # (finish_reason=length) and surfaced as E_MODEL_SCHEMA_INVALID. Keep the
 # output budget per model well above the observed ~16K-token complete output.
+#
+# DeepSeek thinking mode counts reasoning tokens against max_tokens: a 220KB
+# account context already consumed ~13.5K completion tokens, so 16K left no
+# headroom and high-effort runs occasionally truncated. The API accepts up to
+# 65536, so reasoning models get a generous budget that covers thinking plus
+# the full JSON payload.
 _MODEL_OUTPUT_BUDGET_TOKENS: dict[str, int] = {
-    "qwen3.8-max": 16_384,
-    "qwen3.7-max": 16_384,
-    "qwen3.7-plus": 16_384,
-    "qwen3.6-max": 16_384,
-    "qwen-long": 16_384,
+    "qwen3.8-max": 32_768,
+    "qwen3.7-max": 32_768,
+    "qwen3.7-plus": 32_768,
+    "qwen3.6-max": 32_768,
+    "qwen-long": 32_768,
     "qwen-max": 8_192,
     "qwen-plus": 8_192,
     "qwen-turbo": 8_192,
     "qwen-plus-latest": 8_192,
-    "deepseek-v4-flash": 16_384,
-    "deepseek-v4-pro": 16_384,
-    "deepseek-chat": 16_384,
+    "deepseek-v4-flash": 65_536,
+    "deepseek-v4-pro": 65_536,
+    "deepseek-chat": 65_536,
 }
 
 

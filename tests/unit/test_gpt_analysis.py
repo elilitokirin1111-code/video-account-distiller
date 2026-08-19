@@ -288,7 +288,7 @@ def test_bailian_provider_uses_json_mode_and_environment_only_credential() -> No
     assert payload["model"] == "qwen3.7-plus"
     assert payload["response_format"] == {"type": "json_object"}
     assert payload["enable_thinking"] is True
-    assert payload["max_tokens"] == 16_384
+    assert payload["max_tokens"] == 32_768
     assert "JSON Schema" in payload["messages"][0]["content"]
     assert "sk-bailian-temporary-secret" not in call["body"].decode("utf-8")
 
@@ -325,7 +325,7 @@ def test_bailian_provider_uses_larger_output_budget_for_reasoning_models() -> No
 
     assert result.analysis == expected
     payload: Any = json.loads(executor.calls[0]["body"])
-    assert payload["max_tokens"] == 16_384
+    assert payload["max_tokens"] == 32_768
 
 
 def test_bailian_provider_reports_truncated_completion_readably() -> None:
@@ -450,7 +450,7 @@ def test_deepseek_v4_flash_provider_enables_thinking_and_json_mode() -> None:
     assert payload["thinking"] == {"type": "enabled"}
     assert payload["reasoning_effort"] == "high"
     assert payload["response_format"] == {"type": "json_object"}
-    assert payload["max_tokens"] == 16_384
+    assert payload["max_tokens"] == 65_536
     assert "sk-deepseek-temporary-secret" not in executor.calls[0]["body"].decode("utf-8")
 
 
