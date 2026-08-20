@@ -46,7 +46,7 @@ GPT_EVALUATION_VERSION = "account-analysis-eval-v2"
 GPT_PRICING_SNAPSHOT = "openai-api-pricing-2026-07-28"
 BAILIAN_PRICING_SNAPSHOT = "aliyun-model-studio-pricing-2026-08-04"
 DEEPSEEK_PRICING_SNAPSHOT = "deepseek-api-pricing-2026-08-05"
-MAX_CLOUD_CONTEXT_BYTES = 1_500_000
+MAX_CLOUD_CONTEXT_BYTES = 3_500_000
 MAX_OUTPUT_TOKENS = 5_000
 MODEL_MAX_INPUT_TOKENS = 922_000
 LONG_CONTEXT_THRESHOLD_TOKENS = 272_000
@@ -55,11 +55,14 @@ _EVALUATION_RUN_KEY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$")
 # Model Studio MaaS caps qwen-max/qwen-plus/qwen-turbo input at 30,720 tokens;
 # ~3.3 UTF-8 bytes per token for Chinese gives roughly 100 KB. Use a conservative
 # byte budget so the analysis context is trimmed before the provider rejects it.
-# qwen3.7-plus carries a 1M-token context window (max output 65,536), matching
-# qwen3.8-max, so it gets the same generous input budget.
+# qwen3.7-plus / qwen3.8-max advertise a 1M-token context window. Empirically
+# DashScope-compatible mode accepts ~2.5 MB of Chinese context (≈443K tokens)
+# but rejects bodies above 6,291,456 bytes. ~1M tokens ≈ 5.6 MB, so the real
+# usable context is bounded by the request-body limit; budget 3 MB of context
+# (≈530K tokens) which keeps the serialized request comfortably under 6 MB.
 _MODEL_INPUT_BUDGET_BYTES: dict[str, int] = {
-    "qwen3.8-max": 1_000_000,
-    "qwen3.7-plus": 1_000_000,
+    "qwen3.8-max": 3_000_000,
+    "qwen3.7-plus": 3_000_000,
     "qwen-max": 80_000,
     "qwen-plus": 80_000,
     "qwen-turbo": 80_000,

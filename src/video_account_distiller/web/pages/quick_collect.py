@@ -641,23 +641,36 @@ def _render_retry_with_overrides(task_id: str, task: dict[str, Any] | None = Non
 
 
 def _restore_latest_task_result(task_type: str, session_key: str) -> None:
-    """Restore the most recent completed task result into the session."""
+    """Restore the most recent completed task result into the session.
+
+    Always prefers the newest completed result (by ``updated_at``), so a
+    workflow finished in the background (e.g. a retry submitted from the
+    API) is picked up automatically on the next page load and its outputs
+    become available for follow-up actions.
+    """
 
     payload = _request("/api/tasks", params={"limit": 30}, timeout=10)
     tasks = payload.get("tasks")
     if not isinstance(tasks, list):
         return
+    latest: dict[str, Any] | None = None
+    latest_updated: str = ""
     for task in tasks:
         if not isinstance(task, dict):
             continue
         if task.get("task_type") != task_type or task.get("status") != "completed":
             continue
         result = task.get("result")
-        if isinstance(result, dict):
-            st.session_state[session_key] = result
-            if task_type == "account_distill":
-                _remember_account(result)
-        return
+        if not isinstance(result, dict):
+            continue
+        updated = str(task.get("updated_at") or "")
+        if latest is None or updated > latest_updated:
+            latest = result
+            latest_updated = updated
+    if latest is not None:
+        st.session_state[session_key] = latest
+        if task_type == "account_distill":
+            _remember_account(latest)
 
 
 def _coverage_text(completed: Any, requested: Any, ratio: Any) -> str:
@@ -1476,10 +1489,11 @@ if not st.session_state.get("last_account_project"):
     if isinstance(persisted_project, str):
         st.session_state["last_account_project"] = persisted_project
 
-# Restore the most recent completed results so reloads do not lose records.
+# Sync the most recent completed results so background-finished workflows
+# (including retries submitted via the API) appear here after a refresh and
+# their outputs are ready for follow-up actions.
 if not st.session_state.get("active_task_id"):
-    if not st.session_state.get("last_workflow_result"):
-        _restore_latest_task_result("account_distill", "last_workflow_result")
+    _restore_latest_task_result("account_distill", "last_workflow_result")
     if not st.session_state.get("last_gpt_analysis"):
         _restore_latest_task_result("gpt_account_analysis", "last_gpt_analysis")
     if not st.session_state.get("last_media_reparse"):
