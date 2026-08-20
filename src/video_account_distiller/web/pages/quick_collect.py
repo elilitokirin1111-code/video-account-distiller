@@ -405,16 +405,118 @@ def _retry_task(task_id: str, overrides: dict[str, Any] | None = None) -> bool:
     return True
 
 
-def _render_retry_with_overrides(task_id: str) -> None:
-    """Show a small form to adjust model/provider/endpoint choices before resuming.
+def _preview_retry_configuration(
+    task_id: str,
+    *,
+    task: dict[str, Any] | None,
+    provider: str,
+    model: str,
+    reasoning: str,
+    cloud_base: str,
+    cloud_model: str,
+    whisper_model: str,
+) -> dict[str, Any]:
+    """Validate the retry choices and show a run preview (scope + cost).
+
+    Uses the same ``gpt-analysis/preview`` endpoint as the normal analysis
+    page so the user sees the bounded data scope and conservative cost
+    ceiling for the exact provider/model they are about to resume with,
+    without spending any model quota.
+    """
+    reasoning_label = {
+        "high": "高（知识蒸馏推荐，较慢）",
+        "medium": "中",
+        "low": "低（更快）",
+    }.get(reasoning, "高（知识蒸馏推荐，较慢）")
+    provider_label = next(
+        (label for label, key in provider_labels.items() if key == provider),
+        provider,
+    )
+    result: dict[str, Any] = {
+        "ok": True,
+        "task_id": task_id,
+        "provider": provider,
+        "provider_label": provider_label,
+        "model": model,
+        "reasoning": reasoning,
+        "reasoning_label": reasoning_label,
+        "cloud_base_url": cloud_base or None,
+        "cloud_text_model": cloud_model or None,
+        "whisper_model": whisper_model or None,
+    }
+
+    project_path = None
+    account_id = None
+    if isinstance(task, dict):
+        job_payload = task.get("job_payload")
+        if isinstance(job_payload, dict):
+            project_path = job_payload.get("project_path")
+        checkpoint = task.get("checkpoint")
+        if isinstance(checkpoint, dict):
+            checkpoint_result = checkpoint.get("result")
+            if isinstance(checkpoint_result, dict):
+                account = checkpoint_result.get("account")
+                if isinstance(account, dict):
+                    account_id = account.get("account_id")
+                if not account_id:
+                    account_id = checkpoint.get("account_id")
+    if not project_path or not account_id:
+        result["ok"] = False
+        result["message"] = "任务缺少项目路径或账号信息，无法生成预览；可直接「继续运行」。"
+        return result
+
+    preview_request = {
+        "provider": provider,
+        "model": model,
+        "template": "content_strategy",
+        "reasoning_effort": reasoning,
+        "max_video_analyses": 100,
+        "confirm_cloud_upload": False,
+        "confirm_cost": False,
+    }
+    try:
+        preview = _request(
+            (
+                f"/api/projects/{quote(str(project_path), safe='')}"
+                f"/accounts/{account_id}/gpt-analysis/preview"
+            ),
+            "POST",
+            json=preview_request,
+            timeout=30,
+        )
+    except Exception as exc:
+        result["ok"] = False
+        result["message"] = f"预览调用失败：{exc}"
+        return result
+    if not preview.get("ok"):
+        error = preview.get("error") or {}
+        result["ok"] = False
+        result["message"] = str(error.get("message") or "预览失败")
+        return result
+
+    scope = preview.get("data_scope") or {}
+    cost = preview.get("cost_preview") or {}
+    result["context_bytes"] = scope.get("context_bytes")
+    result["effective_video_analyses"] = scope.get("effective_max_video_analyses")
+    result["evidence_refs"] = scope.get("evidence_refs_available")
+    result["cost_max_usd"] = cost.get("conservative_maximum_usd")
+    result["cost_max_cny"] = cost.get("conservative_maximum_cny")
+    result["message"] = "配置校验通过，可以续跑。"
+    return result
+
+
+def _render_retry_with_overrides(task_id: str, task: dict[str, Any] | None = None) -> None:
+    """Show a two-step form to adjust model/provider/endpoint choices before resuming.
 
     Failed account-distill workflows keep a safe checkpoint; instead of
     restarting the whole run the user can swap the cloud model (e.g. to one with
-    remaining quota) and continue from where it stopped.
+    remaining quota) and continue from where it stopped. The flow is explicit:
+    choose settings -> "应用并刷新" (validates + previews the configured run)
+    -> confirm and "继续运行".
     """
     with st.expander("修改配置后从检查点续跑", icon=":material/tune:"):
         with st.form(f"retry_overrides_{task_id}"):
-            st.caption("仅需修改要调整的项；未修改的保持原任务配置。")
+            st.caption("① 选择配置 → ② 应用并刷新（校验+预览）→ ③ 继续运行。")
             ka_provider_label = st.selectbox(
                 "知识分析服务商",
                 list(provider_labels),
@@ -455,12 +557,68 @@ def _render_retry_with_overrides(task_id: str) -> None:
                 "Whisper 转写模型（留空保持原配置）",
                 placeholder="base",
             )
-            submitted = st.form_submit_button(
-                "应用修改并续跑",
-                type="primary",
+            apply_clicked = st.form_submit_button(
+                "应用并刷新（校验配置与预览）",
+                icon=":material/refresh:",
                 use_container_width=True,
             )
-    if submitted:
+            run_clicked = st.form_submit_button(
+                "继续运行（从检查点续跑）",
+                type="primary",
+                icon=":material/play_arrow:",
+                use_container_width=True,
+            )
+    preview_key = f"retry_preview_{task_id}"
+    if apply_clicked:
+        preview = _preview_retry_configuration(
+            task_id,
+            task=task,
+            provider=ka_provider_key,
+            model=ka_models[ka_model_label],
+            reasoning=ka_reasoning,
+            cloud_base=cloud_base.strip(),
+            cloud_model=cloud_model.strip(),
+            whisper_model=whisper_model.strip(),
+        )
+        st.session_state[preview_key] = preview
+        st.session_state[f"retry_applied_{task_id}"] = True
+    applied = st.session_state.get(f"retry_applied_{task_id}")
+    if applied and isinstance(st.session_state.get(preview_key), dict):
+        preview = st.session_state[preview_key]
+        st.markdown("#### 配置已应用 · 续跑预览")
+        with st.container(border=True):
+            st.write(
+                f"- **服务商**：{preview['provider_label']}　"
+                f"**模型**：{preview['model']}　"
+                f"**推理强度**：{preview['reasoning_label']}"
+            )
+            if preview.get("cloud_base_url"):
+                st.write(f"- **云端服务地址**：`{preview['cloud_base_url']}`")
+            if preview.get("ok") and preview.get("context_bytes") is not None:
+                context_kb = int(preview["context_bytes"]) // 1024
+                st.write(f"- **上下文**：约 {context_kb} KB")
+                st.write(
+                    f"- **纳入逐视频证据**：{preview.get('effective_video_analyses')} 条"
+                    f"（证据引用 {preview.get('evidence_refs')} 个）"
+                )
+                cost_parts = []
+                if preview.get("cost_max_usd") is not None:
+                    cost_parts.append(f"≤ ${preview['cost_max_usd']:.4f}")
+                if preview.get("cost_max_cny") is not None:
+                    cost_parts.append(f"≤ ¥{preview['cost_max_cny']:.4f}")
+                if cost_parts:
+                    st.write(f"- **预估费用上限**：{' / '.join(cost_parts)}（保守估算）")
+            if preview.get("ok"):
+                st.success(str(preview.get("message") or "配置校验通过。"))
+            else:
+                st.error(str(preview.get("message") or "预览失败。"))
+            st.caption(
+                "点击上方「继续运行」即按以上配置从检查点续跑；"
+                "如需调整，修改选择后再次「应用并刷新」。"
+            )
+    elif applied:
+        st.warning("配置已应用但预览失败，请检查上方提示后重新「应用并刷新」。")
+    if run_clicked:
         overrides: dict[str, Any] = {
             "knowledge_analysis": {
                 "provider": ka_provider_key,
@@ -1409,7 +1567,7 @@ with st.expander("任务记录（高级）"):
             and selected_status in {"failed", "cancelled"}
             and bool(selected.get("retryable"))
         ):
-            _render_retry_with_overrides(selected_task)
+            _render_retry_with_overrides(selected_task, task=selected)
         if cancel_column.button(
             "安全取消",
             disabled=selected_status not in {"pending", "running"},
