@@ -442,3 +442,102 @@ def test_weknora_sync_video_distillation_replaces_owned_video_documents(
     file_content = file_tuple[1].read() if hasattr(file_tuple[1], "read") else file_tuple[1]
     assert file_content.startswith(b"---")
     assert "单视频深度蒸馏" in file_content.decode("utf-8")
+
+
+def _write_video_knowledge_fixture(project: ProjectLayout, video_id: str) -> None:
+    from video_account_distiller.models import SingleVideoKnowledgeDistillation
+    from video_account_distiller.utils.io import atomic_write_json, atomic_write_text
+
+    payload = {
+        "knowledge_id": "svk_test",
+        "analysis_version": "1.0.0",
+        "video_id": video_id,
+        "account_id": "acc_test",
+        "generated_at": "2026-01-01T00:00:00Z",
+        "run_id": "run_test",
+        "status": "degraded",
+        "knowledge": {
+            "knowledge_title": "三个常见问题",
+            "content_summary": "视频整理了三个问题。",
+            "core_conclusions": ["先确认需求"],
+            "knowledge_items": [],
+            "limitations": ["未做外部事实核验"],
+            "expression_note": {"summary": "清单式表达"},
+        },
+        "evidence_path": "analyses/videos/x/knowledge/svk_test/evidence.json",
+        "warnings_path": "analyses/videos/x/knowledge/svk_test/warnings.json",
+        "warnings": ["external_fact_check_not_performed"],
+    }
+    model = SingleVideoKnowledgeDistillation.model_validate(payload)
+    directory = project.root / "analyses" / "videos" / video_id / "knowledge" / "svk_test"
+    directory.mkdir(parents=True)
+    atomic_write_json(directory / "knowledge.json", model.model_dump(mode="json"))
+    atomic_write_text(directory / "knowledge.md", "# 三个常见问题\n")
+
+
+def test_weknora_video_knowledge_does_not_delete_creative_document(
+    project: ProjectLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_video_knowledge_fixture(project, "vid_knowledge")
+    deleted: list[str] = []
+    uploads: list[dict[str, Any]] = []
+
+    def _get(url: str, *args: Any, **kwargs: Any) -> _Response:
+        if url.endswith("/knowledge-bases"):
+            return _Response(200, {"data": [{"id": "kb-1", "name": "target"}]}, "")
+        return _Response(
+            200,
+            {
+                "data": [
+                    {
+                        "id": "old-knowledge",
+                        "file_name": "video-knowledge.md",
+                        "channel": "distiller",
+                        "metadata": {
+                            "source": "video-account-distiller",
+                            "video_id": "vid_knowledge",
+                            "document_type": "video_knowledge",
+                        },
+                    },
+                    {
+                        "id": "keep-creative",
+                        "file_name": "single-video-distillation.md",
+                        "channel": "distiller",
+                        "metadata": {
+                            "source": "video-account-distiller",
+                            "video_id": "vid_knowledge",
+                            "document_type": "creative_learning",
+                        },
+                    },
+                ],
+                "total": 2,
+            },
+            "",
+        )
+
+    monkeypatch.setattr(requests, "get", _get)
+    monkeypatch.setattr(
+        requests,
+        "delete",
+        lambda url, *args, **kwargs: deleted.append(url) or _Response(200, {"success": True}, ""),
+    )
+    monkeypatch.setattr(
+        requests,
+        "post",
+        lambda *args, **kwargs: uploads.append(kwargs) or _Response(201, {"success": True}, ""),
+    )
+
+    result = WeKnoraSyncService(project).sync_video_knowledge(
+        video_id="vid_knowledge",
+        base_url="http://localhost:8080",
+        api_key="sk-test",
+        kb_id="kb-1",
+    )
+
+    assert result["ok"] is True
+    assert deleted == ["http://localhost:8080/api/v1/knowledge/old-knowledge"]
+    metadata = json.loads(uploads[0]["data"]["metadata"])
+    assert metadata["document_type"] == "video_knowledge"
+    assert metadata["distillation_mode"] == "knowledge"
+    assert metadata["knowledge_id"] == "svk_test"

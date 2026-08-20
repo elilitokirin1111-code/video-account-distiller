@@ -15,7 +15,10 @@ from video_account_distiller.knowledge.obsidian import (
     HUMAN_DIR_NAME,
     ObsidianVaultExporter,
 )
-from video_account_distiller.models import SingleVideoDistillation
+from video_account_distiller.models import (
+    SingleVideoDistillation,
+    SingleVideoKnowledgeDistillation,
+)
 from video_account_distiller.storage.project import ProjectLayout
 from video_account_distiller.utils.io import read_json
 
@@ -110,9 +113,9 @@ def _upload_markdown(
                 "fileName": relative_name,
                 "metadata": metadata_json,
                 "channel": "distiller",
-                },
-                timeout=180,
-            )
+            },
+            timeout=180,
+        )
 
     try:
         response = _attempt()
@@ -129,9 +132,7 @@ def _upload_markdown(
             duplicate = {}
         duplicate_data = duplicate.get("data") if isinstance(duplicate, dict) else None
         knowledge_id = (
-            str(duplicate_data.get("id") or "").strip()
-            if isinstance(duplicate_data, dict)
-            else ""
+            str(duplicate_data.get("id") or "").strip() if isinstance(duplicate_data, dict) else ""
         )
         if knowledge_id:
             try:
@@ -152,9 +153,7 @@ def _upload_markdown(
         if retry.status_code in {200, 201, 202}:
             uploaded.append(relative_name)
             return True
-        errors.append(
-            f"{path.name}: HTTP {retry.status_code} {retry.text[:200]}"
-        )
+        errors.append(f"{path.name}: HTTP {retry.status_code} {retry.text[:200]}")
         return False
     errors.append(f"{path.name}: HTTP {response.status_code} {response.text[:200]}")
     return False
@@ -498,6 +497,7 @@ class WeKnoraSyncService:
                 item.get("channel") == "distiller"
                 and metadata.get("source") == "video-account-distiller"
                 and metadata.get("video_id") == video_id
+                and metadata.get("document_type", "creative_learning") == "creative_learning"
             ):
                 owned_existing.append(item)
 
@@ -530,6 +530,8 @@ class WeKnoraSyncService:
             f"source: video-account-distiller\n"
             f"video_id: {video_id}\n"
             f"distillation_id: {distillation.distillation_id}\n"
+            f"document_type: creative_learning\n"
+            f"distillation_mode: creative_learning\n"
             f"status: {distillation.status}\n"
             f"type: single-video-distillation\n"
             "---\n\n"
@@ -560,6 +562,8 @@ class WeKnoraSyncService:
                     metadata_extra={
                         "video_id": video_id,
                         "distillation_id": distillation.distillation_id,
+                        "document_type": "creative_learning",
+                        "distillation_mode": "creative_learning",
                     },
                 )
             finally:
@@ -592,4 +596,191 @@ class WeKnoraSyncService:
             "errors": errors,
             "error_code": error_code,
             "message": message,
+        }
+
+    def _latest_video_knowledge(
+        self,
+        video_id: str,
+    ) -> tuple[SingleVideoKnowledgeDistillation, Path] | None:
+        selected: tuple[SingleVideoKnowledgeDistillation, Path] | None = None
+        root = self.project.root / "analyses" / "videos" / video_id / "knowledge"
+        for path in sorted(root.glob("svk_*/knowledge.json")):
+            try:
+                value = SingleVideoKnowledgeDistillation.model_validate(read_json(path))
+            except (OSError, ValueError):
+                continue
+            if value.video_id != video_id:
+                continue
+            if selected is None or (value.generated_at, value.knowledge_id) > (
+                selected[0].generated_at,
+                selected[0].knowledge_id,
+            ):
+                selected = (value, path)
+        return selected
+
+    def sync_video_knowledge(
+        self,
+        *,
+        video_id: str,
+        base_url: str = DEFAULT_WEKNORA_BASE_URL,
+        api_key: str,
+        kb_id: str,
+    ) -> dict[str, Any]:
+        """Upload one knowledge-mode artifact without replacing creative-learning docs."""
+        selected_kb_id = kb_id.strip()
+        if not selected_kb_id:
+            raise DistillerError(
+                ErrorCode.SCHEMA_INVALID,
+                "WeKnora knowledge base ID is required",
+            )
+        selected = self._latest_video_knowledge(video_id)
+        if selected is None:
+            raise DistillerError(
+                ErrorCode.INPUT_MISSING,
+                f"No single-video knowledge extraction found: {video_id}",
+                details={"next": "run knowledge-mode single-video distillation first"},
+            )
+        knowledge, knowledge_path = selected
+        report_path = knowledge_path.parent / "knowledge.md"
+        if not report_path.is_file():
+            raise DistillerError(
+                ErrorCode.INPUT_MISSING,
+                f"Single-video knowledge report is missing: {report_path}",
+            )
+        knowledge_bases = self.list_knowledge_bases(base_url=base_url, api_key=api_key)
+        target = next((item for item in knowledge_bases if item["id"] == selected_kb_id), None)
+        if target is None:
+            raise DistillerError(
+                ErrorCode.SCHEMA_INVALID,
+                "WeKnora target knowledge base was not found or is not visible to this API Key",
+                details={"kb_id": selected_kb_id},
+            )
+        headers = {"X-API-Key": api_key.strip()}
+        api = _api_url(base_url)
+        errors: list[str] = []
+        replaced: list[str] = []
+        existing: list[dict[str, Any]] = []
+        page = 1
+        while True:
+            try:
+                response = requests.get(
+                    f"{api}/knowledge-bases/{selected_kb_id}/knowledge",
+                    headers=headers,
+                    params={"page": page, "page_size": 100},
+                    timeout=30,
+                )
+            except requests.RequestException as exc:
+                errors.append(f"读取现有知识失败: {exc}")
+                break
+            if not response.ok:
+                errors.append(
+                    f"读取现有知识失败: HTTP {response.status_code} {response.text[:200]}"
+                )
+                break
+            payload = response.json()
+            items = payload.get("data") if isinstance(payload, dict) else None
+            if not isinstance(items, list):
+                errors.append("读取现有知识失败: WeKnora 返回格式无效")
+                break
+            existing.extend(item for item in items if isinstance(item, dict))
+            total = int(payload.get("total") or len(existing))
+            if len(existing) >= total or len(items) < 100:
+                break
+            page += 1
+
+        for item in existing:
+            metadata = item.get("metadata")
+            if isinstance(metadata, str):
+                try:
+                    metadata = json.loads(metadata)
+                except (TypeError, ValueError):
+                    metadata = {}
+            if not isinstance(metadata, dict):
+                metadata = {}
+            if not (
+                item.get("channel") == "distiller"
+                and metadata.get("source") == "video-account-distiller"
+                and metadata.get("video_id") == video_id
+                and metadata.get("document_type") == "video_knowledge"
+            ):
+                continue
+            knowledge_record_id = str(item.get("id") or "").strip()
+            if not knowledge_record_id:
+                continue
+            try:
+                response = requests.delete(
+                    f"{api}/knowledge/{knowledge_record_id}",
+                    headers=headers,
+                    timeout=60,
+                )
+                if response.ok:
+                    replaced.append(
+                        str(item.get("file_name") or item.get("title") or knowledge_record_id)
+                    )
+                else:
+                    errors.append(
+                        f"删除旧知识 {knowledge_record_id} 失败: HTTP "
+                        f"{response.status_code} {response.text[:200]}"
+                    )
+            except requests.RequestException as exc:
+                errors.append(f"删除旧知识 {knowledge_record_id} 失败: {exc}")
+
+        document = (
+            "---\n"
+            "source: video-account-distiller\n"
+            f"video_id: {video_id}\n"
+            f"knowledge_id: {knowledge.knowledge_id}\n"
+            "document_type: video_knowledge\n"
+            "distillation_mode: knowledge\n"
+            f"status: {knowledge.status}\n"
+            "---\n\n"
+            f"{report_path.read_text(encoding='utf-8')}"
+        )
+        relative_name = f"videos/{video_id}/video-knowledge.md"
+        uploaded: list[str] = []
+        if not errors:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                suffix=".md",
+                encoding="utf-8",
+                delete=False,
+            ) as handle:
+                handle.write(document)
+                temp_path = Path(handle.name)
+            try:
+                _upload_markdown(
+                    api,
+                    headers,
+                    selected_kb_id,
+                    temp_path,
+                    relative_name,
+                    f"video:{video_id}",
+                    uploaded,
+                    errors,
+                    upload_name="video-knowledge.md",
+                    metadata_extra={
+                        "video_id": video_id,
+                        "document_type": "video_knowledge",
+                        "knowledge_id": knowledge.knowledge_id,
+                        "distillation_mode": "knowledge",
+                    },
+                )
+            finally:
+                try:
+                    temp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+        scope_rejected = any(": HTTP 403" in error and '"code":1002' in error for error in errors)
+        return {
+            "ok": not errors,
+            "kb_id": selected_kb_id,
+            "kb_name": target["name"],
+            "video_id": video_id,
+            "knowledge_id": knowledge.knowledge_id,
+            "status": knowledge.status,
+            "replaced": replaced,
+            "uploaded": uploaded,
+            "errors": errors,
+            "error_code": "API_KEY_SCOPE_NOT_ALLOWED" if scope_rejected else None,
+            "message": "WeKnora 未能完成单视频知识文档上传。" if errors else None,
         }

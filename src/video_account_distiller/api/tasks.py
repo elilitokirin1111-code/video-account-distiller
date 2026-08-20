@@ -21,6 +21,7 @@ from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.utils.ids import new_run_id
 
 TaskData: TypeAlias = dict[str, Any]
+TaskList: TypeAlias = list[TaskData]
 ProgressCallback: TypeAlias = Callable[[float, str, str], None]
 CheckpointCallback: TypeAlias = Callable[[str, dict[str, Any]], None]
 
@@ -117,6 +118,23 @@ def _json(payload: TaskData) -> str:
     return json.dumps(encoded, ensure_ascii=False, separators=(",", ":"))
 
 
+def _task_summary(payload: Mapping[str, Any]) -> TaskData:
+    """Return the bounded, user-facing fields needed by task list views."""
+    summary: TaskData = {}
+    for key in ("stage", "message", "error"):
+        if key in payload:
+            summary[key] = payload[key]
+    retryable = payload.get("retryable")
+    error = payload.get("error")
+    if retryable is None and isinstance(error, Mapping):
+        details = error.get("details")
+        if isinstance(details, Mapping):
+            retryable = details.get("retryable")
+    if retryable is not None:
+        summary["retryable"] = bool(retryable)
+    return summary
+
+
 class TaskStore:
     """Small SQLite-backed store whose records survive API restarts."""
 
@@ -159,6 +177,7 @@ class TaskStore:
                     status TEXT NOT NULL,
                     progress REAL NOT NULL,
                     payload_json TEXT NOT NULL,
+                    summary_json TEXT NOT NULL DEFAULT '{}',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     task_type TEXT NOT NULL DEFAULT 'task',
@@ -179,6 +198,7 @@ class TaskStore:
                 "durable": "INTEGER NOT NULL DEFAULT 0",
                 "worker_id": "TEXT",
                 "lease_expires_at": "TEXT",
+                "summary_json": "TEXT NOT NULL DEFAULT '{}'",
             }
             for column, declaration in migrations.items():
                 if column not in columns:
@@ -251,15 +271,17 @@ class TaskStore:
             connection.execute(
                 """
                 INSERT INTO api_tasks(
-                    task_id, status, progress, payload_json, created_at, updated_at,
+                    task_id, status, progress, payload_json, summary_json,
+                    created_at, updated_at,
                     task_type, resource_class, durable, worker_id, lease_expires_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
                 """,
                 (
                     task_id,
                     "pending",
                     0.0,
                     _json(payload),
+                    _json(_task_summary(payload)),
                     created_at,
                     created_at,
                     task_type,
@@ -293,6 +315,7 @@ class TaskStore:
                 """
                 UPDATE api_tasks
                 SET status = ?, progress = ?, payload_json = ?, updated_at = ?,
+                    summary_json = ?,
                     task_type = ?, resource_class = ?, durable = ?,
                     worker_id = ?, lease_expires_at = ?
                 WHERE task_id = ?
@@ -302,6 +325,7 @@ class TaskStore:
                     progress,
                     _json(payload),
                     payload["updated_at"],
+                    _json(_task_summary(payload)),
                     str(payload.get("task_type") or "task"),
                     str(payload.get("resource_class") or "default"),
                     int(bool(payload.get("durable"))),
@@ -362,6 +386,50 @@ class TaskStore:
             payload = json.loads(str(row["payload_json"]))
             if isinstance(payload, dict):
                 tasks.append(payload)
+        return tasks
+
+    def list_summaries(
+        self,
+        *,
+        limit: int = 50,
+        status: str | None = None,
+    ) -> TaskList:
+        """List tasks without reading their potentially large payload/result JSON."""
+        bounded_limit = min(max(limit, 1), 200)
+        columns = """
+            task_id, task_type, status, progress, summary_json,
+            created_at, updated_at, resource_class, durable
+        """
+        with self._lock, self._connection() as connection:
+            if status is None:
+                rows = connection.execute(
+                    f"SELECT {columns} FROM api_tasks ORDER BY updated_at DESC LIMIT ?",
+                    (bounded_limit,),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    f"SELECT {columns} FROM api_tasks "
+                    "WHERE status = ? ORDER BY updated_at DESC LIMIT ?",
+                    (status, bounded_limit),
+                ).fetchall()
+        tasks: list[TaskData] = []
+        for row in rows:
+            summary = json.loads(str(row["summary_json"] or "{}"))
+            if not isinstance(summary, dict):
+                summary = {}
+            tasks.append(
+                {
+                    "task_id": str(row["task_id"]),
+                    "task_type": str(row["task_type"]),
+                    "status": str(row["status"]),
+                    "progress": float(row["progress"]),
+                    "created_at": str(row["created_at"]),
+                    "updated_at": str(row["updated_at"]),
+                    "resource_class": str(row["resource_class"]),
+                    "durable": bool(row["durable"]),
+                    **summary,
+                }
+            )
         return tasks
 
     def queue_status(self) -> TaskData:
@@ -434,13 +502,15 @@ class TaskStore:
             connection.execute(
                 """
                 UPDATE api_tasks
-                SET status = ?, progress = ?, payload_json = ?, updated_at = ?
+                SET status = ?, progress = ?, payload_json = ?, summary_json = ?,
+                    updated_at = ?
                 WHERE task_id = ?
                 """,
                 (
                     str(payload["status"]),
                     float(payload.get("progress", 0.0)),
                     _json(payload),
+                    _json(_task_summary(payload)),
                     payload["updated_at"],
                     task_id,
                 ),
@@ -494,11 +564,17 @@ class TaskStore:
             connection.execute(
                 """
                 UPDATE api_tasks
-                SET status = 'cancelled', payload_json = ?, updated_at = ?,
+                SET status = 'cancelled', payload_json = ?, summary_json = ?,
+                    updated_at = ?,
                     worker_id = NULL, lease_expires_at = NULL
                 WHERE task_id = ?
                 """,
-                (_json(payload), now, str(row["task_id"])),
+                (
+                    _json(payload),
+                    _json(_task_summary(payload)),
+                    now,
+                    str(row["task_id"]),
+                ),
             )
 
         rows = connection.execute(
@@ -534,11 +610,16 @@ class TaskStore:
                 """
                 UPDATE api_tasks
                 SET status = 'failed', progress = 1.0,
-                    payload_json = ?, updated_at = ?,
+                    payload_json = ?, summary_json = ?, updated_at = ?,
                     worker_id = NULL, lease_expires_at = NULL
                 WHERE task_id = ?
                 """,
-                (_json(payload), now, str(row["task_id"])),
+                (
+                    _json(payload),
+                    _json(_task_summary(payload)),
+                    now,
+                    str(row["task_id"]),
+                ),
             )
         return len(rows) + len(cancelling_rows)
 
@@ -627,12 +708,14 @@ class TaskStore:
                 updated = connection.execute(
                     """
                     UPDATE api_tasks
-                    SET status = 'running', payload_json = ?, updated_at = ?,
+                    SET status = 'running', payload_json = ?, summary_json = ?,
+                        updated_at = ?,
                         worker_id = ?, lease_expires_at = ?
                     WHERE task_id = ? AND status = 'pending'
                     """,
                     (
                         _json(payload),
+                        _json(_task_summary(payload)),
                         now,
                         worker_id,
                         lease_expires_at,
@@ -703,7 +786,8 @@ class TaskStore:
             connection.execute(
                 """
                 UPDATE api_tasks
-                SET status = ?, progress = ?, payload_json = ?, updated_at = ?,
+                SET status = ?, progress = ?, payload_json = ?, summary_json = ?,
+                    updated_at = ?,
                     lease_expires_at = ?
                 WHERE task_id = ? AND worker_id = ?
                 """,
@@ -711,6 +795,7 @@ class TaskStore:
                     str(payload.get("status") or "running"),
                     float(payload.get("progress", 0.0)),
                     _json(payload),
+                    _json(_task_summary(payload)),
                     payload["updated_at"],
                     payload["lease_expires_at"],
                     task_id,
@@ -761,7 +846,8 @@ class TaskStore:
             connection.execute(
                 """
                 UPDATE api_tasks
-                SET status = ?, progress = ?, payload_json = ?, updated_at = ?,
+                SET status = ?, progress = ?, payload_json = ?, summary_json = ?,
+                    updated_at = ?,
                     worker_id = NULL, lease_expires_at = NULL
                 WHERE task_id = ? AND worker_id = ?
                 """,
@@ -769,6 +855,7 @@ class TaskStore:
                     status,
                     float(payload.get("progress", 0.0)),
                     _json(payload),
+                    _json(_task_summary(payload)),
                     payload["updated_at"],
                     task_id,
                     worker_id,

@@ -3,6 +3,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+from video_account_distiller.distillation.knowledge import (
+    _fallback_knowledge,
+    _validate_source_refs,
+)
 from video_account_distiller.distillation.video import (
     _fallback_deep_output,
     _validate_deep_output,
@@ -20,6 +24,7 @@ from video_account_distiller.models import (
     ShotVisualAnnotation,
     SingleVideoAnalysis,
     SingleVideoDeepOutput,
+    TranscriptSegment,
     VisionTaskTrace,
 )
 
@@ -228,6 +233,42 @@ def test_fallback_deep_output_organizes_observables_deterministically() -> None:
     assert no_media.expression.subtitle_style == "未见字幕/艺术字标注"
     assert no_media.craft.shot_scale_profile == "未见标注"
     assert any("缺少本地媒体分析" in item for item in no_media.unknowns)
+
+
+def test_knowledge_fallback_preserves_attribution_and_source_intervals() -> None:
+    segment = TranscriptSegment(
+        segment_id="1",
+        video_id="vid_1",
+        start_ms=100,
+        end_ms=900,
+        text="视频说有三个常见问题",
+        source="fixture",
+        record_id="tr_1",
+        source_platform="douyin",
+        source_type="fixture",
+        source_record_id="src_1",
+        raw_hash="a" * 64,
+        run_id="run_1",
+    )
+
+    output = _fallback_knowledge(_text_analysis(), [segment])
+
+    assert output.knowledge_items[0].knowledge_type == "data"
+    assert output.knowledge_items[0].attribution == "video_statement"
+    assert output.knowledge_items[0].source_refs[0].segment_id == "1"
+    assert output.knowledge_items[0].source_refs[0].start_ms == 100
+    assert "外部事实核验" in output.limitations[0]
+
+    output.knowledge_items[0].source_refs.append(
+        output.knowledge_items[0].source_refs[0].model_copy(update={"segment_id": "invented"})
+    )
+    _validate_source_refs(
+        output,
+        valid_segments={"1"},
+        valid_shots=set(),
+        valid_observations=set(),
+    )
+    assert [ref.segment_id for ref in output.knowledge_items[0].source_refs] == ["1"]
 
 
 def test_deep_output_citation_filter_drops_fabricated_ids() -> None:

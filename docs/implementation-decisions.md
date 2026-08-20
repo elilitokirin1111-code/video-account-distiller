@@ -924,6 +924,43 @@ requirements from later phases.
   configuration mismatch, and the docs/UI guidance makes the provider/key pairing diagnosable
   instead of surfacing an opaque "API rejected the credential or permission scope".
 
+## ID-097 — Persist bounded task summaries separately from task results
+
+- **Decision:** Add a migrated `summary_json` column to `api_tasks` and update it atomically with
+  every user-visible task state change. `GET /api/tasks` now reads only indexed scalar columns plus
+  this bounded summary (`stage`, `message`, `error`, `retryable`); `GET /api/tasks/{task_id}` remains
+  the sole detail path that deserializes `payload_json`. The web task history resolves one detail
+  only when restoring or opening a selected completed task.
+- **Reason:** Completed workflow payloads can contain large nested collection and analysis results.
+  Deserializing all of them for every polling list request makes monitoring cost grow with historical
+  artifact size even though the UI needs only status fields. A separately maintained summary keeps
+  list latency bounded without changing durable task details or retry metadata.
+
+## ID-098 — Keep creative learning and video knowledge as separate artifact contracts
+
+- **Decision:** Add `distillation_mode=creative_learning|knowledge` with the existing mode as the
+  default. Knowledge mode uses an independent strict schema and `svk_*` identity, classifies each
+  item as a video statement, creator opinion, or model inference, filters fabricated transcript/OCR/
+  shot references, and writes exactly `knowledge.json`, `knowledge.md`, `evidence.json`, and
+  `warnings.json` under `analyses/videos/{video_id}/knowledge/{knowledge_id}/`. It performs no
+  external fact checking. WeKnora knowledge sync matches `source + video_id + document_type` and
+  publishes `document_type=video_knowledge`, so it cannot replace creative-learning documents.
+- **Reason:** Adding many optional knowledge fields to the creative-analysis card would blur two
+  different questions and make old consumers mode-dependent. Separate schemas, IDs, paths, and
+  sync identities let both interpretations of the same video coexist and remain replayable.
+
+## ID-099 — Append hospitality transfer analysis without narrowing the base account report
+
+- **Decision:** Add `analysis_focus=general|hospitality`, defaulting to `general`. Hospitality mode
+  runs the complete general account contract first and appends a strict `hospitality_transfer`
+  section containing relevance, source mechanisms, adaptations, preserve/replace/do-not-transfer
+  boundaries, limitations, and allowlisted evidence. `none` and `low` relevance with no playbooks
+  are valid results. The focus is persisted in audits, workflow checkpoints, retry allowlists, and
+  UI task templates.
+- **Reason:** A hotel-oriented user still needs the source account understood on its own terms.
+  Treating hospitality as an independent transfer layer prevents forced hotel analogies and invented
+  trends while preserving the general analysis behavior and its evidence discipline.
+
 
 
 

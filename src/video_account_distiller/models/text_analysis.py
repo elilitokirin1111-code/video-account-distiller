@@ -184,6 +184,7 @@ class ModelTaskTrace(StrictModel):
         "video_semantic_labeling",
         "comment_intent",
         "single_video_deep_distillation",
+        "single_video_knowledge_extraction",
     ]
     prompt_version: str
     prompt_hash: str

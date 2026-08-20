@@ -197,13 +197,18 @@ from video_account_distiller.models.text_analysis import (
     VideoSemanticAnnotation,
 )
 from video_account_distiller.models.video_distillation import (
+    ContentExpressionNote,
     CopyChecklist,
     CraftDistillation,
     ExpressionDistillation,
+    KnowledgeSourceRef,
     SingleVideoCraftSummary,
     SingleVideoDeepOutput,
     SingleVideoDistillation,
+    SingleVideoKnowledgeDistillation,
+    SingleVideoKnowledgeOutput,
     TopicDistillation,
+    VideoKnowledgeItem,
 )
 
 __all__ = [
@@ -287,6 +292,7 @@ __all__ = [
     "CraftProfile",
     "CraftTagSummary",
     "CopyChecklist",
+    "ContentExpressionNote",
     "CraftDistillation",
     "CtaAnnotation",
     "CtaType",
@@ -359,6 +365,8 @@ __all__ = [
     "SingleVideoCraftSummary",
     "SingleVideoDeepOutput",
     "SingleVideoDistillation",
+    "SingleVideoKnowledgeDistillation",
+    "SingleVideoKnowledgeOutput",
     "ShotSegment",
     "ShotVisualAnnotation",
     "SilenceInterval",
@@ -371,6 +379,8 @@ __all__ = [
     "TeamConfig",
     "TeamConnectorPolicy",
     "TopicDistillation",
+    "KnowledgeSourceRef",
+    "VideoKnowledgeItem",
     "TeamMember",
     "TeamRole",
     "TranscriptInputSegment",

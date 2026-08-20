@@ -329,9 +329,9 @@ def _build_bundle(
     media: MediaAnalysis | None,
 ) -> dict[str, Any]:
     semantics = analysis.blind_analysis.semantics
-    ocr_texts = [
-        item.text for item in (media.vision.ocr_observations if media and media.vision else [])[:20]
-    ]
+    ocr_observations = (
+        media.vision.ocr_observations[:20] if media is not None and media.vision else []
+    )
     return {
         "title": video.title,
         "description": video.description,
@@ -339,7 +339,12 @@ def _build_bundle(
         "language": video.language,
         "platform": video.platform.value,
         "transcript_segments": [
-            {"segment_id": item.segment_id, "text": item.text}
+            {
+                "segment_id": item.segment_id,
+                "start_ms": item.start_ms,
+                "end_ms": item.end_ms,
+                "text": item.text,
+            }
             for item in _transcript_segments(project, video.video_id)
         ],
         "shots": [
@@ -347,7 +352,11 @@ def _build_bundle(
             for item in (media.shots if media is not None else [])
         ],
         "facts": [
-            {"category": item.category, "text": item.text}
+            {
+                "category": item.category,
+                "text": item.text,
+                "evidence_segment_ids": item.evidence_segment_ids,
+            }
             for item in analysis.blind_analysis.facts.facts[:20]
         ],
         "semantics": {
@@ -378,7 +387,17 @@ def _build_bundle(
             "language_signals": semantics.language_signals,
         },
         "craft_summary": craft.model_dump(mode="json"),
-        "ocr_texts": ocr_texts,
+        "ocr_texts": [item.text for item in ocr_observations],
+        "ocr_observations": [
+            {
+                "observation_id": item.observation_id,
+                "text": item.text,
+                "shot_id": item.shot_id,
+                "start_ms": item.start_ms,
+                "end_ms": item.end_ms,
+            }
+            for item in ocr_observations
+        ],
     }
 
 

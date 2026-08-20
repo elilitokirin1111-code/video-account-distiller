@@ -39,6 +39,7 @@ from video_account_distiller.distillation import (
     AccountDistillationService,
     BenchmarkComparisonService,
 )
+from video_account_distiller.distillation.knowledge import SingleVideoKnowledgeService
 from video_account_distiller.distillation.video import SingleVideoDistillationService
 from video_account_distiller.doctor import doctor_report
 from video_account_distiller.errors import EXIT_CODES, DistillerError, ErrorCode
@@ -666,12 +667,22 @@ def weknora_sync_video_command(
     kb_id: str = typer.Option(..., "--kb-id"),
     base_url: str = typer.Option("http://127.0.0.1:8080", "--base-url"),
     api_key: str = typer.Option(..., "--api-key", envvar="WEKNORA_API_KEY"),
+    distillation_mode: Literal["creative_learning", "knowledge"] = typer.Option(
+        "creative_learning",
+        "--distillation-mode",
+    ),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
     """Upload one video's deep distillation card into a WeKnora knowledge base."""
 
+    service = WeKnoraSyncService(ProjectLayout.open(project))
+    sync_method = (
+        service.sync_video_knowledge
+        if distillation_mode == "knowledge"
+        else service.sync_video_distillation
+    )
     result = _execute(
-        lambda: WeKnoraSyncService(ProjectLayout.open(project)).sync_video_distillation(
+        lambda: sync_method(
             video_id=video,
             base_url=base_url,
             api_key=api_key,
@@ -804,6 +815,11 @@ def video_analyze_command(
         "--deep",
         help="Also run single-video deep distillation (选材/表现/拍摄/可复制清单).",
     ),
+    distillation_mode: Literal["creative_learning", "knowledge"] = typer.Option(
+        "creative_learning",
+        "--distillation-mode",
+        help="Single-video goal: creative_learning or knowledge.",
+    ),
     deep_provider: str | None = typer.Option(
         None,
         "--deep-provider",
@@ -879,8 +895,13 @@ def video_analyze_command(
         )
         result["media_enrichment"] = enrichment
         result["analysis"] = VideoAnalysisService(layout).analyze(video_id=video_id)
-        if deep:
-            deep_result = SingleVideoDistillationService(layout).distill(
+        if deep or distillation_mode == "knowledge":
+            distillation_service = (
+                SingleVideoKnowledgeService(layout)
+                if distillation_mode == "knowledge"
+                else SingleVideoDistillationService(layout)
+            )
+            deep_result = distillation_service.distill(
                 video_id=video_id,
                 deep_provider=(
                     cast(Literal["ollama", "llamacpp", "cloud", "none"], deep_provider)
@@ -893,7 +914,11 @@ def video_analyze_command(
                 strict_model=strict_deep,
                 dry_run=dry_run,
             )
-            result["deep_distillation"] = deep_result
+            result[
+                "knowledge_distillation"
+                if distillation_mode == "knowledge"
+                else "deep_distillation"
+            ] = deep_result
         if weknora_kb_id:
             if not (weknora_api_key or "").strip():
                 raise DistillerError(
@@ -901,7 +926,13 @@ def video_analyze_command(
                     "WeKnora API Key is required for --weknora-kb-id",
                     details={"next": "pass --weknora-api-key or set WEKNORA_API_KEY"},
                 )
-            result["weknora_sync"] = WeKnoraSyncService(layout).sync_video_distillation(
+            sync_service = WeKnoraSyncService(layout)
+            sync_method = (
+                sync_service.sync_video_knowledge
+                if distillation_mode == "knowledge"
+                else sync_service.sync_video_distillation
+            )
+            result["weknora_sync"] = sync_method(
                 video_id=video_id,
                 base_url=weknora_base_url,
                 api_key=weknora_api_key or "",
@@ -915,6 +946,8 @@ def video_analyze_command(
         human_parts.append(f"status={result['analysis']['analysis']['status']}")
     if "deep_distillation" in result:
         human_parts.append(f"deep={result['deep_distillation']['distillation']['status']}")
+    if "knowledge_distillation" in result:
+        human_parts.append(f"knowledge={result['knowledge_distillation']['knowledge']['status']}")
     if "weknora_sync" in result:
         sync = result["weknora_sync"]
         human_parts.append(f"weknora={sync['kb_name']}({len(sync['uploaded'])} uploaded)")
@@ -1253,6 +1286,11 @@ def analyze_video_command(
         "--deep",
         help="Also run single-video deep distillation (topic/expression/craft/copy checklist).",
     ),
+    distillation_mode: Literal["creative_learning", "knowledge"] = typer.Option(
+        "creative_learning",
+        "--distillation-mode",
+        help="Single-video goal: creative_learning or knowledge.",
+    ),
     deep_provider: str | None = typer.Option(
         None,
         "--deep-provider",
@@ -1289,9 +1327,14 @@ def analyze_video_command(
     analysis = result["analysis"]
     outputs = list(result["outputs"])
     human = f"Analyzed {video} with status={analysis['status']}: {result['outputs'][0]}"
-    if deep:
+    if deep or distillation_mode == "knowledge":
+        distillation_service = (
+            SingleVideoKnowledgeService(ProjectLayout.open(project))
+            if distillation_mode == "knowledge"
+            else SingleVideoDistillationService(ProjectLayout.open(project))
+        )
         deep_result = _execute(
-            lambda: SingleVideoDistillationService(ProjectLayout.open(project)).distill(
+            lambda: distillation_service.distill(
                 video_id=video,
                 deep_provider=(
                     cast(Literal["ollama", "llamacpp", "cloud", "none"], deep_provider)
@@ -1308,10 +1351,13 @@ def analyze_video_command(
             ),
             json_output=json_output,
         )
-        result["deep_distillation"] = deep_result
+        result[
+            "knowledge_distillation" if distillation_mode == "knowledge" else "deep_distillation"
+        ] = deep_result
         outputs.extend(deep_result["outputs"])
-        deep_status = deep_result["distillation"]["status"]
-        human += f"; deep distillation status={deep_status}: {deep_result['outputs'][0]}"
+        artifact_key = "knowledge" if distillation_mode == "knowledge" else "distillation"
+        deep_status = deep_result[artifact_key]["status"]
+        human += f"; {distillation_mode} status={deep_status}: {deep_result['outputs'][0]}"
     result["outputs"] = outputs
     _emit(
         result,

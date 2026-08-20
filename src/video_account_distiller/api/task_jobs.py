@@ -48,6 +48,7 @@ from video_account_distiller.distillation import (
     AccountDistillationService,
     BenchmarkComparisonService,
 )
+from video_account_distiller.distillation.knowledge import SingleVideoKnowledgeService
 from video_account_distiller.distillation.video import SingleVideoDistillationService
 from video_account_distiller.features import VideoAnalysisService
 from video_account_distiller.insights import (
@@ -318,7 +319,7 @@ def execute_api_job(
             strict_model=job.body.strict_model,
             dry_run=job.dry_run,
         )
-        if job.body.deep:
+        if job.body.deep or job.body.distillation_mode == "knowledge":
             deep_provider = (
                 cast(
                     Literal["ollama", "llamacpp", "cloud", "none"],
@@ -327,7 +328,12 @@ def execute_api_job(
                 if job.body.deep_provider in {"ollama", "llamacpp", "cloud", "none"}
                 else None
             )
-            deep_result = SingleVideoDistillationService(layout).distill(
+            distillation_service = (
+                SingleVideoKnowledgeService(layout)
+                if job.body.distillation_mode == "knowledge"
+                else SingleVideoDistillationService(layout)
+            )
+            deep_result = distillation_service.distill(
                 video_id=job.video_id,
                 deep_provider=deep_provider,
                 deep_model=job.body.deep_model,
@@ -337,7 +343,11 @@ def execute_api_job(
                 strict_model=job.body.strict_deep,
                 dry_run=job.dry_run,
             )
-            result["deep_distillation"] = deep_result
+            result[
+                "knowledge_distillation"
+                if job.body.distillation_mode == "knowledge"
+                else "deep_distillation"
+            ] = deep_result
         return result
 
     if isinstance(job, AnalyzeCommentsJob):
@@ -446,6 +456,10 @@ def execute_account_distill(
     )
     provider = build_account_provider(body.provider)
     analysis_options = body.knowledge_analysis.options() if body.knowledge_analysis else None
+    if analysis_options is not None:
+        analysis_options = analysis_options.model_copy(
+            update={"analysis_focus": body.analysis_focus}
+        )
     analysis_provider = None
     if analysis_options is not None and not job.dry_run:
         resolved = resolve_cloud_credential(
@@ -480,6 +494,7 @@ def execute_account_distill(
         strict_vision=body.strict_vision,
         account_analysis_provider=analysis_provider,
         account_analysis_options=analysis_options,
+        analysis_focus=body.analysis_focus,
         export_knowledge=body.export_knowledge,
         dry_run=job.dry_run,
         progress=context.progress,

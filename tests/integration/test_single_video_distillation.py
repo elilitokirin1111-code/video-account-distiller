@@ -4,6 +4,7 @@ import json
 from array import array
 from pathlib import Path
 
+from video_account_distiller.distillation.knowledge import SingleVideoKnowledgeService
 from video_account_distiller.distillation.video import SingleVideoDistillationService
 from video_account_distiller.features import VideoAnalysisService
 from video_account_distiller.media import LocalMediaAnalysisService, SceneDetectionResult
@@ -13,6 +14,7 @@ from video_account_distiller.models import (
     MediaVisionBundle,
     ShotVisualAnnotation,
     SingleVideoDistillation,
+    SingleVideoKnowledgeDistillation,
 )
 from video_account_distiller.storage.project import ProjectLayout
 from video_account_distiller.utils.io import read_json
@@ -210,6 +212,28 @@ def test_single_video_deep_distillation_degrades_without_model(
     assert distillation.media_analysis_id is None
     assert any("缺少本地媒体分析" in item for item in distillation.unknowns)
     assert validate_project(phase3_project, persist=False).error_count == 0
+
+
+def test_single_video_knowledge_mode_uses_isolated_artifact_paths(
+    phase3_project: ProjectLayout,
+) -> None:
+    _analyze_text(phase3_project)
+
+    result = SingleVideoKnowledgeService(phase3_project).distill(video_id="p2-01")
+    artifact = SingleVideoKnowledgeDistillation.model_validate(result["knowledge"])
+
+    assert artifact.distillation_mode == "knowledge"
+    assert artifact.knowledge_id.startswith("svk_")
+    assert artifact.knowledge.knowledge_items
+    expected_names = ["knowledge.json", "knowledge.md", "evidence.json", "warnings.json"]
+    assert [Path(path).name for path in result["outputs"]] == expected_names
+    assert all(f"knowledge/{artifact.knowledge_id}/" in path for path in result["outputs"])
+    assert all((phase3_project.root / path).is_file() for path in result["outputs"])
+    assert "external_fact_check_not_performed" in artifact.warnings
+
+    repeated = SingleVideoKnowledgeService(phase3_project).distill(video_id="p2-01")
+    assert repeated["already_generated"] is True
+    assert repeated["knowledge"]["knowledge_id"] == artifact.knowledge_id
 
 
 def test_single_video_deep_distillation_uses_media_analysis_when_present(

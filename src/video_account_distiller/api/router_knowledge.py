@@ -84,7 +84,13 @@ async def sync_video_weknora(
     """Upload one video's single-video deep distillation card into WeKnora."""
 
     layout = resolve_project(project_path)
-    return WeKnoraSyncService(layout).sync_video_distillation(
+    service = WeKnoraSyncService(layout)
+    sync_method = (
+        service.sync_video_knowledge
+        if body.distillation_mode == "knowledge"
+        else service.sync_video_distillation
+    )
+    return sync_method(
         video_id=video_id,
         base_url=body.base_url,
         api_key=body.api_key,

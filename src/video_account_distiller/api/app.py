@@ -105,7 +105,7 @@ def create_app(
     # Task status endpoint
     @app.get("/api/tasks", tags=["Tasks"])
     async def list_tasks(limit: int = 50, status: str | None = None) -> dict[str, Any]:
-        tasks = task_store.list(limit=limit, status=status)
+        tasks = task_store.list_summaries(limit=limit, status=status)
         return {"ok": True, "tasks": tasks, "count": len(tasks)}
 
     @app.get("/api/task-queue", tags=["Tasks"])

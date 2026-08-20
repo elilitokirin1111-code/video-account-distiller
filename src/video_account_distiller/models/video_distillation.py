@@ -13,13 +13,26 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from video_account_distiller.models.core import StrictModel
 from video_account_distiller.models.text_analysis import ModelTaskTrace
 from video_account_distiller.version import DISTILLATION_SCHEMA_VERSION
 
 DeepStatus = Literal["complete", "degraded"]
+KnowledgeItemType = Literal[
+    "fact",
+    "knowledge_point",
+    "concept",
+    "method",
+    "case",
+    "data",
+    "news",
+    "creator_opinion",
+    "inference",
+    "recommendation",
+]
+KnowledgeAttribution = Literal["video_statement", "creator_opinion", "model_inference"]
 
 
 class SingleVideoCraftSummary(StrictModel):
@@ -121,5 +134,84 @@ class SingleVideoDistillation(StrictModel):
     deep_trace: ModelTaskTrace | None = None
     unknowns: list[str] = Field(default_factory=list)
     evidence_index_path: str
+    warnings_path: str
+    warnings: list[str] = Field(default_factory=list)
+
+
+class KnowledgeSourceRef(StrictModel):
+    """A traceable transcript, OCR, or visual source reference."""
+
+    source_type: Literal["transcript", "ocr", "visual"]
+    segment_id: str | None = None
+    shot_id: str | None = None
+    observation_id: str | None = None
+    start_ms: int | None = Field(default=None, ge=0)
+    end_ms: int | None = Field(default=None, ge=0)
+    excerpt: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_reference(self) -> KnowledgeSourceRef:
+        required_id = {
+            "transcript": self.segment_id,
+            "ocr": self.observation_id,
+            "visual": self.shot_id,
+        }[self.source_type]
+        if not required_id:
+            raise ValueError(f"{self.source_type} source reference is missing its evidence ID")
+        if self.start_ms is not None and self.end_ms is not None and self.end_ms < self.start_ms:
+            raise ValueError("knowledge source end_ms must be greater than or equal to start_ms")
+        return self
+
+
+class VideoKnowledgeItem(StrictModel):
+    knowledge_type: KnowledgeItemType
+    attribution: KnowledgeAttribution
+    title: str = Field(min_length=1, max_length=160)
+    content: str = Field(min_length=1, max_length=2_000)
+    source_refs: list[KnowledgeSourceRef] = Field(default_factory=list, max_length=8)
+    limitations: list[str] = Field(default_factory=list, max_length=6)
+
+
+class ContentExpressionNote(StrictModel):
+    summary: str = Field(min_length=1, max_length=1_000)
+    useful_devices: list[str] = Field(default_factory=list, max_length=5)
+    limitations: list[str] = Field(default_factory=list, max_length=5)
+
+
+class SingleVideoKnowledgeOutput(StrictModel):
+    """Independent schema for knowledge-first single-video extraction."""
+
+    schema_version: str = DISTILLATION_SCHEMA_VERSION
+    knowledge_title: str = Field(min_length=1, max_length=200)
+    content_summary: str = Field(min_length=1, max_length=3_000)
+    core_conclusions: list[str] = Field(default_factory=list, max_length=10)
+    knowledge_items: list[VideoKnowledgeItem] = Field(default_factory=list, max_length=30)
+    important_concepts: list[str] = Field(default_factory=list, max_length=15)
+    methods: list[str] = Field(default_factory=list, max_length=15)
+    cases: list[str] = Field(default_factory=list, max_length=15)
+    key_data: list[str] = Field(default_factory=list, max_length=15)
+    entities: list[str] = Field(default_factory=list, max_length=20)
+    time_information: list[str] = Field(default_factory=list, max_length=12)
+    applicability: list[str] = Field(default_factory=list, max_length=10)
+    limitations: list[str] = Field(min_length=1, max_length=12)
+    expression_note: ContentExpressionNote
+    unknowns: list[str] = Field(default_factory=list, max_length=12)
+
+
+class SingleVideoKnowledgeDistillation(StrictModel):
+    schema_version: str = DISTILLATION_SCHEMA_VERSION
+    knowledge_id: str
+    analysis_version: str
+    distillation_mode: Literal["knowledge"] = "knowledge"
+    video_id: str
+    account_id: str
+    generated_at: datetime
+    run_id: str
+    status: DeepStatus
+    text_analysis_id: str | None = None
+    media_analysis_id: str | None = None
+    knowledge: SingleVideoKnowledgeOutput
+    model_trace: ModelTaskTrace | None = None
+    evidence_path: str
     warnings_path: str
     warnings: list[str] = Field(default_factory=list)

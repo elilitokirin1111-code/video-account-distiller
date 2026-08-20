@@ -70,6 +70,7 @@ _RETRY_OVERRIDE_FIELDS = frozenset(
         "cloud_text_model",
         "cloud_vision_model",
         "vision_batch_size",
+        "analysis_focus",
         "knowledge_analysis",
         "export_knowledge",
     }
@@ -103,10 +104,7 @@ def retry_account_distill_task(
         )
     retry_body_payload = dict(body_payload)
     error = task.get("error")
-    if (
-        isinstance(error, dict)
-        and error.get("code") == ErrorCode.COLLECTION_BUDGET_EXCEEDED.value
-    ):
+    if isinstance(error, dict) and error.get("code") == ErrorCode.COLLECTION_BUDGET_EXCEEDED.value:
         retry_body_payload["max_provider_calls"] = None
     if overrides:
         for field, value in overrides.items():

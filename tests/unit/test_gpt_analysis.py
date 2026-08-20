@@ -126,6 +126,36 @@ def test_learning_report_prioritizes_transferable_playbooks_and_creative_extensi
     assert "证据与严谨分析附录" not in report
 
 
+def test_hospitality_focus_appends_independent_transfer_section() -> None:
+    payload = _analysis().model_dump(mode="json")
+    payload["hospitality_transfer"] = {
+        "hospitality_summary": "原内容机制与酒旅场景相关度较低，仅保留一个可验证假设。",
+        "relevance": "low",
+        "transferable_playbooks": [
+            {
+                "title": "将清单机制替换为入住前核对清单",
+                "source_mechanism": "用有限条目降低理解成本",
+                "why_it_works": "条目让用户快速扫描",
+                "hospitality_adaptation": "改为入住前信息核对",
+                "suitable_scenarios": ["前台答疑"],
+                "preserve": ["有限条目"],
+                "replace": ["原案例"],
+                "do_not_transfer": ["未经证实的数据"],
+                "limitations": ["需在酒店账号上重新验证"],
+                "evidence_refs": ["context://account"],
+            }
+        ],
+        "limitations": ["没有酒旅行业趋势证据"],
+    }
+
+    report = render_account_learning_report({"result": payload})
+
+    assert "## 酒旅迁移分析" in report
+    assert "相关度：low" in report
+    assert "未经证实的数据" in report
+    assert report.index("## 酒旅迁移分析") > report.index("## 如何验证这些想法")
+
+
 class RecordingExecutor:
     def __init__(self, response: dict[str, Any]) -> None:
         self.response = response

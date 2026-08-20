@@ -157,6 +157,7 @@ class GptAnalysisOptions(StrictModel):
     model: AnalysisModel = DeepSeekModel.V4_FLASH
     template: AnalysisTemplate = AnalysisTemplate.CONTENT_STRATEGY
     reasoning_effort: ReasoningEffort = ReasoningEffort.HIGH
+    analysis_focus: Literal["general", "hospitality"] = "general"
     max_video_analyses: int = Field(default=100, ge=1, le=1_000)
     confirm_cloud_upload: bool = False
     confirm_cost: bool = False
@@ -279,6 +280,31 @@ class GptCreativeExtension(StrictModel):
     evidence_refs: list[str] = Field(min_length=1, max_length=8)
 
 
+class GptHospitalityTransferPlaybook(StrictModel):
+    """One evidence-linked mechanism adapted to hospitality without forced relevance."""
+
+    title: str = Field(min_length=1, max_length=160)
+    source_mechanism: str = Field(min_length=1, max_length=1_500)
+    why_it_works: str = Field(min_length=1, max_length=1_500)
+    hospitality_adaptation: str = Field(min_length=1, max_length=1_500)
+    suitable_scenarios: list[str] = Field(default_factory=list, max_length=6)
+    preserve: list[str] = Field(default_factory=list, max_length=6)
+    replace: list[str] = Field(default_factory=list, max_length=6)
+    do_not_transfer: list[str] = Field(default_factory=list, max_length=6)
+    limitations: list[str] = Field(min_length=1, max_length=6)
+    evidence_refs: list[str] = Field(min_length=1, max_length=8)
+
+
+class GptHospitalityTransfer(StrictModel):
+    hospitality_summary: str = Field(min_length=1, max_length=2_000)
+    relevance: Literal["none", "low", "medium", "high"]
+    transferable_playbooks: list[GptHospitalityTransferPlaybook] = Field(
+        default_factory=list,
+        max_length=5,
+    )
+    limitations: list[str] = Field(min_length=1, max_length=8)
+
+
 class GptAccountAnalysis(StrictModel):
     executive_summary: str = Field(min_length=1, max_length=3_000)
     findings: list[GptFinding] = Field(min_length=1, max_length=12)
@@ -288,6 +314,7 @@ class GptAccountAnalysis(StrictModel):
     experiments: list[GptExperiment] = Field(max_length=6)
     knowledge_cards: list[GptKnowledgeCard] = Field(default_factory=list, max_length=8)
     limitations: list[str] = Field(min_length=1, max_length=12)
+    hospitality_transfer: GptHospitalityTransfer | None = None
 
 
 @dataclass(frozen=True)
@@ -919,7 +946,9 @@ class BailianChatCompletionsProvider:
             usage=_chat_usage(response.get("usage")),
         )
 
-    def _analyze_single(self, response: dict[str, Any]) -> tuple[GptAccountAnalysis | None, dict[str, Any]]:
+    def _analyze_single(
+        self, response: dict[str, Any]
+    ) -> tuple[GptAccountAnalysis | None, dict[str, Any]]:
         """Parse and validate one Bailian completion, returning None on failure."""
         try:
             decoded = json.loads(_chat_completion_text(response))
@@ -1247,11 +1276,31 @@ def _used_evidence_refs(analysis: GptAccountAnalysis) -> set[str]:
     refs.update(ref for card in analysis.knowledge_cards for ref in card.evidence_refs)
     refs.update(ref for playbook in analysis.imitation_playbooks for ref in playbook.evidence_refs)
     refs.update(ref for idea in analysis.creative_extensions for ref in idea.evidence_refs)
+    if analysis.hospitality_transfer:
+        refs.update(
+            ref
+            for playbook in analysis.hospitality_transfer.transferable_playbooks
+            for ref in playbook.evidence_refs
+        )
     return refs
 
 
 def _prompt(options: GptAnalysisOptions, allowed_refs: list[str]) -> str:
     refs = "\n".join(f"- {ref}" for ref in allowed_refs)
+    focus_instruction = (
+        "Set hospitality_transfer to null. Keep the analysis fully general-purpose and do not "
+        "introduce hotel or travel language unless it exists in the supplied evidence.\n"
+        if options.analysis_focus == "general"
+        else (
+            "First complete the entire general account analysis exactly as requested above. Then "
+            "append an independent hospitality_transfer section (roughly 20% of the output). "
+            "Extract mechanisms before adapting them to hotels, accommodation, or travel. It is "
+            "valid to report none or low relevance and an empty transferable_playbooks list. Do "
+            "not force a hospitality connection, invent industry trends, or replace the general "
+            "analysis. Every transfer playbook must state what to preserve, replace, and not "
+            "transfer, plus limitations and allowlisted evidence refs.\n"
+        )
+    )
     return (
         "You are an evidence-disciplined analyst for a video-account operations workspace.\n"
         f"Task: {_TEMPLATE_INSTRUCTIONS[options.template]}\n"
@@ -1290,6 +1339,8 @@ def _prompt(options: GptAnalysisOptions, allowed_refs: list[str]) -> str:
         "card must cite evidence_refs exactly from the allowlist below. Do not invent paths or "
         "identifiers.\n"
         "Preserve the context limitations in the output and prefer testable next actions.\n"
+        f"Analysis focus: {options.analysis_focus}.\n"
+        f"{focus_instruction}"
         f"Evidence allowlist:\n{refs}\n"
         f"Prompt version: {GPT_PROMPT_VERSION}"
     )
@@ -1367,7 +1418,10 @@ def _render_markdown(
                     "**不要照搬：** " + "；".join(playbook.do_not_copy),
                     "",
                     "**落地步骤：**",
-                    *[f"{step_no}. {step}" for step_no, step in enumerate(playbook.adaptation_steps, 1)],
+                    *[
+                        f"{step_no}. {step}"
+                        for step_no, step in enumerate(playbook.adaptation_steps, 1)
+                    ],
                     "",
                     f"**适合：** {'；'.join(playbook.suitable_for)}",
                     f"**置信度：** {confidence_zh[str(playbook.confidence)]}",
@@ -1387,11 +1441,7 @@ def _render_markdown(
                     f"- 来源：{idea.derived_from}",
                     f"- 创意：{idea.concept}",
                     f"- 热点属性：{trend_zh[str(idea.trend_relevance)]}",
-                    *(
-                        [f"- 热点依据：{idea.trend_basis}"]
-                        if idea.trend_basis
-                        else []
-                    ),
+                    *([f"- 热点依据：{idea.trend_basis}"] if idea.trend_basis else []),
                     "- 执行：",
                     *[f"  {step_no}. {step}" for step_no, step in enumerate(idea.execution, 1)],
                     f"- 风险/边界：{idea.risk_or_boundary}",
@@ -1422,6 +1472,32 @@ def _render_markdown(
             )
     else:
         lines.append("- 本次未生成实验建议。")
+
+    if result.hospitality_transfer:
+        transfer = result.hospitality_transfer
+        lines.extend(["", "## 酒旅迁移分析", "", transfer.hospitality_summary, ""])
+        lines.append(f"- 相关度：{transfer.relevance}")
+        for index, hospitality_playbook in enumerate(
+            transfer.transferable_playbooks,
+            start=1,
+        ):
+            lines.extend(
+                [
+                    "",
+                    f"### {index}. {hospitality_playbook.title}",
+                    "",
+                    f"- 原内容机制：{hospitality_playbook.source_mechanism}",
+                    f"- 生效原因：{hospitality_playbook.why_it_works}",
+                    f"- 酒旅适配：{hospitality_playbook.hospitality_adaptation}",
+                    "- 适用场景：" + ("；".join(hospitality_playbook.suitable_scenarios) or "暂无"),
+                    "- 保留：" + ("；".join(hospitality_playbook.preserve) or "暂无"),
+                    "- 替换：" + ("；".join(hospitality_playbook.replace) or "暂无"),
+                    "- 不迁移：" + ("；".join(hospitality_playbook.do_not_transfer) or "暂无"),
+                    f"- 局限：{'；'.join(hospitality_playbook.limitations)}",
+                ]
+            )
+        lines.extend(["", "**迁移边界：**"])
+        lines.extend(f"- {item}" for item in transfer.limitations)
 
     lines.extend(["", "## 阅读边界", ""])
     lines.extend(f"- {item}" for item in result.limitations)
@@ -1870,6 +1946,7 @@ class RemoteAccountAnalysisService:
             "model": options.model.value,
             "template": options.template.value,
             "reasoning_effort": options.reasoning_effort.value,
+            "analysis_focus": options.analysis_focus,
             "data_scope": {
                 "context_bytes": prepared.context_bytes,
                 "request_bytes": request_bytes,
@@ -1923,6 +2000,7 @@ class RemoteAccountAnalysisService:
                 "model": options.model.value,
                 "template": options.template.value,
                 "reasoning_effort": options.reasoning_effort.value,
+                "analysis_focus": options.analysis_focus,
             }
         )
         analysis_id_parts = [
@@ -1995,6 +2073,7 @@ class RemoteAccountAnalysisService:
                 "returned_model": provider_result.model,
                 "template": options.template.value,
                 "reasoning_effort": options.reasoning_effort.value,
+                "analysis_focus": options.analysis_focus,
                 "result": provider_result.analysis.model_dump(mode="json"),
                 "output_hash": output_hash,
                 "evidence_refs_used": sorted(used_refs),
@@ -2023,6 +2102,7 @@ class RemoteAccountAnalysisService:
                     "model": options.model.value,
                     "template": options.template.value,
                     "reasoning_effort": options.reasoning_effort.value,
+                    "analysis_focus": options.analysis_focus,
                     "prompt_version": GPT_PROMPT_VERSION,
                     "prompt_hash": prepared.prompt_hash,
                     "context_hash": prepared.context_hash,

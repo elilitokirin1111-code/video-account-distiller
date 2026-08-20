@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from video_account_distiller.benchmarking import AccountBenchmarkProfileService
 from video_account_distiller.collection import (
@@ -249,6 +249,7 @@ class AccountDistillWorkflow:
         strict_vision: bool = False,
         account_analysis_provider: AccountAnalysisProvider | None = None,
         account_analysis_options: GptAnalysisOptions | None = None,
+        analysis_focus: Literal["general", "hospitality"] = "general",
         export_knowledge: bool = True,
         dry_run: bool = False,
         progress: WorkflowProgress = _ignore_progress,
@@ -330,6 +331,7 @@ class AccountDistillWorkflow:
                     "network_uploads": 0,
                 },
                 "knowledge_export": export_knowledge,
+                "analysis_focus": analysis_focus,
                 "media_retention": {
                     "raw_video": "delete_after_success",
                     "derived_analysis": "preserve",
@@ -362,6 +364,7 @@ class AccountDistillWorkflow:
             isinstance(resume_state, dict)
             and resume_state.get("request") == request_payload
             and resume_state.get("collection_profile") == collection_profile.value
+            and resume_state.get("analysis_focus", "general") == analysis_focus
             and isinstance(resume_state.get("result"), dict)
         ):
             resumed_result = dict(resume_state["result"])
@@ -385,6 +388,7 @@ class AccountDistillWorkflow:
                     "stage": "collection_complete",
                     "request": request_payload,
                     "collection_profile": collection_profile.value,
+                    "analysis_focus": analysis_focus,
                     "account_id": account_id,
                     "result": result,
                 },
@@ -435,6 +439,7 @@ class AccountDistillWorkflow:
                     "stage": "media_complete",
                     "request": request_payload,
                     "collection_profile": collection_profile.value,
+                    "analysis_focus": analysis_focus,
                     "account_id": account_id,
                     "result": result,
                 },
@@ -466,6 +471,7 @@ class AccountDistillWorkflow:
                 "stage": "report_complete",
                 "request": request_payload,
                 "collection_profile": collection_profile.value,
+                "analysis_focus": analysis_focus,
                 "account_id": account_id,
                 "result": result,
             },
@@ -510,6 +516,7 @@ class AccountDistillWorkflow:
                     "stage": "knowledge_export_complete",
                     "request": request_payload,
                     "collection_profile": collection_profile.value,
+                    "analysis_focus": analysis_focus,
                     "account_id": account_id,
                     "result": result,
                 },
@@ -526,6 +533,7 @@ class AccountDistillWorkflow:
                 "stage": "narrative_complete",
                 "request": request_payload,
                 "collection_profile": collection_profile.value,
+                "analysis_focus": analysis_focus,
                 "account_id": account_id,
                 "result": result,
             },
@@ -540,9 +548,7 @@ class AccountDistillWorkflow:
         ]
         if media_analysis_paths:
             progress(0.99, "media_cleanup", "正在删除已完成分析的本地原视频")
-            result["media_cleanup"] = DownloadedMediaCleanupService(
-                self.project
-            ).cleanup_account(
+            result["media_cleanup"] = DownloadedMediaCleanupService(self.project).cleanup_account(
                 account_id=account_id,
                 media_analysis_paths=media_analysis_paths,
             )
@@ -553,6 +559,7 @@ class AccountDistillWorkflow:
                     "stage": "media_cleanup_complete",
                     "request": request_payload,
                     "collection_profile": collection_profile.value,
+                    "analysis_focus": analysis_focus,
                     "account_id": account_id,
                     "result": result,
                 },
@@ -569,6 +576,7 @@ class AccountDistillWorkflow:
             "mode": "self_service_account_distill",
             "account_id": account_id,
             "media_limit": media_limit,
+            "analysis_focus": analysis_focus,
             "external_model_calls": (
                 1
                 if account_analysis_provider is not None and account_analysis_options is not None

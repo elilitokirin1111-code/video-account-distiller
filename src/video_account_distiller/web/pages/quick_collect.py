@@ -181,6 +181,15 @@ def _render_single_video_section(project_path: str) -> None:
                 value=False,
                 help="TikHub 为一次性计费调用；MediaCrawler 会打开浏览器等待手动登录。",
             )
+        distillation_mode = st.radio(
+            "蒸馏目标",
+            ["创作学习", "知识提取"],
+            horizontal=True,
+            index=(
+                1 if st.session_state.get("single_video_distillation_mode") == "knowledge" else 0
+            ),
+            help="创作学习关注选材/表达/拍摄；知识提取关注视频讲了什么。",
+        )
         submitted = st.form_submit_button(
             "采集这条视频",
             type="primary",
@@ -192,6 +201,9 @@ def _render_single_video_section(project_path: str) -> None:
             st.error("请先勾选确认；TikHub 为计费调用，MediaCrawler 会打开浏览器等待手动登录。")
         elif project_path:
             st.session_state["last_single_video_url"] = video_url.strip()
+            st.session_state["single_video_distillation_mode"] = (
+                "knowledge" if distillation_mode == "知识提取" else "creative_learning"
+            )
             with st.spinner("正在采集单条视频并入库…"):
                 response = _request(
                     f"/api/projects/{_encoded_project()}/collection/analyze-video-url",
@@ -228,12 +240,20 @@ def _render_single_video_section(project_path: str) -> None:
                 "告警": collection.get("warnings"),
             }
         )
+        selected_mode = str(
+            st.session_state.get("single_video_distillation_mode") or "creative_learning"
+        )
+        mode_note = (
+            "知识提取（事实/概念/方法/观点，保留字幕与画面证据）"
+            if selected_mode == "knowledge"
+            else "创作学习（选材/表现/拍摄/可复制清单）"
+        )
         st.info(
             "下一步（在命令行完成，需要本地 Whisper 环境与工作区）:\n\n"
             "```bash\n"
             f'distiller video analyze --project "{project_path}" \\\n'
             f'  --url "{last.get("url")}" --whisper-model base --deep \\\n'
-            "  --deep-provider cloud   # 云端深度分析（选材/表现/拍摄/可复制清单）\n"
+            f"  --distillation-mode {selected_mode} --deep-provider cloud   # {mode_note}\n"
             "  --weknora-kb-id <知识库ID>   # 可选：导入 WeKnora\n"
             "```\n\n"
             "短链需先展开为完整地址；Whisper 转写是深度蒸馏的字幕来源。",
@@ -382,7 +402,11 @@ def _cancel_task(task_id: str) -> bool:
 
 
 def _retry_task(task_id: str, overrides: dict[str, Any] | None = None) -> bool:
-    label = "正在按修改后的配置从安全检查点创建续跑任务…" if overrides else "正在从安全检查点创建重试任务…"
+    label = (
+        "正在按修改后的配置从安全检查点创建续跑任务…"
+        if overrides
+        else "正在从安全检查点创建重试任务…"
+    )
     with st.status(label, expanded=False) as activity:
         payload: dict[str, Any] = {}
         if overrides:
@@ -660,7 +684,8 @@ def _restore_latest_task_result(task_type: str, session_key: str) -> None:
             continue
         if task.get("task_type") != task_type or task.get("status") != "completed":
             continue
-        result = task.get("result")
+        detail = _request(f"/api/tasks/{task.get('task_id')}", timeout=10)
+        result = detail.get("result")
         if not isinstance(result, dict):
             continue
         updated = str(task.get("updated_at") or "")
@@ -1551,18 +1576,19 @@ with st.expander("任务记录（高级）"):
             }:
                 st.session_state["active_task_id"] = selected_task
                 st.session_state["active_task_kind"] = selected.get("task_type", "account_distill")
-            elif isinstance(selected, dict) and isinstance(selected.get("result"), dict):
-                selected_result = selected["result"]
-                if selected.get("task_type") == "account_distill" or any(
+            elif isinstance(selected, dict):
+                detail = _request(f"/api/tasks/{selected_task}", timeout=10)
+                selected_result = detail.get("result")
+                if not isinstance(selected_result, dict):
+                    error = detail.get("error") or selected.get("error") or {}
+                    st.error(f"任务失败：{error.get('message', '没有可恢复的结果')}")
+                elif selected.get("task_type") == "account_distill" or any(
                     key in selected_result for key in ("workflow", "workflow_plan", "collection")
                 ):
                     st.session_state["last_workflow_result"] = selected_result
                     _remember_account(selected_result)
                 else:
                     st.session_state["last_knowledge_result"] = selected_result
-            elif isinstance(selected, dict):
-                error = selected.get("error") or {}
-                st.error(f"任务失败：{error.get('message', '没有可恢复的结果')}")
             st.rerun()
         if retry_column.button(
             "重试/继续",
@@ -1713,6 +1739,15 @@ with st.form("self_service_distill_form"):
             "配置语音转写、画面语义、运营学习报告和数据证据附件。"
             "任务成功后会自动删除下载的原视频，保留字幕、关键帧和分析结果。"
         )
+        analysis_focus = st.radio(
+            "账号分析方向",
+            ["通用账号分析", "通用分析 + 酒旅迁移"],
+            horizontal=True,
+            index=1 if template.get("analysis_focus") == "hospitality" else 0,
+            help=(
+                "酒旅方向会完整保留通用分析，再追加独立迁移章节；允许判定为低相关或无可迁移内容。"
+            ),
+        )
         template_media_limit = template.get("media_limit")
         analyze_media = st.toggle(
             "下载并分析视频本身",
@@ -1825,9 +1860,7 @@ with st.form("self_service_distill_form"):
                         timeout=8,
                     )
                     if preset.get("ok"):
-                        cloud_base_url = cloud_base_url or str(
-                            preset.get("cloud_base_url") or ""
-                        )
+                        cloud_base_url = cloud_base_url or str(preset.get("cloud_base_url") or "")
                         cloud_text_model = cloud_text_model or str(
                             preset.get("cloud_text_model") or ""
                         )
@@ -1854,7 +1887,9 @@ with st.form("self_service_distill_form"):
                 index=(
                     list(cloud_endpoint_choices).index("阿里云百炼 DashScope（qwen）")
                     if "dashscope" in cloud_base_url
-                    else list(cloud_endpoint_choices).index("阿里云百炼 MaaS 工作空间（自定义域名）")
+                    else list(cloud_endpoint_choices).index(
+                        "阿里云百炼 MaaS 工作空间（自定义域名）"
+                    )
                     if "maas.aliyuncs.com" in cloud_base_url
                     else list(cloud_endpoint_choices).index("DeepSeek（https://api.deepseek.com）")
                     if "deepseek" in cloud_base_url
@@ -2103,6 +2138,7 @@ payload = {
     "vision_model": vision_model,
     "strict_media_enrichment": strict_media,
     "strict_vision": strict_vision,
+    "analysis_focus": "hospitality" if "酒旅" in analysis_focus else "general",
     "knowledge_analysis": knowledge_analysis_payload if knowledge_synthesis else None,
     "export_knowledge": export_knowledge,
 }
@@ -2256,10 +2292,13 @@ if isinstance(account_id, str):
         weknora_key_default = st.session_state.get("weknora_api_key") or ""
         if not weknora_key_default:
             try:
-                weknora_key_default = keyring.get_password(
-                    "video-account-distiller",
-                    "weknora:api-key",
-                ) or ""
+                weknora_key_default = (
+                    keyring.get_password(
+                        "video-account-distiller",
+                        "weknora:api-key",
+                    )
+                    or ""
+                )
             except Exception:
                 weknora_key_default = ""
         weknora_key = st.text_input(

@@ -126,6 +126,7 @@ class TranscriptImportParams(BaseModel):
 
 
 class VideoAnalysisParams(BaseModel):
+    distillation_mode: Literal["creative_learning", "knowledge"] = "creative_learning"
     model_output: str | None = Field(None, description="Path to pre-generated model output")
     max_attempts: int | None = Field(None, ge=1, le=5)
     strict_model: bool = False
@@ -265,6 +266,7 @@ class AccountDistillWorkflowParams(CollectionAnalyzeParams):
     vision_timeout_seconds: int = Field(default=180, ge=1, le=1800)
     strict_media_enrichment: bool = False
     strict_vision: bool = False
+    analysis_focus: Literal["general", "hospitality"] = "general"
     knowledge_analysis: GptAnalysisRequest | None = None
     export_knowledge: bool = True
 
@@ -312,3 +314,4 @@ class WeKnoraSyncParams(KnowledgeExportParams):
     base_url: str = Field(default="http://127.0.0.1:8080", max_length=2048)
     api_key: str = Field(min_length=1, max_length=2048)
     kb_id: str = Field(min_length=1, max_length=128)
+    distillation_mode: Literal["creative_learning", "knowledge"] = "creative_learning"

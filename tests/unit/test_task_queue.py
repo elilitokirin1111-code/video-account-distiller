@@ -82,6 +82,52 @@ def test_durable_pending_task_survives_reopen_and_can_be_claimed(
     assert completed["executed_by"] == "worker-b"
 
 
+def test_task_summaries_exclude_large_result_payloads(tmp_path: Path) -> None:
+    store = TaskStore(tmp_path / "tasks.sqlite3", queue_settings=_settings())
+    created = _enqueue(store)
+    task_id = str(created["task_id"])
+    created_detail = store.get(task_id)
+    assert created_detail is not None
+    store.update(
+        task_id,
+        status="failed",
+        progress=1.0,
+        stage="failed",
+        message="模型输出无效",
+        result={"large": "x" * 100_000},
+        error={
+            "code": "E_MODEL_SCHEMA_INVALID",
+            "message": "invalid",
+            "details": {"retryable": True},
+        },
+    )
+
+    summaries = store.list_summaries()
+
+    assert summaries == [
+        {
+            "task_id": task_id,
+            "task_type": "fixture",
+            "status": "failed",
+            "progress": 1.0,
+            "created_at": created_detail["created_at"],
+            "updated_at": summaries[0]["updated_at"],
+            "resource_class": "workflow",
+            "durable": True,
+            "stage": "failed",
+            "message": "模型输出无效",
+            "error": {
+                "code": "E_MODEL_SCHEMA_INVALID",
+                "message": "invalid",
+                "details": {"retryable": True},
+            },
+            "retryable": True,
+        }
+    ]
+    assert "result" not in summaries[0]
+    assert store.get(task_id)["result"]["large"] == "x" * 100_000  # type: ignore[index]
+
+
 def test_queue_limits_pending_work_and_enforces_cross_store_resource_quota(
     tmp_path: Path,
 ) -> None:
