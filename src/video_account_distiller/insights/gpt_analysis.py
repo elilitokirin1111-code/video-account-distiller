@@ -705,6 +705,11 @@ def _chat_completion_text(payload: dict[str, Any]) -> str:
     message = first_choice.get("message")
     content = message.get("content") if isinstance(message, dict) else None
     if not isinstance(content, str) or not content.strip():
+        # Qwen reasoning models (qwen3.7-plus and friends) occasionally place
+        # the complete JSON answer in reasoning_content with an empty content,
+        # mirroring DeepSeek's thinking mode behaviour.
+        content = message.get("reasoning_content") if isinstance(message, dict) else None
+    if not isinstance(content, str) or not content.strip():
         raise DistillerError(
             ErrorCode.MODEL_SCHEMA_INVALID,
             "Bailian response did not contain JSON output text",
@@ -869,26 +874,37 @@ class BailianChatCompletionsProvider:
             policy=self.retry_policy,
             payload=payload,
         )
-        try:
-            decoded = json.loads(_chat_completion_text(response))
-            analysis = GptAccountAnalysis.model_validate(decoded)
-        except DistillerError:
-            raise
-        except (json.JSONDecodeError, ValidationError, TypeError, ValueError) as exc:
-            details: dict[str, Any] = {"response_id": response.get("id")}
-            if isinstance(exc, ValidationError):
-                details["validation_errors"] = [
-                    {
-                        "loc": ".".join(str(part) for part in error["loc"]),
-                        "message": error["msg"],
-                    }
-                    for error in exc.errors()
-                ][:12]
+        analysis, used_response = self._analyze_single(response)
+        if analysis is None:
+            # Qwen reasoning models occasionally return a syntactically valid
+            # but schema-incomplete JSON object with finish_reason=stop (not a
+            # length truncation). Retry once with the identical payload; the
+            # follow-up completion is typically complete and valid.
+            retry_response = request_json(
+                self.executor,
+                method="POST",
+                url=self.url,
+                token=self._credential_loader(),
+                policy=self.retry_policy,
+                payload=payload,
+            )
+            analysis, used_response = self._analyze_single(retry_response)
+            response = retry_response
+        else:
+            response = used_response
+        if analysis is None:
             raise DistillerError(
                 ErrorCode.MODEL_SCHEMA_INVALID,
                 "Bailian account analysis failed local schema validation",
-                details=details,
-            ) from exc
+                details={
+                    "response_id": response.get("id"),
+                    "retried": True,
+                    "hint": (
+                        "模型返回的 JSON 缺少必填字段。已自动重试一次仍未通过；"
+                        "可降低推理强度或改用其他模型后重试。"
+                    ),
+                },
+            )
         choices = response.get("choices")
         first_choice = choices[0] if isinstance(choices, list) and choices else {}
         status = "completed" if isinstance(first_choice, dict) else "unknown"
@@ -899,6 +915,14 @@ class BailianChatCompletionsProvider:
             analysis=analysis,
             usage=_chat_usage(response.get("usage")),
         )
+
+    def _analyze_single(self, response: dict[str, Any]) -> tuple[GptAccountAnalysis | None, dict[str, Any]]:
+        """Parse and validate one Bailian completion, returning None on failure."""
+        try:
+            decoded = json.loads(_chat_completion_text(response))
+            return GptAccountAnalysis.model_validate(decoded), response
+        except (json.JSONDecodeError, ValidationError, TypeError, ValueError):
+            return None, response
 
 
 def _deepseek_chat_completions_url(base_url: str | None = None) -> str:

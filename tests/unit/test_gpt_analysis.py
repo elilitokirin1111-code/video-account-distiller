@@ -411,8 +411,82 @@ def test_bailian_provider_attaches_validation_field_errors() -> None:
         )
 
     assert exc.value.code is ErrorCode.MODEL_SCHEMA_INVALID
-    locations = [item["loc"] for item in exc.value.details["validation_errors"]]
-    assert any("priority" in location for location in locations)
+    assert exc.value.details.get("retried") is True
+    # One automatic retry was attempted with the identical payload.
+    assert len(executor.calls) == 2
+
+
+def test_bailian_provider_retries_once_on_schema_failure() -> None:
+    """A flaky incomplete completion is retried once before failing."""
+    expected = _analysis()
+    bad_response = {
+        "id": "chatcmpl_bailian_flaky",
+        "model": "qwen3.8-max",
+        "choices": [
+            {
+                "finish_reason": "stop",
+                "message": {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {"executive_summary": "x", "findings": [], "limitations": ["l"]},
+                        ensure_ascii=False,
+                    ),
+                },
+            }
+        ],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+    }
+    good_response = {
+        "id": "chatcmpl_bailian_good",
+        "model": "qwen3.8-max",
+        "choices": [
+            {
+                "finish_reason": "stop",
+                "message": {
+                    "role": "assistant",
+                    "content": json.dumps(expected.model_dump(mode="json"), ensure_ascii=False),
+                },
+            }
+        ],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 60, "total_tokens": 70},
+    }
+
+    class _FlakyExecutor:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, Any]] = []
+
+        def send(
+            self,
+            *,
+            method: str,
+            url: str,
+            headers: dict[str, str],
+            body: bytes | None,
+            timeout: int,
+        ) -> HttpResponse:
+            self.calls.append({"url": url, "body": body})
+            payload = bad_response if len(self.calls) == 1 else good_response
+            return HttpResponse(
+                200,
+                json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            )
+
+    executor = _FlakyExecutor()
+    provider = BailianChatCompletionsProvider(
+        model=BailianModel.QWEN_3_8_MAX,
+        reasoning_effort=ReasoningEffort.HIGH,
+        executor=executor,
+        credential_loader=lambda: "sk-bailian-temporary-secret",
+    )
+
+    result = provider.analyze(
+        instructions="Analyze with evidence.",
+        context_json='{"account":{"account_id":"acc_test"}}',
+    )
+
+    assert result.analysis == expected
+    assert len(executor.calls) == 2
+    assert result.response_id == "chatcmpl_bailian_good"
 
 
 def test_deepseek_v4_flash_provider_enables_thinking_and_json_mode() -> None:
