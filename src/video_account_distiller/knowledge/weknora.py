@@ -816,32 +816,146 @@ class WeKnoraSyncService:
                 f"No account video-knowledge bundle found: {account_id}",
                 details={"next": "run account video knowledge distillation first"},
             )
+        if not selected.documents:
+            raise DistillerError(
+                ErrorCode.INPUT_MISSING,
+                f"Account video-knowledge bundle contains no documents: {account_id}",
+                details={"manifest_id": selected.manifest_id},
+            )
+        missing_documents = [
+            document.document_path
+            for document in selected.documents
+            if not (self.project.root / document.document_path).is_file()
+        ]
+        if missing_documents:
+            raise DistillerError(
+                ErrorCode.INPUT_MISSING,
+                "Account video-knowledge bundle is incomplete",
+                details={
+                    "manifest_id": selected.manifest_id,
+                    "missing_documents": missing_documents,
+                },
+            )
 
+        selected_kb_id = kb_id.strip()
+        if not selected_kb_id:
+            raise DistillerError(
+                ErrorCode.SCHEMA_INVALID,
+                "WeKnora knowledge base ID is required",
+            )
+        knowledge_bases = self.list_knowledge_bases(base_url=base_url, api_key=api_key)
+        target = next((item for item in knowledge_bases if item["id"] == selected_kb_id), None)
+        if target is None:
+            raise DistillerError(
+                ErrorCode.SCHEMA_INVALID,
+                "WeKnora target knowledge base was not found or is not visible to this API Key",
+                details={"kb_id": selected_kb_id},
+            )
+
+        api = _api_url(base_url)
+        headers = {"X-API-Key": api_key.strip()}
         uploaded: list[str] = []
         replaced: list[str] = []
         errors: list[str] = []
-        kb_name = ""
-        for document in selected.documents:
+        existing: list[dict[str, Any]] = []
+        page = 1
+        while True:
             try:
-                synced = self.sync_video_knowledge(
-                    video_id=document.video_id,
-                    base_url=base_url,
-                    api_key=api_key,
-                    kb_id=kb_id,
+                response = requests.get(
+                    f"{api}/knowledge-bases/{selected_kb_id}/knowledge",
+                    headers=headers,
+                    params={"page": page, "page_size": 100},
+                    timeout=30,
                 )
-            except DistillerError as exc:
-                errors.append(f"{document.video_id}: {exc}")
+            except requests.RequestException as exc:
+                errors.append(f"读取现有知识失败: {exc}")
+                break
+            if not response.ok:
+                errors.append(
+                    f"读取现有知识失败: HTTP {response.status_code} {response.text[:200]}"
+                )
+                break
+            payload = response.json()
+            items = payload.get("data") if isinstance(payload, dict) else None
+            if not isinstance(items, list):
+                errors.append("读取现有知识失败: WeKnora 返回格式无效")
+                break
+            existing.extend(item for item in items if isinstance(item, dict))
+            total = int(payload.get("total") or len(existing))
+            if len(existing) >= total or len(items) < 100:
+                break
+            page += 1
+
+        selected_video_ids = {document.video_id for document in selected.documents}
+        for item in existing:
+            metadata = item.get("metadata")
+            if isinstance(metadata, str):
+                try:
+                    metadata = json.loads(metadata)
+                except (TypeError, ValueError):
+                    metadata = {}
+            if not isinstance(metadata, dict):
+                metadata = {}
+            owned = (
+                item.get("channel") == "distiller"
+                and metadata.get("source") == "video-account-distiller"
+            )
+            old_account_report = metadata.get("account_id") == account_id
+            old_video_knowledge = (
+                metadata.get("document_type") == "video_knowledge"
+                and metadata.get("video_id") in selected_video_ids
+            )
+            if not owned or not (old_account_report or old_video_knowledge):
                 continue
-            kb_name = str(synced.get("kb_name") or kb_name)
-            uploaded.extend(str(item) for item in synced.get("uploaded", []))
-            replaced.extend(str(item) for item in synced.get("replaced", []))
-            errors.extend(f"{document.video_id}: {item}" for item in synced.get("errors", []))
+            knowledge_record_id = str(item.get("id") or "").strip()
+            if not knowledge_record_id:
+                continue
+            try:
+                response = requests.delete(
+                    f"{api}/knowledge/{knowledge_record_id}",
+                    headers=headers,
+                    timeout=60,
+                )
+                if response.ok:
+                    replaced.append(
+                        str(item.get("file_name") or item.get("title") or knowledge_record_id)
+                    )
+                else:
+                    errors.append(
+                        f"删除旧知识 {knowledge_record_id} 失败: HTTP "
+                        f"{response.status_code} {response.text[:200]}"
+                    )
+            except requests.RequestException as exc:
+                errors.append(f"删除旧知识 {knowledge_record_id} 失败: {exc}")
+
+        if not errors:
+            for document in selected.documents:
+                document_path = self.project.root / document.document_path
+                relative_name = f"accounts/{account_id}/videos/{document.video_id}.md"
+                _upload_markdown(
+                    api,
+                    headers,
+                    selected_kb_id,
+                    document_path,
+                    relative_name,
+                    account_id,
+                    uploaded,
+                    errors,
+                    upload_name=f"{document.video_id}.md",
+                    metadata_extra={
+                        "video_id": document.video_id,
+                        "document_type": "video_knowledge",
+                        "knowledge_id": document.knowledge_id,
+                        "manifest_id": selected.manifest_id,
+                        "distillation_mode": "knowledge",
+                    },
+                )
 
         scope_rejected = any(": HTTP 403" in error and '"code":1002' in error for error in errors)
         return {
             "ok": not errors,
-            "kb_id": kb_id.strip(),
-            "kb_name": kb_name,
+            "kb_id": selected_kb_id,
+            "kb_name": target["name"],
             "account_id": account_id,
             "manifest_id": selected.manifest_id,
             "document_type": "video_knowledge",

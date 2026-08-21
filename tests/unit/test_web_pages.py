@@ -26,7 +26,13 @@ def _fake_request(
     **_kwargs: Any,
 ) -> _FakeResponse:
     if url.endswith("/api/health"):
-        return _FakeResponse({"ok": True, "version": "test"})
+        return _FakeResponse(
+            {
+                "ok": True,
+                "version": "test",
+                "features": {"account_video_knowledge": "1"},
+            }
+        )
     if "/api/tasks" in url:
         return _FakeResponse({"tasks": []})
     if "/api/doctor/" in url:

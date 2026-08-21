@@ -163,8 +163,18 @@ def create_app(
     app.state.cloud_credentials = KeyringCloudCredentialStore()
 
     @app.get("/api/health", tags=["Health"])
-    async def health() -> dict[str, str]:
-        return {"status": "ok", "version": "1.0.0"}
+    async def health() -> dict[str, Any]:
+        return {
+            "status": "ok",
+            "version": "1.0.0",
+            "features": {
+                # The Streamlit process can hot-reload while the embedded API
+                # keeps older modules in memory.  The UI checks this capability
+                # before submitting knowledge-mode jobs so an old backend can
+                # never silently reinterpret them as creative-learning jobs.
+                "account_video_knowledge": "1",
+            },
+        }
 
     return app
 

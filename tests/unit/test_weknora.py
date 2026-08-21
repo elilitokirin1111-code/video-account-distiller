@@ -548,7 +548,7 @@ def test_weknora_account_video_knowledge_syncs_manifest_documents_individually(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from video_account_distiller.models import AccountVideoKnowledgeManifest
-    from video_account_distiller.utils.io import atomic_write_json
+    from video_account_distiller.utils.io import atomic_write_json, atomic_write_text
 
     manifest = AccountVideoKnowledgeManifest.model_validate(
         {
@@ -588,21 +588,57 @@ def test_weknora_account_video_knowledge_syncs_manifest_documents_individually(
         / "manifest.json"
     )
     atomic_write_json(manifest_path, manifest.model_dump(mode="json"))
-    calls: list[str] = []
-    service = WeKnoraSyncService(project)
+    document_path = project.root / manifest.documents[0].document_path
+    atomic_write_text(document_path, "# 三个常见问题\n\n这是本次账号知识清单中的文档。\n")
+    deleted: list[str] = []
+    uploads: list[dict[str, Any]] = []
 
-    def _sync(**kwargs: Any) -> dict[str, Any]:
-        calls.append(str(kwargs["video_id"]))
-        return {
-            "ok": True,
-            "kb_name": "target",
-            "uploaded": [f"videos/{kwargs['video_id']}/video-knowledge.md"],
-            "replaced": [],
-            "errors": [],
-        }
+    def _get(url: str, *args: Any, **kwargs: Any) -> _Response:
+        if url.endswith("/knowledge-bases"):
+            return _Response(200, {"data": [{"id": "kb-1", "name": "target"}]}, "")
+        return _Response(
+            200,
+            {
+                "data": [
+                    {
+                        "id": "old-account-report",
+                        "file_name": "账号运营报告.md",
+                        "channel": "distiller",
+                        "metadata": {
+                            "source": "video-account-distiller",
+                            "account_id": "acc_test",
+                        },
+                    },
+                    {
+                        "id": "keep-creative-video",
+                        "file_name": "single-video-distillation.md",
+                        "channel": "distiller",
+                        "metadata": {
+                            "source": "video-account-distiller",
+                            "account_id": "video:vid_knowledge",
+                            "video_id": "vid_knowledge",
+                            "document_type": "creative_learning",
+                        },
+                    },
+                ],
+                "total": 2,
+            },
+            "",
+        )
 
-    monkeypatch.setattr(service, "sync_video_knowledge", _sync)
-    result = service.sync_account_video_knowledge(
+    monkeypatch.setattr(requests, "get", _get)
+    monkeypatch.setattr(
+        requests,
+        "delete",
+        lambda url, *args, **kwargs: deleted.append(url) or _Response(200, {"success": True}, ""),
+    )
+    monkeypatch.setattr(
+        requests,
+        "post",
+        lambda *args, **kwargs: uploads.append(kwargs) or _Response(201, {"success": True}, ""),
+    )
+
+    result = WeKnoraSyncService(project).sync_account_video_knowledge(
         account_id="acc_test",
         base_url="http://localhost:8080",
         api_key="sk-test",
@@ -612,5 +648,16 @@ def test_weknora_account_video_knowledge_syncs_manifest_documents_individually(
     assert result["ok"] is True
     assert result["document_type"] == "video_knowledge"
     assert result["manifest_id"] == "avk_test"
-    assert calls == ["vid_knowledge"]
-    assert result["uploaded"] == ["videos/vid_knowledge/video-knowledge.md"]
+    assert deleted == ["http://localhost:8080/api/v1/knowledge/old-account-report"]
+    assert result["uploaded"] == ["accounts/acc_test/videos/vid_knowledge.md"]
+    assert len(uploads) == 1
+    upload = uploads[0]
+    assert upload["data"]["fileName"] == "accounts/acc_test/videos/vid_knowledge.md"
+    metadata = json.loads(upload["data"]["metadata"])
+    assert metadata["account_id"] == "acc_test"
+    assert metadata["video_id"] == "vid_knowledge"
+    assert metadata["document_type"] == "video_knowledge"
+    assert metadata["manifest_id"] == "avk_test"
+    file_tuple = upload["files"]["file"]
+    file_content = file_tuple[1].read() if hasattr(file_tuple[1], "read") else file_tuple[1]
+    assert "这是本次账号知识清单中的文档" in file_content.decode("utf-8")

@@ -47,6 +47,8 @@ STAGE_LABELS = {
     "cancelled": "已取消",
 }
 
+ACCOUNT_VIDEO_KNOWLEDGE_FEATURE = "account_video_knowledge"
+
 # 云端深度分析服务商与模型选项（模块级共享：GPT 分析页与任务表单都会用到）。
 provider_labels = {
     "DeepSeek": "deepseek",
@@ -135,6 +137,17 @@ def _request(
     except (requests.RequestException, ValueError) as exc:
         return {"ok": False, "error": {"message": str(exc)}}
     return {"ok": False, "error": {"message": "API 返回了无法识别的数据"}}
+
+
+def _account_video_knowledge_backend_ready() -> bool:
+    """Return whether the live API understands the account knowledge protocol."""
+
+    health = _request("/api/health")
+    features = health.get("features")
+    return (
+        isinstance(features, dict)
+        and str(features.get(ACCOUNT_VIDEO_KNOWLEDGE_FEATURE) or "").strip() == "1"
+    )
 
 
 def _encoded_project() -> str:
@@ -2231,6 +2244,11 @@ if preview_clicked or run_clicked:
         st.error("请输入抖音主页链接")
     elif not project_path.strip():
         st.error("请设置项目目录")
+    elif knowledge_mode and not _account_video_knowledge_backend_ready():
+        st.error(
+            "当前页面已更新，但后台 API 仍是旧版本，无法安全执行逐视频知识蒸馏。"
+            "请重启 Video Account Distiller 后再提交；本次任务未进入队列。"
+        )
     else:
         effective_project = project_path
         if account_name.strip():
@@ -2499,6 +2517,11 @@ if isinstance(account_id, str):
                 st.error("请填写 WeKnora 服务地址")
             elif not weknora_key.strip():
                 st.error("请填写 WeKnora API Key")
+            elif syncing_video_knowledge and not _account_video_knowledge_backend_ready():
+                st.error(
+                    "当前后台 API 仍是旧版本，不能识别逐视频知识同步。"
+                    "请重启 Video Account Distiller 后重试；本次没有上传旧运营报告。"
+                )
             else:
                 if save_weknora_key:
                     try:

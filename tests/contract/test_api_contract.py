@@ -45,7 +45,11 @@ def test_health_openapi_and_missing_task_contract(tmp_path: Path) -> None:
     with TestClient(create_app(tmp_path / "tasks.sqlite3")) as client:
         health = client.get("/api/health")
         assert health.status_code == 200
-        assert _json(health) == {"status": "ok", "version": "1.0.0"}
+        assert _json(health) == {
+            "status": "ok",
+            "version": "1.0.0",
+            "features": {"account_video_knowledge": "1"},
+        }
 
         openapi = client.get("/openapi.json")
         assert openapi.status_code == 200
