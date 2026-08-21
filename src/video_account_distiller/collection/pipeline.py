@@ -83,8 +83,9 @@ class AccountCollectionService:
         collection_profile: CollectionProfile = CollectionProfile.STANDARD,
         max_provider_calls: int | None = None,
         text_provider: TextModelProvider | None = None,
+        include_operational_analysis: bool = True,
     ) -> dict[str, Any]:
-        """Collect one homepage and create account-health and distillation artifacts."""
+        """Collect one homepage and optionally create account-operation artifacts."""
 
         plan = build_collection_plan(
             request,
@@ -174,16 +175,24 @@ class AccountCollectionService:
         account_id = stable_id("acc_", Platform.DOUYIN.value, batch.platform_account_id)
         normalization = NormalizationService(self.project).normalize()
         metrics = MetricsService(self.project).calculate(account_id=account_id)
-        report = ReportService(self.project).generate_account_health(account_id=account_id)
+        report = (
+            ReportService(self.project).generate_account_health(account_id=account_id)
+            if include_operational_analysis
+            else None
+        )
         comment_analysis = (
             CommentAnalysisService(self.project).analyze(
                 account_id=account_id,
                 provider=text_provider,
             )
-            if batch.comments
+            if batch.comments and include_operational_analysis
             else None
         )
-        distillation = AccountDistillationService(self.project).distill(account_id=account_id)
+        distillation = (
+            AccountDistillationService(self.project).distill(account_id=account_id)
+            if include_operational_analysis
+            else None
+        )
         return {
             "ok": True,
             "dry_run": False,

@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, TypeAdapter
 from video_account_distiller.api.schemas import (
     AccountDistillWorkflowParams,
     AccountMediaReparseParams,
+    AccountVideoKnowledgeParams,
     CollectionAnalyzeParams,
     CommentAnalysisParams,
     CompareParams,
@@ -48,6 +49,7 @@ from video_account_distiller.distillation import (
     AccountDistillationService,
     BenchmarkComparisonService,
 )
+from video_account_distiller.distillation.account_knowledge import AccountVideoKnowledgeService
 from video_account_distiller.distillation.knowledge import SingleVideoKnowledgeService
 from video_account_distiller.distillation.video import SingleVideoDistillationService
 from video_account_distiller.features import VideoAnalysisService
@@ -158,6 +160,12 @@ class AccountMediaReparseJob(_DryRunProjectJob):
     body: AccountMediaReparseParams
 
 
+class DistillAccountVideoKnowledgeJob(_DryRunProjectJob):
+    kind: Literal["distill_account_video_knowledge"] = "distill_account_video_knowledge"
+    account_id: str
+    body: AccountVideoKnowledgeParams
+
+
 ApiTaskJob: TypeAlias = Annotated[
     CollectionAnalyzeJob
     | SampleJob
@@ -171,7 +179,8 @@ ApiTaskJob: TypeAlias = Annotated[
     | AnalyzeVideoJob
     | AnalyzeCommentsJob
     | AnalyzeMediaJob
-    | AccountMediaReparseJob,
+    | AccountMediaReparseJob
+    | DistillAccountVideoKnowledgeJob,
     Field(discriminator="kind"),
 ]
 
@@ -182,6 +191,7 @@ _RESOURCE_CLASSES: dict[str, str] = {
     "analyze_comments": "model",
     "analyze_media": "model",
     "account_media_reparse": "model",
+    "distill_account_video_knowledge": "model",
     "sample": "analysis",
     "report": "analysis",
     "distill": "analysis",
@@ -258,6 +268,18 @@ def execute_api_job(
     if isinstance(job, DistillJob):
         return AccountDistillationService(layout).distill(
             account_id=job.account_id,
+            dry_run=job.dry_run,
+        )
+
+    if isinstance(job, DistillAccountVideoKnowledgeJob):
+        return AccountVideoKnowledgeService(layout).distill(
+            account_id=job.account_id,
+            limit=job.body.limit,
+            provider=job.body.provider,
+            model=job.body.model,
+            base_url=job.body.base_url,
+            max_attempts=job.body.max_attempts,
+            strict_model=job.body.strict_model,
             dry_run=job.dry_run,
         )
 
@@ -436,6 +458,7 @@ def execute_account_distill(
     """Rebuild and execute a workflow in whichever process claims the task."""
     job = AccountDistillJob.model_validate(payload)
     body = job.body
+    knowledge_mode = body.distillation_mode == "knowledge" or body.distill_video_knowledge
     layout = ProjectLayout.open(Path(job.project_path))
     count, comments_per_video = resolve_profile_options(
         profile=body.profile,
@@ -455,7 +478,11 @@ def execute_account_distill(
         ),
     )
     provider = build_account_provider(body.provider)
-    analysis_options = body.knowledge_analysis.options() if body.knowledge_analysis else None
+    analysis_options = (
+        body.knowledge_analysis.options()
+        if body.knowledge_analysis is not None and not knowledge_mode
+        else None
+    )
     if analysis_options is not None:
         analysis_options = analysis_options.model_copy(
             update={"analysis_focus": body.analysis_focus}
@@ -495,6 +522,17 @@ def execute_account_distill(
         account_analysis_provider=analysis_provider,
         account_analysis_options=analysis_options,
         analysis_focus=body.analysis_focus,
+        distillation_mode=("knowledge" if knowledge_mode else "creative_learning"),
+        distill_video_knowledge=knowledge_mode,
+        video_knowledge_provider=body.video_knowledge_provider,
+        video_knowledge_model=body.video_knowledge_model,
+        video_knowledge_base_url=(
+            body.cloud_base_url if body.video_knowledge_provider == "cloud" else None
+        ),
+        video_knowledge_api_key=(
+            body.cloud_api_key if body.video_knowledge_provider == "cloud" else None
+        ),
+        strict_video_knowledge=body.strict_video_knowledge,
         export_knowledge=body.export_knowledge,
         dry_run=job.dry_run,
         progress=context.progress,

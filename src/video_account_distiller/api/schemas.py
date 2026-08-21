@@ -249,6 +249,7 @@ class AccountDistillWorkflowParams(CollectionAnalyzeParams):
     """Inputs for the self-service collect-to-knowledge workflow."""
 
     provider: CollectionProviderKind = CollectionProviderKind.MEDIACRAWLER
+    distillation_mode: Literal["creative_learning", "knowledge"] = "creative_learning"
     media_limit: int | None = Field(default=None, ge=0, le=20_000)
     text_provider: Literal["llamacpp", "cloud"] | None = None
     whisper_backend: Literal["auto", "faster-whisper", "openai-whisper"] = "auto"
@@ -267,6 +268,10 @@ class AccountDistillWorkflowParams(CollectionAnalyzeParams):
     strict_media_enrichment: bool = False
     strict_vision: bool = False
     analysis_focus: Literal["general", "hospitality"] = "general"
+    distill_video_knowledge: bool = False
+    video_knowledge_provider: Literal["ollama", "llamacpp", "cloud", "none"] | None = None
+    video_knowledge_model: str | None = Field(default=None, max_length=128)
+    strict_video_knowledge: bool = False
     knowledge_analysis: GptAnalysisRequest | None = None
     export_knowledge: bool = True
 
@@ -299,6 +304,17 @@ class AccountMediaReparseParams(BaseModel):
 class KnowledgeExportParams(BaseModel):
     max_video_analyses: int = Field(default=100, ge=1, le=1_000)
     max_export_bytes: int = Field(default=1_000_000, ge=10_000, le=5_000_000)
+
+
+class AccountVideoKnowledgeParams(BaseModel):
+    """Batch knowledge-first extraction options for every eligible account video."""
+
+    limit: int | None = Field(default=None, ge=1, le=20_000)
+    provider: Literal["ollama", "llamacpp", "cloud", "none"] | None = None
+    model: str | None = Field(default=None, max_length=128)
+    base_url: str | None = Field(default=None, max_length=2048)
+    max_attempts: int | None = Field(default=None, ge=1, le=5)
+    strict_model: bool = False
 
 
 class ObsidianSyncParams(KnowledgeExportParams):

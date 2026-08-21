@@ -4,14 +4,19 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from video_account_distiller.api.deps import resolve_project
 from video_account_distiller.api.schemas import (
+    AccountVideoKnowledgeParams,
     KnowledgeExportParams,
     ObsidianSyncParams,
     WeKnoraConnectionParams,
     WeKnoraSyncParams,
+)
+from video_account_distiller.api.task_jobs import (
+    DistillAccountVideoKnowledgeJob,
+    enqueue_api_job,
 )
 from video_account_distiller.knowledge import (
     KnowledgeExportService,
@@ -20,6 +25,28 @@ from video_account_distiller.knowledge import (
 )
 
 router = APIRouter()
+
+
+@router.post("/{project_path:path}/knowledge/local/accounts/{account_id}/distill-videos")
+async def distill_account_video_knowledge(
+    project_path: str,
+    account_id: str,
+    request: Request,
+    body: AccountVideoKnowledgeParams,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Create an import-ready account bundle with one knowledge document per video."""
+
+    layout = resolve_project(project_path)
+    return enqueue_api_job(
+        request.app.state.tasks,
+        DistillAccountVideoKnowledgeJob(
+            project_path=str(layout.root),
+            account_id=account_id,
+            body=body,
+            dry_run=dry_run,
+        ),
+    )
 
 
 @router.post("/{project_path:path}/knowledge/local/accounts/{account_id}/export")
@@ -66,12 +93,22 @@ async def sync_account_weknora(
     """Upload the human-readable analysis reports into a WeKnora knowledge base."""
 
     layout = resolve_project(project_path)
-    return WeKnoraSyncService(layout).sync_account(
-        account_id=account_id,
-        base_url=body.base_url,
-        api_key=body.api_key,
-        kb_id=body.kb_id,
-        max_video_analyses=body.max_video_analyses,
+    service = WeKnoraSyncService(layout)
+    sync_method = (
+        service.sync_account_video_knowledge
+        if body.distillation_mode == "knowledge"
+        else service.sync_account
+    )
+    kwargs: dict[str, Any] = {
+        "account_id": account_id,
+        "base_url": body.base_url,
+        "api_key": body.api_key,
+        "kb_id": body.kb_id,
+    }
+    if body.distillation_mode == "creative_learning":
+        kwargs["max_video_analyses"] = body.max_video_analyses
+    return sync_method(
+        **kwargs,
     )
 
 

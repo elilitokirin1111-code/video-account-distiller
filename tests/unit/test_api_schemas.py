@@ -34,6 +34,17 @@ def test_account_distill_rejects_unknown_vision_provider() -> None:
         )
 
 
+def test_account_distill_accepts_video_content_knowledge_mode() -> None:
+    params = AccountDistillWorkflowParams(
+        url="https://www.douyin.com/user/demo",
+        distillation_mode="knowledge",
+        video_knowledge_provider="llamacpp",
+    )
+
+    assert params.distillation_mode == "knowledge"
+    assert params.video_knowledge_provider == "llamacpp"
+
+
 def test_account_distill_accepts_secret_free_deepseek_knowledge_synthesis() -> None:
     params = AccountDistillWorkflowParams(
         url="https://www.douyin.com/user/demo",

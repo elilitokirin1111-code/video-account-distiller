@@ -39,6 +39,7 @@ from video_account_distiller.distillation import (
     AccountDistillationService,
     BenchmarkComparisonService,
 )
+from video_account_distiller.distillation.account_knowledge import AccountVideoKnowledgeService
 from video_account_distiller.distillation.knowledge import SingleVideoKnowledgeService
 from video_account_distiller.distillation.video import SingleVideoDistillationService
 from video_account_distiller.doctor import doctor_report
@@ -700,6 +701,51 @@ def weknora_sync_video_command(
     )
 
 
+@knowledge_app.command("distill-account-videos")
+def knowledge_distill_account_videos_command(
+    project: Path = typer.Option(..., "--project"),
+    account: str = typer.Option(..., "--account"),
+    limit: int | None = typer.Option(None, "--limit", min=1, max=20_000),
+    provider: Literal["ollama", "llamacpp", "cloud", "none"] | None = typer.Option(
+        None,
+        "--provider",
+    ),
+    model: str | None = typer.Option(None, "--model"),
+    base_url: str | None = typer.Option(None, "--base-url"),
+    api_key: str | None = typer.Option(None, "--api-key"),
+    max_attempts: int | None = typer.Option(None, "--max-attempts", min=1, max=5),
+    strict_model: bool = typer.Option(False, "--strict-model"),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Distill an account into one import-ready knowledge document per video."""
+
+    result = _execute(
+        lambda: AccountVideoKnowledgeService(ProjectLayout.open(project)).distill(
+            account_id=account,
+            limit=limit,
+            provider=provider,
+            model=model,
+            base_url=base_url,
+            api_key=api_key,
+            max_attempts=max_attempts,
+            strict_model=strict_model,
+            dry_run=dry_run,
+        ),
+        json_output=json_output,
+    )
+    manifest = result.get("manifest") or {}
+    _emit(
+        result,
+        json_output=json_output,
+        human=(
+            f"{'Would distill' if dry_run else 'Distilled'} account {account}: "
+            f"{manifest.get('completed_count', result.get('eligible_count', 0))} documents, "
+            f"{manifest.get('skipped_count', len(result.get('skipped', [])))} skipped"
+        ),
+    )
+
+
 @weknora_app.command("sync-account")
 def weknora_sync_account_command(
     project: Path = typer.Option(..., "--project"),
@@ -708,18 +754,34 @@ def weknora_sync_account_command(
     base_url: str = typer.Option("http://127.0.0.1:8080", "--base-url"),
     api_key: str = typer.Option(..., "--api-key", envvar="WEKNORA_API_KEY"),
     max_video_analyses: int = typer.Option(10, "--max-video-analyses", min=1, max=1_000),
+    distillation_mode: Literal["creative_learning", "knowledge"] = typer.Option(
+        "creative_learning",
+        "--distillation-mode",
+    ),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
-    """Upload the account's human-readable analysis reports into WeKnora."""
+    """Upload account reports or one knowledge document per video into WeKnora."""
 
-    result = _execute(
-        lambda: WeKnoraSyncService(ProjectLayout.open(project)).sync_account(
+    service = WeKnoraSyncService(ProjectLayout.open(project))
+
+    def _sync_account() -> dict[str, Any]:
+        if distillation_mode == "knowledge":
+            return service.sync_account_video_knowledge(
+                account_id=account,
+                base_url=base_url,
+                api_key=api_key,
+                kb_id=kb_id,
+            )
+        return service.sync_account(
             account_id=account,
             base_url=base_url,
             api_key=api_key,
             kb_id=kb_id,
             max_video_analyses=max_video_analyses,
-        ),
+        )
+
+    result = _execute(
+        _sync_account,
         json_output=json_output,
     )
     _emit(

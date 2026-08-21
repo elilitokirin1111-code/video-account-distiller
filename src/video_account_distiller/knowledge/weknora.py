@@ -16,6 +16,7 @@ from video_account_distiller.knowledge.obsidian import (
     ObsidianVaultExporter,
 )
 from video_account_distiller.models import (
+    AccountVideoKnowledgeManifest,
     SingleVideoDistillation,
     SingleVideoKnowledgeDistillation,
 )
@@ -783,4 +784,70 @@ class WeKnoraSyncService:
             "errors": errors,
             "error_code": "API_KEY_SCOPE_NOT_ALLOWED" if scope_rejected else None,
             "message": "WeKnora 未能完成单视频知识文档上传。" if errors else None,
+        }
+
+    def sync_account_video_knowledge(
+        self,
+        *,
+        account_id: str,
+        base_url: str = DEFAULT_WEKNORA_BASE_URL,
+        api_key: str,
+        kb_id: str,
+    ) -> dict[str, Any]:
+        """Upload the latest account batch while preserving one document per video."""
+
+        selected: AccountVideoKnowledgeManifest | None = None
+        root = self.project.root / "knowledge" / "accounts" / account_id / "video-knowledge"
+        for path in sorted(root.glob("avk_*/manifest.json")):
+            try:
+                candidate = AccountVideoKnowledgeManifest.model_validate(read_json(path))
+            except (OSError, ValueError):
+                continue
+            if candidate.account_id != account_id:
+                continue
+            if selected is None or (candidate.generated_at, candidate.manifest_id) > (
+                selected.generated_at,
+                selected.manifest_id,
+            ):
+                selected = candidate
+        if selected is None:
+            raise DistillerError(
+                ErrorCode.INPUT_MISSING,
+                f"No account video-knowledge bundle found: {account_id}",
+                details={"next": "run account video knowledge distillation first"},
+            )
+
+        uploaded: list[str] = []
+        replaced: list[str] = []
+        errors: list[str] = []
+        kb_name = ""
+        for document in selected.documents:
+            try:
+                synced = self.sync_video_knowledge(
+                    video_id=document.video_id,
+                    base_url=base_url,
+                    api_key=api_key,
+                    kb_id=kb_id,
+                )
+            except DistillerError as exc:
+                errors.append(f"{document.video_id}: {exc}")
+                continue
+            kb_name = str(synced.get("kb_name") or kb_name)
+            uploaded.extend(str(item) for item in synced.get("uploaded", []))
+            replaced.extend(str(item) for item in synced.get("replaced", []))
+            errors.extend(f"{document.video_id}: {item}" for item in synced.get("errors", []))
+
+        scope_rejected = any(": HTTP 403" in error and '"code":1002' in error for error in errors)
+        return {
+            "ok": not errors,
+            "kb_id": kb_id.strip(),
+            "kb_name": kb_name,
+            "account_id": account_id,
+            "manifest_id": selected.manifest_id,
+            "document_type": "video_knowledge",
+            "uploaded": uploaded,
+            "replaced": replaced,
+            "errors": errors,
+            "error_code": "API_KEY_SCOPE_NOT_ALLOWED" if scope_rejected else None,
+            "message": "WeKnora 未能完成全部逐视频知识文档上传。" if errors else None,
         }

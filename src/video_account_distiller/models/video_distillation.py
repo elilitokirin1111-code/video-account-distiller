@@ -215,3 +215,39 @@ class SingleVideoKnowledgeDistillation(StrictModel):
     evidence_path: str
     warnings_path: str
     warnings: list[str] = Field(default_factory=list)
+
+
+class AccountVideoKnowledgeDocument(StrictModel):
+    video_id: str
+    title: str | None = None
+    knowledge_id: str
+    status: DeepStatus
+    source_path: str
+    document_path: str
+    warnings: list[str] = Field(default_factory=list)
+
+
+class AccountVideoKnowledgeSkip(StrictModel):
+    video_id: str
+    title: str | None = None
+    reason: str
+
+
+class AccountVideoKnowledgeManifest(StrictModel):
+    """One import-ready account bundle whose Markdown files remain video-scoped."""
+
+    schema_version: str = DISTILLATION_SCHEMA_VERSION
+    manifest_id: str
+    manifest_version: str
+    account_id: str
+    generated_at: datetime
+    run_id: str
+    status: DeepStatus
+    requested_count: int
+    eligible_count: int
+    completed_count: int
+    degraded_count: int
+    skipped_count: int
+    documents: list[AccountVideoKnowledgeDocument] = Field(default_factory=list)
+    skipped: list[AccountVideoKnowledgeSkip] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)

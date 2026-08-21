@@ -4,18 +4,22 @@ import json
 from array import array
 from pathlib import Path
 
+from video_account_distiller.distillation.account_knowledge import AccountVideoKnowledgeService
 from video_account_distiller.distillation.knowledge import SingleVideoKnowledgeService
 from video_account_distiller.distillation.video import SingleVideoDistillationService
 from video_account_distiller.features import VideoAnalysisService
 from video_account_distiller.media import LocalMediaAnalysisService, SceneDetectionResult
 from video_account_distiller.models import (
+    AccountVideoKnowledgeManifest,
     MediaMetadata,
     MediaVisionAnnotation,
     MediaVisionBundle,
     ShotVisualAnnotation,
     SingleVideoDistillation,
     SingleVideoKnowledgeDistillation,
+    Video,
 )
+from video_account_distiller.storage.parquet import read_models
 from video_account_distiller.storage.project import ProjectLayout
 from video_account_distiller.utils.io import read_json
 from video_account_distiller.validation import validate_project
@@ -234,6 +238,40 @@ def test_single_video_knowledge_mode_uses_isolated_artifact_paths(
     repeated = SingleVideoKnowledgeService(phase3_project).distill(video_id="p2-01")
     assert repeated["already_generated"] is True
     assert repeated["knowledge"]["knowledge_id"] == artifact.knowledge_id
+
+
+def test_account_video_knowledge_creates_one_import_document_per_eligible_video(
+    phase3_project: ProjectLayout,
+) -> None:
+    _analyze_text(phase3_project)
+    all_videos = read_models(phase3_project.normalized_dir / "videos.parquet", Video)
+    target = next(item for item in all_videos if item.platform_video_id == "p2-01")
+    account_videos = [item for item in all_videos if item.account_id == target.account_id]
+    account_id = account_videos[0].account_id
+    service = AccountVideoKnowledgeService(phase3_project)
+
+    preview = service.distill(account_id=account_id, provider="none", dry_run=True)
+    assert preview["eligible_count"] == 1
+    assert len(preview["skipped"]) == len(account_videos) - 1
+    assert preview["plan"]["document_shape"] == "one_markdown_per_video"
+
+    result = service.distill(account_id=account_id, provider="none")
+    manifest = AccountVideoKnowledgeManifest.model_validate(result["manifest"])
+    assert manifest.requested_count == len(account_videos)
+    assert manifest.eligible_count == 1
+    assert len(manifest.documents) == 1
+    assert manifest.skipped_count == len(account_videos) - 1
+    document_path = phase3_project.root / manifest.documents[0].document_path
+    document = document_path.read_text(encoding="utf-8")
+    assert document.startswith("---\nsource: video-account-distiller")
+    assert "document_type: video_knowledge" in document
+    assert "distillation_mode: knowledge" in document
+    assert "# " in document
+    assert document_path.parent.name == "documents"
+
+    repeated = service.distill(account_id=account_id, provider="none")
+    assert repeated["already_generated"] is True
+    assert repeated["manifest"]["manifest_id"] == manifest.manifest_id
 
 
 def test_single_video_deep_distillation_uses_media_analysis_when_present(

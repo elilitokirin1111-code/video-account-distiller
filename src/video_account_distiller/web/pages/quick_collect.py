@@ -855,7 +855,11 @@ def _render_result(result: dict[str, Any]) -> None:
             st.json(result)
         return
 
-    st.success("账号蒸馏已完成，运营学习报告与数据证据均已写入项目。")
+    workflow = result.get("workflow") or {}
+    if workflow.get("distillation_mode") == "knowledge" or result.get("video_knowledge"):
+        st.success("账号视频内容知识提取已完成；每条视频均按独立文档输出。")
+    else:
+        st.success("账号蒸馏已完成，运营学习报告与数据证据均已写入项目。")
     _result_metrics(result)
     _render_coverage(result)
     account = result.get("account") or {}
@@ -889,6 +893,18 @@ def _render_result(result: dict[str, Any]) -> None:
             "整个过程不会上传数据；如需云端模型分析，请使用“云端深度分析”。"
         )
         st.caption("知识产物：" + "、".join(str(item) for item in knowledge.get("outputs", [])))
+
+    video_knowledge = result.get("video_knowledge") or {}
+    video_manifest = video_knowledge.get("manifest") or {}
+    if video_knowledge.get("ok"):
+        st.success(
+            "逐视频纯知识导入包已生成："
+            f"{len(video_manifest.get('documents', []))} 个独立 Markdown，"
+            f"跳过 {video_manifest.get('skipped_count', 0)} 条。"
+        )
+        st.caption(
+            "导入包：" + "、".join(str(item) for item in video_knowledge.get("outputs", [])[:2])
+        )
 
     media_cleanup = result.get("media_cleanup") or {}
     if media_cleanup.get("ok"):
@@ -1644,6 +1660,29 @@ if work_mode == "单视频蒸馏":
     _render_single_video_section(project_path)
     st.stop()
 
+account_distillation_target = st.radio(
+    "账号蒸馏目标",
+    ["运营学习与账号分析", "视频内容知识提取（一视频一文档）"],
+    horizontal=True,
+    index=(
+        1
+        if template.get("distillation_mode") == "knowledge"
+        or template.get("distill_video_knowledge") is True
+        else 0
+    ),
+    key="account_distillation_target",
+    help=(
+        "运营学习分析账号打法与表现；视频内容知识提取只读取每条视频讲述的事实、概念、"
+        "方法、案例和观点，不生成账号运营策略。"
+    ),
+)
+knowledge_mode = account_distillation_target.startswith("视频内容知识提取")
+if knowledge_mode:
+    st.info(
+        "当前为纯知识模式：将下载并转写每条视频，逐条生成独立知识文档；"
+        "不会运行账号运营蒸馏、运营报告或酒旅迁移分析。"
+    )
+
 with st.form("self_service_distill_form"):
     with st.container(border=True):
         st.markdown("#### 01 · 账号主页")
@@ -1736,25 +1775,40 @@ with st.form("self_service_distill_form"):
     with st.container(border=True):
         st.markdown("#### 内容理解")
         st.caption(
-            "配置语音转写、画面语义、运营学习报告和数据证据附件。"
-            "任务成功后会自动删除下载的原视频，保留字幕、关键帧和分析结果。"
+            (
+                "配置语音转写和视频内容知识提取。"
+                if knowledge_mode
+                else "配置语音转写、画面语义、运营学习报告和数据证据附件。"
+            )
+            + "任务成功后会自动删除下载的原视频，保留字幕、关键帧和分析结果。"
         )
         analysis_focus = st.radio(
             "账号分析方向",
             ["通用账号分析", "通用分析 + 酒旅迁移"],
             horizontal=True,
             index=1 if template.get("analysis_focus") == "hospitality" else 0,
+            disabled=knowledge_mode,
             help=(
                 "酒旅方向会完整保留通用分析，再追加独立迁移章节；允许判定为低相关或无可迁移内容。"
             ),
         )
         template_media_limit = template.get("media_limit")
-        analyze_media = st.toggle(
-            "下载并分析视频本身",
-            value=(
-                int(template_media_limit) > 0 if isinstance(template_media_limit, int) else True
-            ),
-        )
+        if knowledge_mode:
+            st.toggle(
+                "下载、转写并分析视频内容（知识提取必需）",
+                value=True,
+                disabled=True,
+                key="knowledge_mode_media_required",
+            )
+            analyze_media = True
+        else:
+            analyze_media = st.toggle(
+                "下载并分析视频本身",
+                value=(
+                    int(template_media_limit) > 0 if isinstance(template_media_limit, int) else True
+                ),
+                key="creative_mode_analyze_media",
+            )
         media_limit: int | None = None if analyze_media else 0
         if analyze_media:
             st.caption("内容理解将覆盖本次实际采集到的全部视频；旧模板中的 20 条上限不再生效。")
@@ -1946,15 +2000,23 @@ with st.form("self_service_distill_form"):
             export_knowledge = st.checkbox(
                 "生成运营学习报告与数据证据附件（用于 Obsidian 与归档）",
                 value=bool(template.get("export_knowledge", True)),
+                disabled=knowledge_mode,
             )
+            if knowledge_mode:
+                export_knowledge = False
+                st.caption("纯知识模式固定输出一视频一 Markdown，不生成账号运营知识包。")
+            distill_video_knowledge = knowledge_mode
             knowledge_synthesis = st.checkbox(
                 "生成账号级综合知识卡（云端深度分析）",
                 value=bool(template.get("knowledge_analysis")),
+                disabled=knowledge_mode,
                 help=(
                     "在事实与模式整理完成后运行一次高推理强度的账号级综合，"
                     "输出机制、竞争解释、反证、决策、成功与停止条件。"
                 ),
             )
+            if knowledge_mode:
+                knowledge_synthesis = False
             confirm_knowledge_upload = False
             confirm_knowledge_cost = False
             knowledge_analysis_payload: dict[str, Any] | None = None
@@ -2053,11 +2115,13 @@ with st.form("self_service_distill_form"):
             "全部" if all_videos else str(int(video_count)),
         )
         summary_columns[1].metric(
-            "内容理解",
-            "随采集范围" if analyze_media else "关闭",
+            "蒸馏目标",
+            "逐视频知识" if knowledge_mode else ("运营学习" if analyze_media else "基础数据"),
             delta=(
-                "全部实际采集视频"
-                if analyze_media and all_videos
+                "一视频一独立文档"
+                if knowledge_mode
+                else "全部实际采集视频"
+                if all_videos
                 else f"预计 {int(video_count)} 个视频"
                 if analyze_media
                 else None
@@ -2066,7 +2130,9 @@ with st.form("self_service_distill_form"):
         summary_columns[2].metric(
             "评论范围",
             (
-                "随采集范围"
+                "关闭（知识模式）"
+                if knowledge_mode
+                else "随采集范围"
                 if int(comments_per_video) > 0 and comments_cover_all_selected
                 else f"{int(comment_video_limit)} 个视频"
                 if int(comments_per_video) > 0
@@ -2074,7 +2140,7 @@ with st.form("self_service_distill_form"):
             ),
             delta=(
                 f"预计最多 {estimated_comments:,} 条一级评论"
-                if int(comments_per_video) > 0
+                if int(comments_per_video) > 0 and not knowledge_mode
                 else None
             ),
         )
@@ -2113,7 +2179,7 @@ payload = {
     "count": None if all_videos else int(video_count),
     "all_videos": all_videos,
     "sort": sort,
-    "comments_per_video": int(comments_per_video),
+    "comments_per_video": 0 if knowledge_mode else int(comments_per_video),
     "comment_video_limit": int(comment_video_limit),
     "max_provider_calls": (int(max_provider_calls) if int(max_provider_calls) > 0 else None),
     "confirm_provider_cost": False,
@@ -2138,9 +2204,18 @@ payload = {
     "vision_model": vision_model,
     "strict_media_enrichment": strict_media,
     "strict_vision": strict_vision,
-    "analysis_focus": "hospitality" if "酒旅" in analysis_focus else "general",
+    "analysis_focus": (
+        "general" if knowledge_mode else ("hospitality" if "酒旅" in analysis_focus else "general")
+    ),
+    "distillation_mode": "knowledge" if knowledge_mode else "creative_learning",
+    "distill_video_knowledge": distill_video_knowledge,
+    "video_knowledge_provider": ("cloud" if text_source.startswith("云端") else "llamacpp"),
+    "video_knowledge_model": (
+        (cloud_text_model.strip() or None) if text_source.startswith("云端") else None
+    ),
+    "strict_video_knowledge": False,
     "knowledge_analysis": knowledge_analysis_payload if knowledge_synthesis else None,
-    "export_knowledge": export_knowledge,
+    "export_knowledge": export_knowledge and not knowledge_mode,
 }
 
 if preview_clicked or run_clicked:
@@ -2275,7 +2350,8 @@ if isinstance(account_id, str):
 
     with weknora_tab:
         st.caption(
-            "先在 WeKnora 创建并授权目标知识库；这里仅把分析报告（Markdown）导入已有知识库，"
+            "先在 WeKnora 创建并授权目标知识库；这里可导入账号分析报告，"
+            "也可保持一视频一文档导入纯知识产物，"
             "不会自行创建知识库。"
         )
         default_weknora_url = st.session_state.get("weknora_base_url") or web_state.get_state(
@@ -2391,6 +2467,13 @@ if isinstance(account_id, str):
             selected_kb_name = ""
             st.info("请先输入 API Key 并读取可访问的知识库。")
 
+        weknora_content_type = st.radio(
+            "同步内容",
+            ["账号运营分析报告", "逐视频纯知识文档（一视频一文档）"],
+            horizontal=True,
+            key="weknora_content_type",
+        )
+        syncing_video_knowledge = weknora_content_type.startswith("逐视频")
         weknora_max = st.number_input(
             "纳入逐视频证据数",
             min_value=1,
@@ -2398,6 +2481,7 @@ if isinstance(account_id, str):
             value=min(100, 1_000),
             step=1,
             key="weknora_max_video_analyses",
+            disabled=syncing_video_knowledge,
         )
         if st.button(
             "同步当前账号到 WeKnora",
@@ -2426,7 +2510,11 @@ if isinstance(account_id, str):
                     except Exception:
                         pass
                 with st.status("正在同步到 WeKnora…", expanded=True) as activity:
-                    activity.write("正在打包分析报告并上传到目标知识库…")
+                    activity.write(
+                        "正在逐条上传纯知识文档…"
+                        if syncing_video_knowledge
+                        else "正在打包分析报告并上传到目标知识库…"
+                    )
                     sync = _request(
                         (
                             f"/api/projects/{_encoded_account_project()}"
@@ -2438,6 +2526,9 @@ if isinstance(account_id, str):
                             "api_key": weknora_key,
                             "kb_id": selected_kb_id,
                             "max_video_analyses": weknora_max,
+                            "distillation_mode": (
+                                "knowledge" if syncing_video_knowledge else "creative_learning"
+                            ),
                         },
                         timeout=300,
                     )

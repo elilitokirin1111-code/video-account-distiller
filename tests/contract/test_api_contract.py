@@ -200,6 +200,32 @@ def test_self_service_workflow_dry_run_reports_local_readiness(
         assert result["workflow_plan"]["knowledge_export"] is True
         assert result["diagnostics"]["project"]["initialized"] is True
 
+        knowledge_submitted = client.post(
+            f"/api/projects/{encoded}/workflows/account-distill",
+            params={"dry_run": "true"},
+            json={
+                "url": "https://v.douyin.com/demo/",
+                "count": 20,
+                "media_limit": 20,
+                "distillation_mode": "knowledge",
+                "video_knowledge_provider": "llamacpp",
+            },
+        )
+        assert knowledge_submitted.status_code == 200
+        knowledge_task = _wait_for_task(
+            client,
+            str(_json(knowledge_submitted)["task_id"]),
+        )
+        assert knowledge_task["status"] == "completed"
+        knowledge_plan = knowledge_task["result"]["workflow_plan"]
+        assert knowledge_plan["mode"] == "account_video_knowledge"
+        assert knowledge_plan["distillation_mode"] == "knowledge"
+        assert knowledge_plan["video_knowledge"]["enabled"] is True
+        assert "video_knowledge" in knowledge_plan["stages"]
+        assert "distill" not in knowledge_plan["stages"]
+        assert "report" not in knowledge_plan["stages"]
+        assert knowledge_plan["knowledge_export"] is False
+
         invalid = client.post(
             f"/api/projects/{encoded}/workflows/account-distill",
             params={"dry_run": "true"},
@@ -501,8 +527,7 @@ def test_account_distill_task_can_retry_with_overrides(
             json={"overrides": {"cloud_api_key": "sk-should-not-be-overridden"}},
         )
         assert rejected.status_code == 422 or (
-            rejected.status_code == 200
-            and not isinstance(_json(rejected).get("task_id"), str)
+            rejected.status_code == 200 and not isinstance(_json(rejected).get("task_id"), str)
         )
 
 
@@ -872,9 +897,7 @@ def test_cloud_preset_round_trips_into_project_config(
         assert secret not in json.dumps(saved_payload, ensure_ascii=False)
 
         config = load_config(normalized_project.config_path)
-        assert config.models.cloud_base_url == (
-            "https://dashscope.aliyuncs.com/compatible-mode/v1"
-        )
+        assert config.models.cloud_base_url == ("https://dashscope.aliyuncs.com/compatible-mode/v1")
         assert config.models.cloud_api_key == secret
         assert config.models.cloud_text_model == "qwen3.7-plus"
         assert config.models.cloud_vision_model == "qwen-vl-max-latest"
@@ -1078,3 +1101,28 @@ def test_local_knowledge_export_replaces_openkb_routes(
             json={},
         )
         assert retired.status_code == 404
+
+
+def test_account_video_knowledge_route_enqueues_durable_batch_preview(
+    normalized_project: ProjectLayout,
+    tmp_path: Path,
+) -> None:
+    encoded = _project_path(normalized_project.root)
+    account_id = stable_id("acc_", "douyin", "hotel-demo")
+
+    with TestClient(create_app(tmp_path / "video-knowledge-tasks.sqlite3")) as client:
+        submitted = client.post(
+            (f"/api/projects/{encoded}/knowledge/local/accounts/{account_id}/distill-videos"),
+            params={"dry_run": "true"},
+            json={"provider": "none"},
+        )
+        assert submitted.status_code == 200
+        submitted_payload = _json(submitted)
+        assert submitted_payload["resource_class"] == "model"
+        assert submitted_payload["durable"] is True
+
+        task = _wait_for_task(client, str(submitted_payload["task_id"]))
+
+    assert task["status"] == "completed"
+    assert task["result"]["dry_run"] is True
+    assert task["result"]["plan"]["document_shape"] == "one_markdown_per_video"

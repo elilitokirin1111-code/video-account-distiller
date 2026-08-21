@@ -14,6 +14,7 @@ from video_account_distiller.collection import (
 )
 from video_account_distiller.config import load_config
 from video_account_distiller.distillation import AccountDistillationService
+from video_account_distiller.distillation.account_knowledge import AccountVideoKnowledgeService
 from video_account_distiller.doctor import doctor_report
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.features import CloudChatTextProvider, TextModelProvider
@@ -250,6 +251,13 @@ class AccountDistillWorkflow:
         account_analysis_provider: AccountAnalysisProvider | None = None,
         account_analysis_options: GptAnalysisOptions | None = None,
         analysis_focus: Literal["general", "hospitality"] = "general",
+        distillation_mode: Literal["creative_learning", "knowledge"] = "creative_learning",
+        distill_video_knowledge: bool = False,
+        video_knowledge_provider: Literal["ollama", "llamacpp", "cloud", "none"] | None = None,
+        video_knowledge_model: str | None = None,
+        video_knowledge_base_url: str | None = None,
+        video_knowledge_api_key: str | None = None,
+        strict_video_knowledge: bool = False,
         export_knowledge: bool = True,
         dry_run: bool = False,
         progress: WorkflowProgress = _ignore_progress,
@@ -258,7 +266,17 @@ class AccountDistillWorkflow:
     ) -> dict[str, Any]:
         """Run the bounded local-first workflow and report durable stage progress."""
 
+        knowledge_mode = distillation_mode == "knowledge" or distill_video_knowledge
+        effective_mode: Literal["creative_learning", "knowledge"] = (
+            "knowledge" if knowledge_mode else "creative_learning"
+        )
         progress(0.03, "preflight", "正在检查采集范围与本机能力")
+        if knowledge_mode and media_limit <= 0:
+            raise DistillerError(
+                ErrorCode.SCHEMA_INVALID,
+                "Video-content knowledge extraction requires video download and analysis",
+                details={"next": "set media_limit above zero for account knowledge mode"},
+            )
         if media_limit > 0 and request.provider != CollectionProviderKind.MEDIACRAWLER:
             raise DistillerError(
                 ErrorCode.SCHEMA_INVALID,
@@ -314,10 +332,14 @@ class AccountDistillWorkflow:
                 collection_profile=collection_profile,
                 max_provider_calls=max_provider_calls,
                 text_provider=local_text,
+                include_operational_analysis=not knowledge_mode,
             )
             diagnostics = doctor_report(self.project.root).model_dump(mode="json")
             result["workflow_plan"] = {
-                "mode": "self_service_account_distill",
+                "mode": (
+                    "account_video_knowledge" if knowledge_mode else "self_service_account_distill"
+                ),
+                "distillation_mode": effective_mode,
                 "media_limit": media_limit,
                 "transcription": {
                     "provider": transcriber.provider_name,
@@ -330,7 +352,18 @@ class AccountDistillWorkflow:
                     "model": local_vision.model_name if local_vision else None,
                     "network_uploads": 0,
                 },
-                "knowledge_export": export_knowledge,
+                "knowledge_export": export_knowledge and not knowledge_mode,
+                "video_knowledge": {
+                    "enabled": knowledge_mode,
+                    "document_shape": "one_markdown_per_video",
+                    "provider": video_knowledge_provider,
+                    "model": video_knowledge_model,
+                    "external_model_calls": (
+                        "per_eligible_video"
+                        if knowledge_mode and video_knowledge_provider not in {None, "none"}
+                        else 0
+                    ),
+                },
                 "analysis_focus": analysis_focus,
                 "media_retention": {
                     "raw_video": "delete_after_success",
@@ -338,19 +371,31 @@ class AccountDistillWorkflow:
                     "keep_on_failure": True,
                 },
                 "external_model_calls": (1 if account_analysis_options is not None else 0),
-                "stages": [
-                    "collect",
-                    "normalize",
-                    "metrics",
-                    "comments",
-                    "media",
-                    "transcribe",
-                    "video_analysis",
-                    "distill",
-                    "report",
-                    "knowledge_synthesis",
-                    "knowledge_export",
-                ],
+                "stages": (
+                    [
+                        "collect",
+                        "normalize",
+                        "metrics",
+                        "media",
+                        "transcribe",
+                        "video_analysis",
+                        "video_knowledge",
+                    ]
+                    if knowledge_mode
+                    else [
+                        "collect",
+                        "normalize",
+                        "metrics",
+                        "comments",
+                        "media",
+                        "transcribe",
+                        "video_analysis",
+                        "distill",
+                        "report",
+                        "knowledge_synthesis",
+                        "knowledge_export",
+                    ]
+                ),
             }
             result["diagnostics"] = diagnostics
             result["project_root"] = str(self.project.root)
@@ -365,6 +410,7 @@ class AccountDistillWorkflow:
             and resume_state.get("request") == request_payload
             and resume_state.get("collection_profile") == collection_profile.value
             and resume_state.get("analysis_focus", "general") == analysis_focus
+            and resume_state.get("distillation_mode", "creative_learning") == effective_mode
             and isinstance(resume_state.get("result"), dict)
         ):
             resumed_result = dict(resume_state["result"])
@@ -379,6 +425,7 @@ class AccountDistillWorkflow:
                 collection_profile=collection_profile,
                 max_provider_calls=max_provider_calls,
                 text_provider=local_text,
+                include_operational_analysis=not knowledge_mode,
             )
             account_id = str(result["account"]["account_id"])
             checkpoint(
@@ -389,6 +436,7 @@ class AccountDistillWorkflow:
                     "request": request_payload,
                     "collection_profile": collection_profile.value,
                     "analysis_focus": analysis_focus,
+                    "distillation_mode": effective_mode,
                     "account_id": account_id,
                     "result": result,
                 },
@@ -440,6 +488,7 @@ class AccountDistillWorkflow:
                     "request": request_payload,
                     "collection_profile": collection_profile.value,
                     "analysis_focus": analysis_focus,
+                    "distillation_mode": effective_mode,
                     "account_id": account_id,
                     "result": result,
                 },
@@ -447,6 +496,91 @@ class AccountDistillWorkflow:
             progress(0.78, "media_complete", "视频内容分析与转写完成")
         elif media_already_complete:
             progress(0.78, "resuming", "已复用检查点中的视频内容分析")
+
+        if knowledge_mode:
+            progress(
+                0.82,
+                "video_knowledge",
+                "正在从每条视频内容中提取事实、概念、方法与适用边界",
+            )
+            result["video_knowledge"] = AccountVideoKnowledgeService(self.project).distill(
+                account_id=account_id,
+                provider=video_knowledge_provider,
+                model=video_knowledge_model,
+                base_url=video_knowledge_base_url,
+                api_key=video_knowledge_api_key,
+                strict_model=strict_video_knowledge,
+            )
+            for operational_key in (
+                "report",
+                "comment_analysis",
+                "distillation",
+                "benchmark_profile",
+                "analysis_context",
+                "knowledge_synthesis",
+                "knowledge_export",
+                "narrative_report",
+            ):
+                if result.get(operational_key) is None:
+                    result.pop(operational_key, None)
+
+            enrichment_payload = result.get("media_enrichment") or {}
+            enrichment = enrichment_payload.get("enrichment") or {}
+            media_analysis_paths = [
+                str(item["media_analysis_path"])
+                for item in enrichment.get("videos", [])
+                if isinstance(item, dict) and item.get("media_analysis_path")
+            ]
+            if media_analysis_paths:
+                progress(0.97, "media_cleanup", "正在删除已完成分析的本地原视频")
+                result["media_cleanup"] = DownloadedMediaCleanupService(
+                    self.project
+                ).cleanup_account(
+                    account_id=account_id,
+                    media_analysis_paths=media_analysis_paths,
+                )
+            else:
+                result["media_cleanup"] = {
+                    "ok": True,
+                    "deleted_count": 0,
+                    "deleted_bytes": 0,
+                    "message": "本次任务没有新增或复用需要清理的原视频。",
+                }
+            manifest = (result.get("video_knowledge") or {}).get("manifest") or {}
+            result["workflow"] = {
+                "mode": "account_video_knowledge",
+                "distillation_mode": "knowledge",
+                "account_id": account_id,
+                "media_limit": media_limit,
+                "operational_analysis_run": False,
+                "video_knowledge_exported": True,
+                "video_knowledge_document_shape": "one_markdown_per_video",
+                "knowledge_documents": len(manifest.get("documents", [])),
+                "skipped_videos": int(manifest.get("skipped_count") or 0),
+                "raw_videos_deleted_after_success": True,
+            }
+            result["workflow_coverage"] = _workflow_coverage(
+                result,
+                request=request,
+                media_limit=media_limit,
+                vision_requested=local_vision is not None,
+            )
+            result["project_root"] = str(self.project.root)
+            checkpoint(
+                "video_knowledge_complete",
+                {
+                    "version": "1.0.0",
+                    "stage": "video_knowledge_complete",
+                    "request": request_payload,
+                    "collection_profile": collection_profile.value,
+                    "analysis_focus": analysis_focus,
+                    "distillation_mode": effective_mode,
+                    "account_id": account_id,
+                    "result": result,
+                },
+            )
+            progress(1.0, "completed", "账号逐视频内容知识提取完成")
+            return result
 
         progress(0.80, "distill", "正在从完整视频证据中重建账号模式与反例")
         result["distillation"] = AccountDistillationService(self.project).distill(
@@ -574,6 +708,7 @@ class AccountDistillWorkflow:
 
         result["workflow"] = {
             "mode": "self_service_account_distill",
+            "distillation_mode": "creative_learning",
             "account_id": account_id,
             "media_limit": media_limit,
             "analysis_focus": analysis_focus,
@@ -588,6 +723,8 @@ class AccountDistillWorkflow:
                 else "evidence_ready"
             ),
             "knowledge_exported": export_knowledge,
+            "video_knowledge_exported": False,
+            "video_knowledge_document_shape": None,
             "raw_videos_deleted_after_success": True,
         }
         result["workflow_coverage"] = _workflow_coverage(

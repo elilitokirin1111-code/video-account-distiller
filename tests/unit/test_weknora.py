@@ -541,3 +541,76 @@ def test_weknora_video_knowledge_does_not_delete_creative_document(
     assert metadata["document_type"] == "video_knowledge"
     assert metadata["distillation_mode"] == "knowledge"
     assert metadata["knowledge_id"] == "svk_test"
+
+
+def test_weknora_account_video_knowledge_syncs_manifest_documents_individually(
+    project: ProjectLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from video_account_distiller.models import AccountVideoKnowledgeManifest
+    from video_account_distiller.utils.io import atomic_write_json
+
+    manifest = AccountVideoKnowledgeManifest.model_validate(
+        {
+            "manifest_id": "avk_test",
+            "manifest_version": "1.0.0",
+            "account_id": "acc_test",
+            "generated_at": "2026-01-01T00:00:00Z",
+            "run_id": "run_test",
+            "status": "degraded",
+            "requested_count": 1,
+            "eligible_count": 1,
+            "completed_count": 0,
+            "degraded_count": 1,
+            "skipped_count": 0,
+            "documents": [
+                {
+                    "video_id": "vid_knowledge",
+                    "title": "三个常见问题",
+                    "knowledge_id": "svk_test",
+                    "status": "degraded",
+                    "source_path": "analyses/videos/vid_knowledge/knowledge/svk_test/knowledge.md",
+                    "document_path": (
+                        "knowledge/accounts/acc_test/video-knowledge/avk_test/"
+                        "documents/vid_knowledge.md"
+                    ),
+                }
+            ],
+        }
+    )
+    manifest_path = (
+        project.root
+        / "knowledge"
+        / "accounts"
+        / "acc_test"
+        / "video-knowledge"
+        / "avk_test"
+        / "manifest.json"
+    )
+    atomic_write_json(manifest_path, manifest.model_dump(mode="json"))
+    calls: list[str] = []
+    service = WeKnoraSyncService(project)
+
+    def _sync(**kwargs: Any) -> dict[str, Any]:
+        calls.append(str(kwargs["video_id"]))
+        return {
+            "ok": True,
+            "kb_name": "target",
+            "uploaded": [f"videos/{kwargs['video_id']}/video-knowledge.md"],
+            "replaced": [],
+            "errors": [],
+        }
+
+    monkeypatch.setattr(service, "sync_video_knowledge", _sync)
+    result = service.sync_account_video_knowledge(
+        account_id="acc_test",
+        base_url="http://localhost:8080",
+        api_key="sk-test",
+        kb_id="kb-1",
+    )
+
+    assert result["ok"] is True
+    assert result["document_type"] == "video_knowledge"
+    assert result["manifest_id"] == "avk_test"
+    assert calls == ["vid_knowledge"]
+    assert result["uploaded"] == ["videos/vid_knowledge/video-knowledge.md"]

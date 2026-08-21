@@ -48,6 +48,10 @@ Chrome，登录和平台验证由用户手动完成。项目不调用代理池�
 - 单视频知识提取：使用 `--distillation-mode knowledge` 独立提取视频陈述、创作者观点、
   概念、方法、案例和数据，保留字幕/OCR/镜头证据与时间，不执行外部事实核验；知识产物
   与创作学习参考卡使用不同 ID、目录和 WeKnora 文档类型，可同时存在。
+- 账号逐视频知识提取：`distiller knowledge distill-account-videos` 批量复用单视频知识契约，
+  在 `knowledge/accounts/<account_id>/video-knowledge/<avk_id>/documents/` 中严格按一条视频
+  一个 Markdown 生成知识库导入包；工作台选择“视频内容知识提取”后只运行这条链路，
+  不生成账号运营蒸馏或运营报告；缺字幕或盲分析的视频写入跳过清单，不阻断其他作品。
 - 单视频采集入口：`distiller video collect --url <视频链接> [--provider tikhub|mediacrawler]`
   或工作台「新建蒸馏」页的「单视频蒸馏」模式，采集单条公开视频（元数据/指标/可选评论）
   入库——采集方式与账号主页一致，支持 TikHub 付费 API 与 MediaCrawler 本地浏览器；
@@ -239,6 +243,13 @@ uv run distiller account enrich-media --project ./demo-project \
 uv run distiller account enrich-media --project ./demo-project \
   --account <acc_id> --limit 3 --whisper-model base \
   --vision-provider ollama --vision-model qwen3-vl:8b --json
+
+uv run distiller knowledge distill-account-videos --project ./demo-project \
+  --account <acc_id> --provider llamacpp --json
+
+uv run distiller knowledge weknora sync-account --project ./demo-project \
+  --account <acc_id> --distillation-mode knowledge \
+  --kb-id <knowledge-base-id> --api-key $env:WEKNORA_API_KEY --json
 ```
 
 预演只读取留存批次并报告候选域名、本地转写可用性和预计写入范围；正式执行仅允许留存

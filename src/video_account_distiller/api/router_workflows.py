@@ -60,6 +60,7 @@ _RETRY_OVERRIDE_FIELDS = frozenset(
         "comment_video_limit",
         "max_provider_calls",
         "media_limit",
+        "distillation_mode",
         "text_provider",
         "whisper_backend",
         "whisper_model",
@@ -71,6 +72,10 @@ _RETRY_OVERRIDE_FIELDS = frozenset(
         "cloud_vision_model",
         "vision_batch_size",
         "analysis_focus",
+        "distill_video_knowledge",
+        "video_knowledge_provider",
+        "video_knowledge_model",
+        "strict_video_knowledge",
         "knowledge_analysis",
         "export_knowledge",
     }

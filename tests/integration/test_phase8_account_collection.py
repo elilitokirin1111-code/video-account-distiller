@@ -209,6 +209,31 @@ def test_account_url_dry_run_never_calls_provider_or_writes(
     assert not list(collection_dir.rglob("*.json"))
 
 
+def test_account_url_knowledge_mode_skips_operational_analysis(
+    project: ProjectLayout,
+) -> None:
+    provider = FixtureAccountProvider()
+    request = AccountCollectionRequest(
+        profile_url="https://www.douyin.com/user/MS4wLjABAAAAphase8-hotel",
+        provider=CollectionProviderKind.MEDIACRAWLER,
+        count=3,
+        comments_per_video=2,
+        comment_video_limit=2,
+    )
+
+    result = AccountCollectionService(project, provider).analyze_url(
+        request=request,
+        include_operational_analysis=False,
+    )
+
+    assert result["collection"]["videos"] == 3
+    assert result["normalization"]["counts"]["videos"] == 3
+    assert result["metrics"]["records"] == 3
+    assert result["report"] is None
+    assert result["comment_analysis"] is None
+    assert result["distillation"] is None
+
+
 def test_mediacrawler_account_url_runs_full_pipeline_without_cost_confirmation(
     project: ProjectLayout,
 ) -> None:

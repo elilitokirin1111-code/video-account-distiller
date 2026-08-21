@@ -961,6 +961,26 @@ requirements from later phases.
   Treating hospitality as an independent transfer layer prevents forced hotel analogies and invented
   trends while preserving the general analysis behavior and its evidence discipline.
 
+## ID-100 — Batch account knowledge as one document per video
+
+- **Decision:** Add `AccountVideoKnowledgeService` as an orchestration layer over the existing
+  `SingleVideoKnowledgeService`. It selects account videos with a completed text analysis, creates
+  or reuses their independent `svk_*` artifacts, then assembles an `avk_*` import bundle containing
+  `manifest.json`, `README.md`, and exactly one front-matter-tagged Markdown file per video under
+  `documents/`. Missing inputs and per-video failures are recorded in a skip list. The batch is
+  available through a first-class, mutually exclusive account workflow mode, a durable HTTP task,
+  and
+  `distiller knowledge distill-account-videos`; WeKnora account sync accepts
+  `distillation_mode=knowledge` and uploads each video document under its existing isolated sync
+  identity.
+- **Reason:** A combined account knowledge report is difficult to update, deduplicate, cite, and
+  retrieve in a knowledge base. Reusing the already validated single-video schema avoids divergent
+  extraction semantics, while a separate batch manifest provides progress, failure isolation, and
+  a directly importable folder without merging evidence from unrelated videos. Knowledge mode must
+  bypass the account-health, operational-pattern, strategy-synthesis, and narrative-report stages;
+  treating it as an additive checkbox makes a user's explicit knowledge selection look and behave
+  like the original operations workflow.
+
 
 
 

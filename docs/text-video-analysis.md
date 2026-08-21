@@ -93,6 +93,24 @@ The same operation is available as
 `svd_*` report with `video-account-distiller` provenance metadata and replaces previous documents
 for the same video, mirroring the account-level WeKnora sync semantics.
 
+## Account-wide knowledge mode
+
+After text analysis exists for multiple videos, the account batch command keeps the same strict
+single-video knowledge contract and creates an import folder with one Markdown file per video:
+
+```bash
+distiller knowledge distill-account-videos --project <dir> --account <account-id> \
+  --provider llamacpp --json
+```
+
+The bundle lives under
+`knowledge/accounts/<account-id>/video-knowledge/<avk-id>/`. `manifest.json` records completed,
+degraded, and skipped videos; `documents/` contains only independent video documents. Missing text
+analysis never produces an empty placeholder. Use `--dry-run` to preview eligibility, or sync the
+latest bundle to WeKnora with `knowledge weknora sync-account --distillation-mode knowledge`.
+In the homepage workbench, select “视频内容知识提取（一视频一文档）”; this mode skips account
+operations distillation, account-health reports, strategy synthesis, and narrative reports.
+
 ## Collecting one video by URL
 
 `distiller video collect --project <dir> --url <video-url> --confirm-provider-cost` collects a

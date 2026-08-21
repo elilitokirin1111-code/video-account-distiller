@@ -197,6 +197,9 @@ from video_account_distiller.models.text_analysis import (
     VideoSemanticAnnotation,
 )
 from video_account_distiller.models.video_distillation import (
+    AccountVideoKnowledgeDocument,
+    AccountVideoKnowledgeManifest,
+    AccountVideoKnowledgeSkip,
     ContentExpressionNote,
     CopyChecklist,
     CraftDistillation,
@@ -212,6 +215,9 @@ from video_account_distiller.models.video_distillation import (
 )
 
 __all__ = [
+    "AccountVideoKnowledgeDocument",
+    "AccountVideoKnowledgeManifest",
+    "AccountVideoKnowledgeSkip",
     "AccountCollectionBatch",
     "AccountCollectionRequest",
     "AccountBenchmarkProfile",
