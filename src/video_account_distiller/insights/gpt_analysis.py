@@ -394,6 +394,34 @@ MODEL_PRICING: dict[AnalysisModel, ModelPricing] = {
         snapshot=GPT_PRICING_SNAPSHOT,
         authoritative_source="OpenAI billing dashboard/invoice",
     ),
+    BailianModel.QWEN_3_8_MAX: ModelPricing(
+        currency="CNY",
+        input_per_million=14.0,
+        cached_input_per_million=1.75,
+        output_per_million=42.0,
+        source_url="https://help.aliyun.com/zh/model-studio/model-pricing",
+        snapshot=BAILIAN_PRICING_SNAPSHOT,
+        authoritative_source="Alibaba Cloud Model Studio console/invoice",
+        max_input_tokens=983_000,
+        long_context_threshold_tokens=256_000,
+        long_context_input_multiplier=3.0,
+        long_context_output_multiplier=3.0,
+        cache_write_multiplier=1.25,
+    ),
+    BailianModel.QWEN_3_7_MAX: ModelPricing(
+        currency="CNY",
+        input_per_million=4.0,
+        cached_input_per_million=4.0,
+        output_per_million=16.0,
+        source_url="https://help.aliyun.com/zh/model-studio/model-pricing",
+        snapshot=BAILIAN_PRICING_SNAPSHOT,
+        authoritative_source="Alibaba Cloud Model Studio console/invoice",
+        max_input_tokens=983_000,
+        long_context_threshold_tokens=256_000,
+        long_context_input_multiplier=3.0,
+        long_context_output_multiplier=3.0,
+        cache_write_multiplier=1.0,
+    ),
     BailianModel.QWEN_3_7_PLUS: ModelPricing(
         currency="CNY",
         input_per_million=2.0,
@@ -406,6 +434,76 @@ MODEL_PRICING: dict[AnalysisModel, ModelPricing] = {
         long_context_threshold_tokens=256_000,
         long_context_input_multiplier=3.0,
         long_context_output_multiplier=3.0,
+        cache_write_multiplier=1.0,
+    ),
+    BailianModel.QWEN_MAX: ModelPricing(
+        currency="CNY",
+        input_per_million=2.4,
+        cached_input_per_million=2.4,
+        output_per_million=9.6,
+        source_url="https://help.aliyun.com/zh/model-studio/model-pricing",
+        snapshot=BAILIAN_PRICING_SNAPSHOT,
+        authoritative_source="Alibaba Cloud Model Studio console/invoice",
+        max_input_tokens=30_720,
+        long_context_threshold_tokens=30_720,
+        long_context_input_multiplier=1.0,
+        long_context_output_multiplier=1.0,
+        cache_write_multiplier=1.0,
+    ),
+    BailianModel.QWEN_PLUS: ModelPricing(
+        currency="CNY",
+        input_per_million=0.8,
+        cached_input_per_million=0.8,
+        output_per_million=2.0,
+        source_url="https://help.aliyun.com/zh/model-studio/model-pricing",
+        snapshot=BAILIAN_PRICING_SNAPSHOT,
+        authoritative_source="Alibaba Cloud Model Studio console/invoice",
+        max_input_tokens=30_720,
+        long_context_threshold_tokens=30_720,
+        long_context_input_multiplier=1.0,
+        long_context_output_multiplier=1.0,
+        cache_write_multiplier=1.0,
+    ),
+    BailianModel.QWEN_TURBO: ModelPricing(
+        currency="CNY",
+        input_per_million=0.3,
+        cached_input_per_million=0.3,
+        output_per_million=0.6,
+        source_url="https://help.aliyun.com/zh/model-studio/model-pricing",
+        snapshot=BAILIAN_PRICING_SNAPSHOT,
+        authoritative_source="Alibaba Cloud Model Studio console/invoice",
+        max_input_tokens=30_720,
+        long_context_threshold_tokens=30_720,
+        long_context_input_multiplier=1.0,
+        long_context_output_multiplier=1.0,
+        cache_write_multiplier=1.0,
+    ),
+    BailianModel.QWEN_LONG: ModelPricing(
+        currency="CNY",
+        input_per_million=2.0,
+        cached_input_per_million=2.0,
+        output_per_million=8.0,
+        source_url="https://help.aliyun.com/zh/model-studio/model-pricing",
+        snapshot=BAILIAN_PRICING_SNAPSHOT,
+        authoritative_source="Alibaba Cloud Model Studio console/invoice",
+        max_input_tokens=983_000,
+        long_context_threshold_tokens=256_000,
+        long_context_input_multiplier=3.0,
+        long_context_output_multiplier=3.0,
+        cache_write_multiplier=1.0,
+    ),
+    BailianModel.QWEN_PLUS_LATEST: ModelPricing(
+        currency="CNY",
+        input_per_million=0.8,
+        cached_input_per_million=0.8,
+        output_per_million=2.0,
+        source_url="https://help.aliyun.com/zh/model-studio/model-pricing",
+        snapshot=BAILIAN_PRICING_SNAPSHOT,
+        authoritative_source="Alibaba Cloud Model Studio console/invoice",
+        max_input_tokens=30_720,
+        long_context_threshold_tokens=30_720,
+        long_context_input_multiplier=1.0,
+        long_context_output_multiplier=1.0,
         cache_write_multiplier=1.0,
     ),
     DeepSeekModel.V4_FLASH: ModelPricing(
@@ -459,8 +557,26 @@ def _usage_int(usage: dict[str, Any], key: str) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
+# Conservative fallback for models without an explicit pricing snapshot, so a
+# preview/cost estimate never crashes on an unknown model id.
+_FALLBACK_PRICING = ModelPricing(
+    currency="CNY",
+    input_per_million=2.0,
+    cached_input_per_million=2.0,
+    output_per_million=8.0,
+    source_url="https://help.aliyun.com/zh/model-studio/model-pricing",
+    snapshot=BAILIAN_PRICING_SNAPSHOT,
+    authoritative_source="Alibaba Cloud Model Studio console/invoice",
+)
+
+
+def _pricing_for(model: AnalysisModel) -> ModelPricing:
+    """Return the pricing snapshot for a model, falling back conservatively."""
+    return MODEL_PRICING.get(model, _FALLBACK_PRICING)
+
+
 def _usage_cost(model: AnalysisModel, usage: dict[str, Any]) -> dict[str, Any]:
-    pricing = MODEL_PRICING[model]
+    pricing = _pricing_for(model)
     input_tokens = _usage_int(usage, "input_tokens")
     output_tokens = _usage_int(usage, "output_tokens")
     input_details = usage.get("input_tokens_details")
@@ -507,7 +623,7 @@ def _usage_cost(model: AnalysisModel, usage: dict[str, Any]) -> dict[str, Any]:
 
 
 def _cost_ceiling(model: AnalysisModel, input_token_upper_bound: int) -> dict[str, Any]:
-    pricing = MODEL_PRICING[model]
+    pricing = _pricing_for(model)
     billable_input_upper_bound = min(input_token_upper_bound, pricing.max_input_tokens)
     long_context = billable_input_upper_bound > pricing.long_context_threshold_tokens
     input_multiplier = pricing.long_context_input_multiplier if long_context else 1.0
