@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from video_account_distiller.distillation.knowledge import (
     _fallback_knowledge,
     _validate_source_refs,
@@ -269,6 +271,53 @@ def test_knowledge_fallback_preserves_attribution_and_source_intervals() -> None
         valid_observations=set(),
     )
     assert [ref.segment_id for ref in output.knowledge_items[0].source_refs] == ["1"]
+
+
+def test_knowledge_fallback_keeps_all_transcript_segments_and_contextualizes_numbers() -> None:
+    analysis = _text_analysis()
+    segments = [
+        TranscriptSegment(
+            segment_id=str(index),
+            video_id="vid_1",
+            start_ms=index * 1000,
+            end_ms=(index + 1) * 1000,
+            text=(
+                "点击率达到百分之一点五属于优秀，接下来检查私信开口率。"
+                if index == 0
+                else f"第{index + 1}步讲解投放诊断与优化方法。"
+            ),
+            source="fixture",
+            record_id=f"tr_{index}",
+            source_platform="douyin",
+            source_type="fixture",
+            source_record_id=f"src_{index}",
+            raw_hash="a" * 64,
+            run_id="run_1",
+        )
+        for index in range(6)
+    ]
+
+    output = _fallback_knowledge(analysis, segments, "本地生活投放诊断")
+
+    assert output.knowledge_title == "本地生活投放诊断"
+    rendered_content = "\n".join(item.content for item in output.knowledge_items)
+    assert all(segment.text in rendered_content for segment in segments)
+    assert output.knowledge_items[0].content != "3"
+
+
+def test_knowledge_quality_rejects_thin_long_transcript_output() -> None:
+    from video_account_distiller.distillation.knowledge import _validate_knowledge_quality
+    from video_account_distiller.models import ContentExpressionNote, SingleVideoKnowledgeOutput
+
+    output = SingleVideoKnowledgeOutput(
+        knowledge_title="测试",
+        content_summary="只有一个数字",
+        limitations=["未核验"],
+        expression_note=ContentExpressionNote(summary="测试"),
+    )
+
+    with pytest.raises(ValueError, match="too thin"):
+        _validate_knowledge_quality(output, transcript_character_count=1000)
 
 
 def test_deep_output_citation_filter_drops_fabricated_ids() -> None:

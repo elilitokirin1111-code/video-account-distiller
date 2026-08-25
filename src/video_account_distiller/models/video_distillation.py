@@ -193,8 +193,14 @@ class SingleVideoKnowledgeOutput(StrictModel):
     entities: list[str] = Field(default_factory=list, max_length=20)
     time_information: list[str] = Field(default_factory=list, max_length=12)
     applicability: list[str] = Field(default_factory=list, max_length=10)
-    limitations: list[str] = Field(min_length=1, max_length=12)
-    expression_note: ContentExpressionNote
+    limitations: list[str] = Field(
+        default_factory=lambda: ["未做外部事实核验"],
+        min_length=1,
+        max_length=12,
+    )
+    expression_note: ContentExpressionNote = Field(
+        default_factory=lambda: ContentExpressionNote(summary="未提供表达方式备注")
+    )
     unknowns: list[str] = Field(default_factory=list, max_length=12)
 
 

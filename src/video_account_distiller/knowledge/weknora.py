@@ -822,6 +822,19 @@ class WeKnoraSyncService:
                 f"Account video-knowledge bundle contains no documents: {account_id}",
                 details={"manifest_id": selected.manifest_id},
             )
+        if selected.status != "complete" or selected.degraded_count or selected.skipped_count:
+            raise DistillerError(
+                ErrorCode.SCHEMA_INVALID,
+                "Refusing to sync an incomplete account video-knowledge bundle",
+                details={
+                    "manifest_id": selected.manifest_id,
+                    "status": selected.status,
+                    "completed_count": selected.completed_count,
+                    "degraded_count": selected.degraded_count,
+                    "skipped_count": selected.skipped_count,
+                    "next": "rerun account video knowledge distillation with a working model",
+                },
+            )
         missing_documents = [
             document.document_path
             for document in selected.documents

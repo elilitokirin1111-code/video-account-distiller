@@ -314,6 +314,17 @@ class OllamaTextProvider:
         small local models cannot fail an otherwise correct analysis.
         """
         defs = schema.get("$defs") or {}
+        if isinstance(data, dict):
+            data = dict(data)
+            properties = schema.get("properties") or {}
+            limitations_schema = properties.get("limitations")
+            if (
+                isinstance(limitations_schema, dict)
+                and limitations_schema.get("type") == "array"
+                and limitations_schema.get("minItems", 0) >= 1
+                and not data.get("limitations")
+            ):
+                data["limitations"] = ["模型未提供限制说明"]
 
         def deref(prop: dict[str, Any]) -> dict[str, Any]:
             ref = prop.get("$ref")
@@ -336,6 +347,8 @@ class OllamaTextProvider:
                 # Drop nested objects whose non-empty array contract is no
                 # longer satisfied (e.g. a fact with zero surviving citations).
                 for name, sub in props.items():
+                    if name not in value:
+                        continue
                     if deref(sub).get("minItems", 0) >= 1:
                         field = result.get(name)
                         if not isinstance(field, list) or not field:
@@ -372,6 +385,31 @@ class LlamaCppTextProvider(OllamaTextProvider):
     """Local text analysis through a llama.cpp OpenAI-compatible server."""
 
     provider_name = "llamacpp"
+
+    @staticmethod
+    def _unwrap_structured_payload(parsed: object) -> object:
+        """Unwrap harmless JSON containers emitted by small local models."""
+
+        value = parsed
+        for _ in range(3):
+            if isinstance(value, str):
+                try:
+                    value = json.loads(value)
+                except json.JSONDecodeError:
+                    break
+                continue
+            if isinstance(value, list) and len(value) == 1:
+                value = value[0]
+                continue
+            if isinstance(value, dict) and len(value) == 1:
+                key, nested = next(iter(value.items()))
+                if key in {"data", "output", "result", "response"} and isinstance(
+                    nested, (dict, list, str)
+                ):
+                    value = nested
+                    continue
+            break
+        return value
 
     def __init__(
         self,
@@ -443,6 +481,7 @@ class LlamaCppTextProvider(OllamaTextProvider):
                 raise ModelSchemaFailure(
                     f"llama.cpp response is not valid JSON: {raw[:200]}"
                 ) from None
+        parsed = self._unwrap_structured_payload(parsed)
         try:
             return response_model.model_validate(parsed)
         except ValidationError:
@@ -454,8 +493,10 @@ class LlamaCppTextProvider(OllamaTextProvider):
                     {"loc": list(error["loc"]), "type": error["type"]}
                     for error in exc.errors(include_url=False)
                 ]
+                payload_type = type(parsed).__name__
                 raise ModelSchemaFailure(
-                    f"llama.cpp response failed schema validation: {compact_errors}"
+                    "llama.cpp response failed schema validation: "
+                    f"{compact_errors}; payload_type={payload_type}"
                 ) from exc
 
 

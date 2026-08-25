@@ -5,6 +5,7 @@ import pytest
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.features.providers import (
     CloudChatTextProvider,
+    LlamaCppTextProvider,
     _chat_completions_url,
     _normalize_https_base_url,
 )
@@ -69,6 +70,54 @@ def test_cloud_text_provider_normalizes_scheme_less_maas_gateway() -> None:
         api_key="sk-test",
     )
     assert provider.base_url == "https://ws-e8t5qxy8pxu50zz0.cn-beijing.maas.aliyuncs.com"
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        ([{"ok": True}], {"ok": True}),
+        ({"output": [{"ok": True}]}, {"ok": True}),
+        ('{"result":{"ok":true}}', {"ok": True}),
+    ],
+)
+def test_llamacpp_unwraps_harmless_structured_payload_containers(
+    payload: object,
+    expected: dict[str, bool],
+) -> None:
+    assert LlamaCppTextProvider._unwrap_structured_payload(payload) == expected
+
+
+def test_local_schema_coercion_does_not_drop_object_for_absent_optional_array() -> None:
+    schema = {
+        "type": "object",
+        "properties": {
+            "items": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 1,
+            }
+        },
+    }
+
+    assert LlamaCppTextProvider._coerce_to_schema({}, schema) == {}
+
+
+def test_local_schema_coercion_repairs_empty_top_level_limitations() -> None:
+    schema = {
+        "type": "object",
+        "properties": {
+            "limitations": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 1,
+            }
+        },
+    }
+
+    assert LlamaCppTextProvider._coerce_to_schema(
+        {"limitations": []},
+        schema,
+    ) == {"limitations": ["模型未提供限制说明"]}
 
 
 def test_cloud_vision_provider_accepts_scheme_less_maas_gateway() -> None:

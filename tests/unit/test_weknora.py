@@ -557,18 +557,18 @@ def test_weknora_account_video_knowledge_syncs_manifest_documents_individually(
             "account_id": "acc_test",
             "generated_at": "2026-01-01T00:00:00Z",
             "run_id": "run_test",
-            "status": "degraded",
+            "status": "complete",
             "requested_count": 1,
             "eligible_count": 1,
-            "completed_count": 0,
-            "degraded_count": 1,
+            "completed_count": 1,
+            "degraded_count": 0,
             "skipped_count": 0,
             "documents": [
                 {
                     "video_id": "vid_knowledge",
                     "title": "三个常见问题",
                     "knowledge_id": "svk_test",
-                    "status": "degraded",
+                    "status": "complete",
                     "source_path": "analyses/videos/vid_knowledge/knowledge/svk_test/knowledge.md",
                     "document_path": (
                         "knowledge/accounts/acc_test/video-knowledge/avk_test/"
@@ -661,3 +661,65 @@ def test_weknora_account_video_knowledge_syncs_manifest_documents_individually(
     file_tuple = upload["files"]["file"]
     file_content = file_tuple[1].read() if hasattr(file_tuple[1], "read") else file_tuple[1]
     assert "这是本次账号知识清单中的文档" in file_content.decode("utf-8")
+
+
+def test_weknora_account_video_knowledge_refuses_degraded_manifest(
+    project: ProjectLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from video_account_distiller.errors import DistillerError
+    from video_account_distiller.models import AccountVideoKnowledgeManifest
+    from video_account_distiller.utils.io import atomic_write_json, atomic_write_text
+
+    manifest = AccountVideoKnowledgeManifest.model_validate(
+        {
+            "manifest_id": "avk_degraded",
+            "manifest_version": "1.0.0",
+            "account_id": "acc_test",
+            "generated_at": "2026-01-02T00:00:00Z",
+            "run_id": "run_test",
+            "status": "degraded",
+            "requested_count": 1,
+            "eligible_count": 1,
+            "completed_count": 0,
+            "degraded_count": 1,
+            "skipped_count": 0,
+            "documents": [
+                {
+                    "video_id": "vid_degraded",
+                    "title": "残缺知识",
+                    "knowledge_id": "svk_degraded",
+                    "status": "degraded",
+                    "source_path": "analyses/videos/vid_degraded/knowledge/svk/knowledge.md",
+                    "document_path": (
+                        "knowledge/accounts/acc_test/video-knowledge/avk_degraded/"
+                        "documents/vid_degraded.md"
+                    ),
+                }
+            ],
+        }
+    )
+    manifest_path = (
+        project.root
+        / "knowledge"
+        / "accounts"
+        / "acc_test"
+        / "video-knowledge"
+        / "avk_degraded"
+        / "manifest.json"
+    )
+    atomic_write_json(manifest_path, manifest.model_dump(mode="json"))
+    atomic_write_text(project.root / manifest.documents[0].document_path, "# 残缺知识\n")
+    monkeypatch.setattr(
+        requests,
+        "get",
+        lambda *args, **kwargs: pytest.fail("degraded bundle must be rejected before WeKnora"),
+    )
+
+    with pytest.raises(DistillerError, match="Refusing to sync"):
+        WeKnoraSyncService(project).sync_account_video_knowledge(
+            account_id="acc_test",
+            base_url="http://localhost:8080",
+            api_key="sk-test",
+            kb_id="kb-1",
+        )

@@ -1908,7 +1908,7 @@ with st.form("self_service_distill_form"):
                 )
             text_source = st.radio(
                 "文本分析来源",
-                ["本地 llama.cpp（qwen3-8b）", "云端 API（OpenAI 兼容）"],
+                ["本地 llama.cpp（复用 qwen3-vl-8b）", "云端 API（OpenAI 兼容）"],
                 index=0 if template.get("text_provider") != "cloud" else 1,
             )
             cloud_base_url = str(template.get("cloud_base_url") or "")
@@ -2224,9 +2224,11 @@ payload = {
     "distill_video_knowledge": distill_video_knowledge,
     "video_knowledge_provider": ("cloud" if text_source.startswith("云端") else "llamacpp"),
     "video_knowledge_model": (
-        (cloud_text_model.strip() or None) if text_source.startswith("云端") else None
+        (cloud_text_model.strip() or None)
+        if text_source.startswith("云端")
+        else (vision_model.strip() or "qwen3-vl-8b")
     ),
-    "strict_video_knowledge": False,
+    "strict_video_knowledge": knowledge_mode,
     "knowledge_analysis": knowledge_analysis_payload if knowledge_synthesis else None,
     "export_knowledge": export_knowledge and not knowledge_mode,
 }

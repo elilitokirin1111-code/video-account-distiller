@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -50,7 +52,7 @@ from video_account_distiller.utils.ids import stable_id
 from video_account_distiller.utils.io import atomic_write_json, atomic_write_text, read_json
 from video_account_distiller.utils.lookup import resolve_video
 
-SINGLE_VIDEO_KNOWLEDGE_VERSION = "1.0.0"
+SINGLE_VIDEO_KNOWLEDGE_VERSION = "1.1.0"
 
 
 def _fact_type(category: str) -> KnowledgeItemType:
@@ -69,16 +71,19 @@ def _fact_type(category: str) -> KnowledgeItemType:
 def _fallback_knowledge(
     analysis: SingleVideoAnalysis,
     segments: list[TranscriptSegment],
+    video_title: str | None = None,
 ) -> SingleVideoKnowledgeOutput:
-    """Organize existing extracted facts without adding outside knowledge."""
+    """Preserve the complete transcript when model-backed synthesis is unavailable."""
     segment_map = {item.segment_id: item for item in segments}
     items: list[VideoKnowledgeItem] = []
+    covered_segment_ids: set[str] = set()
     for fact in analysis.blind_analysis.facts.facts[:30]:
         refs = []
         for segment_id in fact.evidence_segment_ids:
             segment = segment_map.get(segment_id)
             if segment is None:
                 continue
+            covered_segment_ids.add(segment.segment_id)
             refs.append(
                 KnowledgeSourceRef(
                     source_type="transcript",
@@ -88,16 +93,61 @@ def _fallback_knowledge(
                     excerpt=segment.text[:500],
                 )
             )
+        contextual_content = fact.text
+        if len(contextual_content.strip()) < 12 and refs:
+            contextual_content = refs[0].excerpt or contextual_content
         items.append(
             VideoKnowledgeItem(
                 knowledge_type=_fact_type(fact.category),
                 attribution="video_statement",
-                title=fact.text[:80],
-                content=fact.text,
+                title=(fact.text if len(fact.text.strip()) >= 4 else contextual_content)[:80],
+                content=contextual_content,
                 source_refs=refs,
                 limitations=["仅记录视频中的说法，未做外部事实核验"],
             )
         )
+
+    remaining = [item for item in segments if item.segment_id not in covered_segment_ids]
+    available_slots = max(0, 30 - len(items))
+    if remaining and available_slots:
+        group_size = max(1, math.ceil(len(remaining) / available_slots))
+        for offset in range(0, len(remaining), group_size):
+            group = remaining[offset : offset + group_size]
+            content = "\n".join(item.text.strip() for item in group if item.text.strip()).strip()
+            if not content:
+                continue
+            first_sentence = re.split(r"[。！？!?；;\n]", content, maxsplit=1)[0].strip()
+            title = first_sentence[:80] or f"视频内容 {len(items) + 1}"
+            lowered = content.casefold()
+            knowledge_type: KnowledgeItemType = "knowledge_point"
+            if any(token in lowered for token in ("步骤", "首先", "然后", "怎么", "方法", "操作")):
+                knowledge_type = "method"
+            elif any(token in lowered for token in ("例如", "案例", "比如")):
+                knowledge_type = "case"
+            elif re.search(r"\d", content):
+                knowledge_type = "data"
+            items.append(
+                VideoKnowledgeItem(
+                    knowledge_type=knowledge_type,
+                    attribution="video_statement",
+                    title=title,
+                    content=content[:2000],
+                    source_refs=[
+                        KnowledgeSourceRef(
+                            source_type="transcript",
+                            segment_id=item.segment_id,
+                            start_ms=item.start_ms,
+                            end_ms=item.end_ms,
+                            excerpt=item.text[:500],
+                        )
+                        for item in group[:8]
+                    ],
+                    limitations=["确定性降级保留原视频转写，未进行模型归纳"],
+                )
+            )
+            if len(items) >= 30:
+                break
+
     if not items and segments:
         first = segments[0]
         items.append(
@@ -119,20 +169,27 @@ def _fallback_knowledge(
             )
         )
     semantics = analysis.blind_analysis.semantics
+    semantics_reliable = analysis.status == "complete"
+    summary_parts = [item.content for item in items[:8]]
     return SingleVideoKnowledgeOutput(
-        knowledge_title=(analysis.blind_analysis.facts.opening_text or "单视频知识提取")[:200],
+        knowledge_title=(
+            video_title
+            or next((item.text for item in segments if len(item.text.strip()) >= 12), None)
+            or analysis.blind_analysis.facts.opening_text
+            or "单视频知识提取"
+        )[:200],
         content_summary=(
-            "；".join(item.content for item in items[:5])
+            "；".join(summary_parts)
             or "当前转写与事实抽取不足，无法形成可靠内容摘要。"
         )[:3000],
         core_conclusions=[item.content for item in items[:8]],
         knowledge_items=items,
-        important_concepts=list(semantics.secondary_topics)[:15],
+        important_concepts=(list(semantics.secondary_topics)[:15] if semantics_reliable else []),
         methods=[item.content for item in items if item.knowledge_type == "method"][:15],
         cases=[item.content for item in items if item.knowledge_type == "case"][:15],
         key_data=[item.content for item in items if item.knowledge_type == "data"][:15],
         entities=[item.content for item in items if item.knowledge_type == "fact"][:20],
-        applicability=list(semantics.audience_tasks)[:10],
+        applicability=(list(semantics.audience_tasks)[:10] if semantics_reliable else []),
         limitations=[
             "本产物不执行外部事实核验",
             "当前为确定性降级整理，未使用知识提取模型",
@@ -144,6 +201,31 @@ def _fallback_knowledge(
         ),
         unknowns=list(analysis.blind_analysis.facts.unknowns)[:12],
     )
+
+
+def _validate_knowledge_quality(
+    value: SingleVideoKnowledgeOutput,
+    *,
+    transcript_character_count: int,
+) -> None:
+    """Reject structurally valid but obviously empty model summaries."""
+
+    if transcript_character_count < 120:
+        return
+    total_content = len(value.content_summary.strip()) + sum(
+        len(item.content.strip()) for item in value.knowledge_items
+    )
+    minimum_items = 3 if transcript_character_count >= 600 else 2
+    if len(value.knowledge_items) < minimum_items:
+        raise ValueError(
+            f"knowledge output is too thin: expected at least {minimum_items} knowledge items"
+        )
+    if len(value.content_summary.strip()) < 60 or total_content < min(
+        500, max(180, transcript_character_count // 12)
+    ):
+        raise ValueError("knowledge output does not cover enough of the source transcript")
+    if not any(item.source_refs for item in value.knowledge_items):
+        raise ValueError("knowledge output contains no source transcript references")
 
 
 def _validate_source_refs(
@@ -190,6 +272,7 @@ def _generate(
     valid_shots: set[str],
     valid_observations: set[str],
     strict_model: bool,
+    transcript_character_count: int = 0,
 ) -> tuple[SingleVideoKnowledgeOutput, ModelTaskTrace]:
     provider_name = provider.provider_name if provider else "none"
     model_name = provider.model_name if provider else "none"
@@ -221,6 +304,10 @@ def _generate(
                 valid_segments=valid_segments,
                 valid_shots=valid_shots,
                 valid_observations=valid_observations,
+            )
+            _validate_knowledge_quality(
+                value,
+                transcript_character_count=transcript_character_count,
             )
             return value, ModelTaskTrace(
                 task="single_video_knowledge_extraction",
@@ -299,9 +386,20 @@ class SingleVideoKnowledgeService:
                 timeout_seconds=config.models.vision_timeout_seconds,
             )
         elif deep_provider == "llamacpp":
+            local_text_model = deep_model or config.models.llamacpp_text_model
+            local_text_base_url = deep_base_url or (
+                config.models.llamacpp_text_base_url
+                if config.models.llamacpp_text_model
+                else config.models.llamacpp_base_url
+            )
             provider = LlamaCppTextProvider(
-                model=deep_model or config.models.llamacpp_text_model or "local",
-                base_url=deep_base_url or config.models.llamacpp_text_base_url,
+                model=(
+                    local_text_model
+                    or config.models.llamacpp_model
+                    or config.models.vision_model
+                    or "local"
+                ),
+                base_url=local_text_base_url,
                 timeout_seconds=config.models.vision_timeout_seconds,
                 api_key=deep_api_key or config.models.llamacpp_api_key,
             )
@@ -323,7 +421,7 @@ class SingleVideoKnowledgeService:
             )
             if item.video_id == video.video_id
         ]
-        fallback = _fallback_knowledge(analysis, segments)
+        fallback = _fallback_knowledge(analysis, segments, video.title)
         craft = build_craft_summary(media)
         seed = {
             "video_id": video.video_id,
@@ -350,13 +448,15 @@ class SingleVideoKnowledgeService:
         ]
         relative = [self.project.relative(path) for path in paths]
         if paths[0].is_file() and not dry_run:
-            return {
-                "ok": True,
-                "dry_run": False,
-                "already_generated": True,
-                "knowledge": read_json(paths[0]),
-                "outputs": relative,
-            }
+            cached = SingleVideoKnowledgeDistillation.model_validate(read_json(paths[0]))
+            if not strict_model or cached.status == "complete":
+                return {
+                    "ok": True,
+                    "dry_run": False,
+                    "already_generated": True,
+                    "knowledge": cached.model_dump(mode="json"),
+                    "outputs": relative,
+                }
 
         input_hashes = sorted(
             {
@@ -400,6 +500,7 @@ class SingleVideoKnowledgeService:
             valid_shots=valid_shots,
             valid_observations=valid_observations,
             strict_model=strict_model or not config.models.allow_degraded_analysis,
+            transcript_character_count=sum(len(item.text) for item in segments),
         )
         warnings = list(
             dict.fromkeys(

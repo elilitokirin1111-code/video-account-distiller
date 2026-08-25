@@ -156,6 +156,8 @@ class AccountVideoKnowledgeService:
                 )
                 generated.append((video, artifact, str(source_path)))
             except (DistillerError, OSError, ValueError, StopIteration) as exc:
+                if strict_model:
+                    raise
                 skipped.append(
                     AccountVideoKnowledgeSkip(
                         video_id=video.video_id,
