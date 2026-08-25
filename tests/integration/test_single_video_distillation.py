@@ -4,7 +4,10 @@ import json
 from array import array
 from pathlib import Path
 
-from video_account_distiller.distillation.account_knowledge import AccountVideoKnowledgeService
+from video_account_distiller.distillation.account_knowledge import (
+    AccountVideoKnowledgeService,
+    _title_document_stem,
+)
 from video_account_distiller.distillation.knowledge import SingleVideoKnowledgeService
 from video_account_distiller.distillation.video import SingleVideoDistillationService
 from video_account_distiller.features import VideoAnalysisService
@@ -268,6 +271,8 @@ def test_account_video_knowledge_creates_one_import_document_per_eligible_video(
     assert "distillation_mode: knowledge" in document
     assert "# " in document
     assert document_path.parent.name == "documents"
+    assert document_path.stem != manifest.documents[0].video_id
+    assert document_path.stem == _title_document_stem(target.title, target.video_id)
 
     repeated = service.distill(account_id=account_id, provider="none")
     assert repeated["already_generated"] is True

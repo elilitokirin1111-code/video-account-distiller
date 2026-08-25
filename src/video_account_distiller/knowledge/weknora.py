@@ -944,7 +944,8 @@ class WeKnoraSyncService:
         if not errors:
             for document in selected.documents:
                 document_path = self.project.root / document.document_path
-                relative_name = f"accounts/{account_id}/videos/{document.video_id}.md"
+                document_name = document_path.name
+                relative_name = f"accounts/{account_id}/videos/{document_name}"
                 _upload_markdown(
                     api,
                     headers,
@@ -954,7 +955,7 @@ class WeKnoraSyncService:
                     account_id,
                     uploaded,
                     errors,
-                    upload_name=f"{document.video_id}.md",
+                    upload_name=document_name,
                     metadata_extra={
                         "video_id": document.video_id,
                         "document_type": "video_knowledge",

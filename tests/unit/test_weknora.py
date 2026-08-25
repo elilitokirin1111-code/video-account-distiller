@@ -572,7 +572,7 @@ def test_weknora_account_video_knowledge_syncs_manifest_documents_individually(
                     "source_path": "analyses/videos/vid_knowledge/knowledge/svk_test/knowledge.md",
                     "document_path": (
                         "knowledge/accounts/acc_test/video-knowledge/avk_test/"
-                        "documents/vid_knowledge.md"
+                        "documents/三个常见问题.md"
                     ),
                 }
             ],
@@ -649,10 +649,11 @@ def test_weknora_account_video_knowledge_syncs_manifest_documents_individually(
     assert result["document_type"] == "video_knowledge"
     assert result["manifest_id"] == "avk_test"
     assert deleted == ["http://localhost:8080/api/v1/knowledge/old-account-report"]
-    assert result["uploaded"] == ["accounts/acc_test/videos/vid_knowledge.md"]
+    assert result["uploaded"] == ["accounts/acc_test/videos/三个常见问题.md"]
     assert len(uploads) == 1
     upload = uploads[0]
-    assert upload["data"]["fileName"] == "accounts/acc_test/videos/vid_knowledge.md"
+    assert upload["data"]["fileName"] == "accounts/acc_test/videos/三个常见问题.md"
+    assert upload["files"]["file"][0] == "三个常见问题.md"
     metadata = json.loads(upload["data"]["metadata"])
     assert metadata["account_id"] == "acc_test"
     assert metadata["video_id"] == "vid_knowledge"

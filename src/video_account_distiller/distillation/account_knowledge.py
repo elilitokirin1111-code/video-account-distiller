@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import quote
 
 from video_account_distiller.distillation.knowledge import SingleVideoKnowledgeService
 from video_account_distiller.distillation.video import _latest_text_analysis
@@ -22,7 +25,47 @@ from video_account_distiller.utils.hashing import sha256_json
 from video_account_distiller.utils.ids import stable_id
 from video_account_distiller.utils.io import atomic_write_json, atomic_write_text, read_json
 
-ACCOUNT_VIDEO_KNOWLEDGE_VERSION = "1.0.0"
+ACCOUNT_VIDEO_KNOWLEDGE_VERSION = "1.1.0"
+MAX_DOCUMENT_STEM_LENGTH = 80
+_WINDOWS_RESERVED_NAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    *(f"COM{index}" for index in range(1, 10)),
+    *(f"LPT{index}" for index in range(1, 10)),
+}
+
+
+def _title_document_stem(value: str | None, fallback: str) -> str:
+    """Create a readable cross-platform filename from the original video title."""
+
+    cleaned = re.sub(r'[\x00-\x1f\\/:*?"<>|]', "", value or "")
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" .")
+    if cleaned.upper() in _WINDOWS_RESERVED_NAMES:
+        cleaned = f"{cleaned}_视频"
+    cleaned = cleaned[:MAX_DOCUMENT_STEM_LENGTH].rstrip(" .")
+    return cleaned or fallback
+
+
+def _unique_document_stem(
+    value: str | None,
+    fallback: str,
+    used: set[str],
+) -> str:
+    base = _title_document_stem(value, fallback)
+    stem = base
+    suffix_index = 2
+    while stem.casefold() in used:
+        suffix = f"（{suffix_index}）"
+        stem = f"{base[: MAX_DOCUMENT_STEM_LENGTH - len(suffix)]}{suffix}".rstrip(" .")
+        suffix_index += 1
+    used.add(stem.casefold())
+    return stem
+
+
+def _document_file_name(document_path: str) -> str:
+    return document_path.replace("\\", "/").rsplit("/", 1)[-1]
 
 
 def _frontmatter(artifact: SingleVideoKnowledgeDistillation, title: str | None) -> str:
@@ -58,7 +101,8 @@ def _render_index(manifest: AccountVideoKnowledgeManifest) -> str:
     ]
     lines.extend(
         f"| `{item.video_id}` | `{item.knowledge_id}` | {item.status} | "
-        f"[{item.title or item.video_id}](documents/{item.video_id}.md) |"
+        f"[{item.title or item.video_id}]"
+        f"(documents/{quote(_document_file_name(item.document_path))}) |"
         for item in manifest.documents
     )
     if manifest.skipped:
@@ -184,10 +228,12 @@ class AccountVideoKnowledgeService:
         )
         manifest_path = output_dir / "manifest.json"
         index_path = output_dir / "README.md"
-        document_paths = {
-            video.video_id: output_dir / "documents" / f"{video.video_id}.md"
-            for video, _, _ in generated
-        }
+        document_paths: dict[str, Path] = {}
+        used_document_stems: set[str] = set()
+        for video, artifact, _ in generated:
+            title = video.title or artifact.knowledge.knowledge_title
+            stem = _unique_document_stem(title, video.video_id, used_document_stems)
+            document_paths[video.video_id] = output_dir / "documents" / f"{stem}.md"
         relative_outputs = [
             self.project.relative(manifest_path),
             self.project.relative(index_path),
