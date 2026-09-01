@@ -27,6 +27,25 @@ the upstream proxy, stealth, automatic login, slider/CAPTCHA, or risk-control-ev
 Authentication, when required, is completed manually by the user in a visible dedicated Chrome
 profile.
 
+## PySide6 / Qt for Python
+
+- Project: Qt for Python (PySide6)
+- Source: <https://code.qt.io/cgit/pyside/pyside-setup.git/>
+- License: LGPLv3/GPLv3 with Qt commercial licensing options
+
+The Windows desktop distribution uses the dynamically linked PySide6/Qt libraries and keeps their
+upstream notices and license terms. Recipients may replace the corresponding shared libraries in
+accordance with the applicable LGPL terms. The root project license does not relicense Qt.
+
+## uv
+
+- Project: `astral-sh/uv`
+- Source: <https://github.com/astral-sh/uv>
+- License: Apache-2.0 OR MIT
+
+The Windows desktop distribution may include the unmodified `uv.exe` command so the separately
+licensed, pinned MediaCrawler subprocess environment can be created from its lockfile on first use.
+
 ## claude-video
 
 - Project: `bradautomates/claude-video`

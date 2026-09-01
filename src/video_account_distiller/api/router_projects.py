@@ -196,8 +196,17 @@ async def update_cloud_model_settings(
     }
 
 
+def _provider_for_cloud_url(base_url: str | None) -> str:
+    value = (base_url or "").lower()
+    if "dashscope" in value or "aliyuncs" in value:
+        return "bailian"
+    if "deepseek" in value:
+        return "deepseek"
+    return "openai"
+
+
 @router.get("/projects/{project_path:path}/settings/cloud-preset")
-async def get_cloud_preset(project_path: str) -> dict[str, Any]:
+async def get_cloud_preset(project_path: str, request: Request) -> dict[str, Any]:
     """Return the persisted OpenAI-compatible cloud endpoint defaults.
 
     The API key is never echoed back; only whether one is configured is
@@ -207,10 +216,14 @@ async def get_cloud_preset(project_path: str) -> dict[str, Any]:
     layout = resolve_project(project_path)
     config = load_config(layout.config_path)
     models = config.models
+    provider = _provider_for_cloud_url(models.cloud_base_url)
+    stored = _credential_store(request).get(provider) is not None
     return {
         "ok": True,
         "cloud_base_url": models.cloud_base_url,
-        "cloud_api_key_configured": bool(models.cloud_api_key),
+        "cloud_credential_provider": provider,
+        "cloud_api_key_configured": stored or bool(models.cloud_api_key),
+        "credential_storage": "operating_system_keyring",
         "cloud_text_model": models.cloud_text_model,
         "cloud_vision_model": models.cloud_vision_model,
     }
@@ -220,20 +233,30 @@ async def get_cloud_preset(project_path: str) -> dict[str, Any]:
 async def update_cloud_preset(
     project_path: str,
     body: CloudPresetUpdate,
+    request: Request,
 ) -> dict[str, Any]:
-    """Persist OpenAI-compatible cloud endpoint defaults into distiller.yaml.
-
-    Blank fields clear the stored value; an API key provided here is stored
-    in the project config (not the OS keyring) so a single project can carry
-    a self-contained cloud endpoint preset without per-user setup.
-    """
+    """Persist non-secrets in YAML and credentials in the OS keyring."""
 
     layout = resolve_project(project_path)
     config = load_config(layout.config_path)
+    base_url = (body.cloud_base_url or "").strip() or None
+    provider = _provider_for_cloud_url(base_url or config.models.cloud_base_url)
+    store = _credential_store(request)
+    incoming_key = body.cloud_api_key
+    if incoming_key is not None:
+        credential = incoming_key.strip()
+        if credential:
+            store.set(provider, credential)
+        else:
+            store.delete(provider)
+    elif config.models.cloud_api_key:
+        # Migrate a legacy project-local secret the next time the preset is
+        # edited, then scrub it from YAML below.
+        store.set(provider, config.models.cloud_api_key)
     models = config.models.model_copy(
         update={
-            "cloud_base_url": (body.cloud_base_url or "").strip() or None,
-            "cloud_api_key": (body.cloud_api_key or "").strip() or None,
+            "cloud_base_url": base_url,
+            "cloud_api_key": None,
             "cloud_text_model": (body.cloud_text_model or "").strip() or None,
             "cloud_vision_model": (body.cloud_vision_model or "").strip() or None,
         }
@@ -243,7 +266,9 @@ async def update_cloud_preset(
     return {
         "ok": True,
         "cloud_base_url": models.cloud_base_url,
-        "cloud_api_key_configured": bool(models.cloud_api_key),
+        "cloud_credential_provider": provider,
+        "cloud_api_key_configured": store.get(provider) is not None,
+        "credential_storage": "operating_system_keyring",
         "cloud_text_model": models.cloud_text_model,
         "cloud_vision_model": models.cloud_vision_model,
     }

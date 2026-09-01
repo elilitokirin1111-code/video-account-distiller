@@ -30,6 +30,12 @@ dependencies = [
 distiller = "video_account_distiller.cli:app"
 distiller-api = "video_account_distiller.api.app:main"
 distiller-web = "video_account_distiller.web.app:main"
+distiller-desktop = "video_account_distiller_desktop.main:main"
+
+[project.optional-dependencies]
+desktop = [
+  "pyside6>=6.8,<7",
+]
 
 [dependency-groups]
 dev = [
@@ -39,12 +45,13 @@ dev = [
   "pytest>=8.4,<9",
   "pytest-cov>=6.2,<8",
   "pytest-socket>=0.7,<1",
+  "pyinstaller>=6.17,<7",
   "ruff>=0.12,<1",
   "types-pyyaml>=6.0.12.20250516",
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/video_account_distiller"]
+packages = ["src/video_account_distiller", "src/video_account_distiller_desktop"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "skills/video-account-distiller/assets/prompts" = "video_account_distiller/features/prompts"
@@ -52,8 +59,14 @@ packages = ["src/video_account_distiller"]
 [tool.hatch.build.targets.sdist]
 include = [
   "/src/video_account_distiller",
+  "/src/video_account_distiller_desktop",
   "/skills/video-account-distiller",
+  "/packaging/windows",
+  "/scripts/build_windows_desktop.ps1",
+  "/tools/build_desktop_icon.py",
   "/tools/release_acceptance.py",
+  "/docs/desktop-user-guide.md",
+  "/docs/system-chain-and-desktop-architecture.md",
   "/docs/production-release.md",
   "/docs/release-candidate-operations.md",
   "/docs/public-beta-release.md",
@@ -67,6 +80,8 @@ include = [
   "/.gitmodules",
   "/LICENSE",
   "/README.md",
+  "/启动蒸馏应用.cmd",
+  "/构建Windows桌面版.cmd",
   "/examples/gpt-evaluation-suite.example.json",
   "/pyproject.toml",
 ]
@@ -88,6 +103,7 @@ select = ["E", "F", "I", "UP", "B"]
 "src/video_account_distiller/api/router_closed_loop.py" = ["B008"]
 "src/video_account_distiller/api/router_reports.py" = ["B008"]
 "src/video_account_distiller/web/**/*.py" = ["E501"]
+"src/video_account_distiller_desktop/**/*.py" = ["E501"]
 
 [tool.ruff.format]
 quote-style = "double"

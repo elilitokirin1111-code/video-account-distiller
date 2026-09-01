@@ -981,6 +981,26 @@ requirements from later phases.
   treating it as an additive checkbox makes a user's explicit knowledge selection look and behave
   like the original operations workflow.
 
+## ID-101 — Add a native Windows desktop shell over the shared application boundary
+
+- **Decision:** Ship a PySide6 desktop package with native widgets and no browser/WebView. It owns
+  an in-process FastAPI/SQLite worker on a dynamically selected loopback port and calls that API
+  through a small typed application client, while project initialization, collection, media
+  enrichment, account/knowledge workflows, task retry, and WeKnora sync continue to use the same
+  domain services and durable contracts as CLI/API/Streamlit. Non-secret preferences live under
+  `%LOCALAPPDATA%`; TikHub, WeKnora, and cloud credentials use the current user's OS keyring. Legacy
+  API callers may still submit a cloud key once, but the router migrates it to the keyring before a
+  durable task is created. PyInstaller builds a one-directory native EXE and bundles the pinned
+  MediaCrawler source, lockfile, bridge, marker, and uv runtime; an offscreen packaged smoke mode
+  must create the six-page Qt window, start the embedded API, and initialize/validate a project
+  before an artifact is accepted.
+- **Reason:** The previous Windows tray entry only launched FastAPI plus Streamlit and opened a web
+  browser, so it did not satisfy a standalone desktop product boundary and duplicated orchestration
+  concerns in presentation code. A thin Qt presentation layer preserves every existing integration
+  while giving users one-click service status, submission, progress, result export, and retry. A
+  machine-verifiable packaged smoke contract catches missing Qt plugins, templates, prompt assets,
+  routers, and data files that source-level unit tests cannot detect.
+
 
 
 

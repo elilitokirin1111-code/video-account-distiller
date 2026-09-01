@@ -488,6 +488,29 @@ def execute_account_distill(
             update={"analysis_focus": body.analysis_focus}
         )
     analysis_provider = None
+    credential_provider = body.cloud_credential_provider
+    if credential_provider is None and body.knowledge_analysis is not None:
+        credential_provider = body.knowledge_analysis.provider.value
+    if credential_provider is None:
+        base_url = (body.cloud_base_url or "").lower()
+        if "dashscope" in base_url or "aliyuncs" in base_url:
+            credential_provider = "bailian"
+        elif "deepseek" in base_url:
+            credential_provider = "deepseek"
+        else:
+            credential_provider = "openai"
+    cloud_credential = body.cloud_api_key
+    cloud_requested = (
+        body.text_provider == "cloud"
+        or body.vision_provider == "cloud"
+        or body.video_knowledge_provider == "cloud"
+    )
+    if cloud_requested and not job.dry_run and not cloud_credential:
+        resolved_cloud = resolve_cloud_credential(
+            KeyringCloudCredentialStore(),
+            credential_provider,
+        )
+        cloud_credential = resolved_cloud.value if resolved_cloud is not None else None
     if analysis_options is not None and not job.dry_run:
         resolved = resolve_cloud_credential(
             KeyringCloudCredentialStore(),
@@ -515,6 +538,10 @@ def execute_account_distill(
         vision_provider=body.vision_provider,
         vision_model=body.vision_model,
         ollama_base_url=body.ollama_base_url,
+        cloud_base_url=body.cloud_base_url,
+        cloud_api_key=cloud_credential,
+        cloud_text_model=body.cloud_text_model,
+        cloud_vision_model=body.cloud_vision_model,
         vision_batch_size=body.vision_batch_size,
         vision_timeout_seconds=body.vision_timeout_seconds,
         strict_media_enrichment=body.strict_media_enrichment,
@@ -530,7 +557,7 @@ def execute_account_distill(
             body.cloud_base_url if body.video_knowledge_provider == "cloud" else None
         ),
         video_knowledge_api_key=(
-            body.cloud_api_key if body.video_knowledge_provider == "cloud" else None
+            cloud_credential if body.video_knowledge_provider == "cloud" else None
         ),
         strict_video_knowledge=body.strict_video_knowledge,
         export_knowledge=body.export_knowledge,

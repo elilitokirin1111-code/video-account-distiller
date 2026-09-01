@@ -190,10 +190,15 @@ def main() -> None:
 
     port = int(os.environ.get("DISTILLER_API_PORT", "8000"))
     host = os.environ.get("DISTILLER_API_HOST", "127.0.0.1")
+    reload_enabled = os.environ.get("DISTILLER_API_RELOAD", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
     uvicorn.run(
         "video_account_distiller.api.app:create_app",
         host=host,
         port=port,
         factory=True,
-        reload=True,
+        reload=reload_enabled,
     )

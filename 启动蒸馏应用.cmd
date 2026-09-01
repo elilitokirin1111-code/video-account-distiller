@@ -3,7 +3,7 @@ setlocal
 cd /d "%~dp0"
 if errorlevel 1 goto launch_error
 
-:: Clear PYTHONPATH to avoid conflicts with Hermes global venv
+:: Clear PYTHONPATH to avoid conflicts with global Python environments.
 set PYTHONPATH=
 
 :: Point Ollama to the existing model store
@@ -13,6 +13,11 @@ if not defined DISTILLER_DEFAULT_PROJECT (
   set "DISTILLER_DEFAULT_PROJECT=%~dp0..\\video-account-distiller-projects\\workspace"
 )
 
+if exist "%~dp0dist\windows\VideoAccountDistiller\VideoAccountDistiller.exe" (
+  start "" "%~dp0dist\windows\VideoAccountDistiller\VideoAccountDistiller.exe"
+  exit /b 0
+)
+
 where uv >nul 2>&1
 if errorlevel 1 (
   echo ERROR: uv was not found.
@@ -20,16 +25,18 @@ if errorlevel 1 (
   goto launch_error
 )
 
-echo Starting Video Account Distiller...
-echo The browser will open when the local application is ready.
-echo If a default port is busy, another free port will be selected automatically.
+echo Preparing the native Windows desktop application...
+uv sync --extra desktop
+if errorlevel 1 goto launch_error
+
+echo Starting Video Account Distiller Desktop...
 echo.
 
-uv run distiller-web
+uv run distiller-desktop
 if errorlevel 1 goto launch_error
 
 echo.
-echo Video Account Distiller has stopped.
+echo Video Account Distiller Desktop has stopped.
 pause
 exit /b 0
 

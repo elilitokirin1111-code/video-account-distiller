@@ -68,6 +68,7 @@ _RETRY_OVERRIDE_FIELDS = frozenset(
         "vision_provider",
         "vision_model",
         "cloud_base_url",
+        "cloud_credential_provider",
         "cloud_text_model",
         "cloud_vision_model",
         "vision_batch_size",
@@ -80,6 +81,19 @@ _RETRY_OVERRIDE_FIELDS = frozenset(
         "export_knowledge",
     }
 )
+
+
+def _cloud_credential_provider(body: AccountDistillWorkflowParams) -> str:
+    if body.cloud_credential_provider:
+        return body.cloud_credential_provider
+    if body.knowledge_analysis is not None:
+        return body.knowledge_analysis.provider.value
+    base_url = (body.cloud_base_url or "").lower()
+    if "dashscope" in base_url or "aliyuncs" in base_url:
+        return "bailian"
+    if "deepseek" in base_url:
+        return "deepseek"
+    return "openai"
 
 
 def retry_account_distill_task(
@@ -144,6 +158,19 @@ async def account_distill_workflow(
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """Submit one complete homepage-to-knowledge workflow."""
+    # Backward-compatible migration for older Web/API callers that still send
+    # a credential in the request body. Persist it in the OS keyring and remove
+    # it before creating the durable task, so task payload/checkpoint JSON stays
+    # secret-free. New desktop clients only send cloud_credential_provider.
+    if body.cloud_api_key:
+        provider = _cloud_credential_provider(body)
+        request.app.state.cloud_credentials.set(provider, body.cloud_api_key)
+        body = body.model_copy(
+            update={
+                "cloud_api_key": None,
+                "cloud_credential_provider": provider,
+            }
+        )
     return _enqueue_account_distill(
         request.app.state.tasks,
         project_path=project_path,

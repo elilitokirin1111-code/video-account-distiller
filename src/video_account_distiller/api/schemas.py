@@ -91,11 +91,11 @@ class CloudModelSettingsUpdate(BaseModel):
 
 
 class CloudPresetUpdate(BaseModel):
-    """Persisted cloud endpoint defaults (OpenAI-compatible) for a project.
+    """Cloud endpoint defaults plus an optional keyring credential update.
 
-    These values are stored in the project ``distiller.yaml`` ``models``
-    section and become the default endpoint/model for media text, vision,
-    and knowledge-analysis calls unless a task overrides them.
+    Endpoint and model names are stored in ``distiller.yaml``. The API key is
+    moved to the current user's operating-system keyring and never serialized
+    into project configuration.
     """
 
     cloud_base_url: str | None = Field(default=None, max_length=2048)
@@ -260,6 +260,7 @@ class AccountDistillWorkflowParams(CollectionAnalyzeParams):
     vision_model: str = Field(default="qwen3-vl-8b", min_length=1, max_length=128)
     ollama_base_url: str = Field(default="http://127.0.0.1:11434", max_length=2048)
     cloud_base_url: str | None = Field(default=None, max_length=2048)
+    cloud_credential_provider: Literal["openai", "bailian", "deepseek"] | None = None
     cloud_api_key: str | None = Field(default=None, max_length=2048)
     cloud_text_model: str | None = Field(default=None, max_length=128)
     cloud_vision_model: str | None = Field(default=None, max_length=128)

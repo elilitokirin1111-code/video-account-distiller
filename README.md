@@ -151,24 +151,32 @@ distiller backup restore --archive D:\backups\project.zip --destination C:\data\
 
 ### 可视化自助应用（Windows）
 
-完成 `uv sync` 和 MediaCrawler 子模块准备后，双击仓库根目录的
-[`启动蒸馏应用.cmd`](启动蒸馏应用.cmd)。应用会自动启动本机 FastAPI 与 Streamlit，并在
-服务就绪后打开浏览器。进入“蒸馏工作台”后可以自行：
+Windows 桌面版使用 PySide6 原生控件，不依赖浏览器，也不是 WebView 套壳。可直接安装
+`VideoAccountDistiller-Setup-1.0.0-win64.exe`，或解压便携 ZIP 后运行
+`VideoAccountDistiller.exe`。源码工作副本中可双击
+[`启动蒸馏应用.cmd`](启动蒸馏应用.cmd)；它会优先启动已经构建的 EXE，否则准备桌面依赖并
+运行原生应用。应用自动启动内嵌 FastAPI 与持久任务队列，原有 CLI、API 与 Streamlit Web
+入口继续兼容。桌面版可以自行：
 
 1. 初始化或选择分析项目。
 2. 粘贴抖音主页链接并先做不联网预检。
 3. 自选作品数量或全主页，自选评论覆盖视频数、每个视频评论数和调用预算。
 4. 可对最多 100 条视频执行本地下载、关键帧/镜头/音频、Whisper 转写和视觉分析；默认处理 20 条。
 5. 查看持久化任务进度、账号报告和蒸馏结果，并下载 GPT 分析上下文。
-6. 可选开启项目云端模型权限，选择 OpenAI 或阿里云百炼，在网页中验证并保存 API Key，
+6. 可选开启项目云端模型权限，选择 OpenAI、DeepSeek 或阿里云百炼，在设置页验证并保存 API Key，
    在线识别可用模型后选择分析模板，并分别确认数据外发和潜在费用。
 7. 生成本地脱敏知识包，供 Obsidian、归档和人工验证使用。
 
-MediaCrawler 首次运行可能打开可见 Chrome，登录与平台验证由用户在浏览器中完成。网页
+MediaCrawler 首次运行可能打开可见 Chrome，登录与平台验证由用户在浏览器中完成。桌面版
 保存的云端分析密钥进入当前 Windows 用户凭据管理器，持续
 使用直至用户更新或删除；密钥不进入项目、SQLite 任务库或 Git。模型结果会写成结构化
-分析、审计记录和 Markdown 报告。关闭启动窗口即可停止本机应用；持久任务状态会保存在
-本机 SQLite 中。
+分析、审计记录和 Markdown 报告。关闭主窗口即可停止桌面版拥有的本机服务；持久任务状态
+会保存在本机 SQLite 中。完整说明见
+[`docs/desktop-user-guide.md`](docs/desktop-user-guide.md)，真实链路和桌面分层见
+[`docs/system-chain-and-desktop-architecture.md`](docs/system-chain-and-desktop-architecture.md)。
+
+维护者可双击 [`构建Windows桌面版.cmd`](构建Windows桌面版.cmd) 生成原生 EXE、便携 ZIP、
+SHA-256 与自动验收证据；安装了 Inno Setup 6 时还会生成当前用户范围的安装器。
 
 ### 1. 初始化项目
 

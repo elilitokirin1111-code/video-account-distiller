@@ -1,0 +1,15 @@
+{
+  "ok": true,
+  "native_qt_window": true,
+  "page_count": 6,
+  "health": {
+    "status": "ok",
+    "version": "1.0.0",
+    "features": {
+      "account_video_knowledge": "1"
+    }
+  },
+  "project_initialized": true,
+  "project_valid": true,
+  "api_base_url": "http://127.0.0.1:8001"
+}

@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import tomllib
 from collections.abc import Callable
@@ -119,6 +120,8 @@ class MediaCrawlerBridgePayload(StrictModel):
 
 
 def _repository_root() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.__dict__["_MEIPASS"]).resolve()
     return Path(__file__).resolve().parents[3]
 
 
@@ -195,20 +198,43 @@ def _resolved_executable(command: str) -> str | None:
 
 def _git_commit(home: Path) -> str | None:
     git = shutil.which("git")
-    if git is None or not home.is_dir():
+    if not home.is_dir():
         return None
+    if git is not None:
+        try:
+            result = subprocess.run(
+                [git, "-C", str(home), "rev-parse", "HEAD"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError):
+            result = None
+        if result is not None:
+            commit = result.stdout.strip()
+            if result.returncode == 0 and commit:
+                return commit
+    marker = home / ".distiller-pinned-commit"
     try:
-        result = subprocess.run(
-            [git, "-C", str(home), "rev-parse", "HEAD"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (OSError, subprocess.SubprocessError):
+        commit = marker.read_text(encoding="utf-8").strip()
+    except OSError:
         return None
-    commit = result.stdout.strip()
-    return commit if result.returncode == 0 and commit else None
+    return commit or None
+
+
+def _default_uv_executable() -> str | None:
+    configured = os.environ.get("MEDIACRAWLER_UV")
+    if configured:
+        return _resolved_executable(configured)
+    discovered = shutil.which("uv")
+    if discovered:
+        return discovered
+    if getattr(sys, "frozen", False):
+        bundled = _repository_root() / "bin" / ("uv.exe" if os.name == "nt" else "uv")
+        if bundled.is_file():
+            return str(bundled.resolve())
+    return None
 
 
 def _python_constraint(pyproject_path: Path) -> str | None:
@@ -257,7 +283,7 @@ def mediacrawler_diagnostic(
     ]
     actual_commit = _git_commit(selected_home)
     commit_matches = actual_commit == MEDIACRAWLER_PINNED_COMMIT
-    selected_uv = _resolved_executable(uv_executable or os.environ.get("MEDIACRAWLER_UV", "uv"))
+    selected_uv = _resolved_executable(uv_executable) if uv_executable else _default_uv_executable()
     selected_browser = browser_executable(selected_channel)
     profile_exists = selected_profile.is_dir()
     bridge_present = selected_bridge.is_file()
@@ -419,7 +445,10 @@ class MediaCrawlerAccountProvider:
             .expanduser()
             .resolve()
         )
-        self.uv_executable = uv_executable or shutil.which(os.environ.get("MEDIACRAWLER_UV", "uv"))
+        # Keep the executor injection boundary compatible with tests and
+        # alternative command launchers. Only the implicit production default
+        # is resolved to a concrete system or bundled executable.
+        self.uv_executable = uv_executable or _default_uv_executable()
         configured_login_timeout = os.environ.get("MEDIACRAWLER_LOGIN_TIMEOUT_SECONDS")
         if configured_login_timeout:
             try:

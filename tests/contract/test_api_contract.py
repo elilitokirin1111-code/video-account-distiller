@@ -31,13 +31,14 @@ def _json(response: Any) -> dict[str, Any]:
 
 
 def _wait_for_task(client: TestClient, task_id: str) -> dict[str, Any]:
-    for _ in range(100):
+    deadline = time.monotonic() + 8.0
+    while time.monotonic() < deadline:
         response = client.get(f"/api/tasks/{task_id}")
         assert response.status_code == 200
         payload = _json(response)
         if payload.get("status") in {"completed", "failed", "cancelled"}:
             return payload
-        time.sleep(0.01)
+        time.sleep(0.02)
     raise AssertionError(f"Task did not finish: {task_id}")
 
 
@@ -751,6 +752,40 @@ class _OpenAIContractExecutor:
         )
 
 
+def test_account_workflow_migrates_request_secret_out_of_durable_task(
+    project: ProjectLayout,
+    tmp_path: Path,
+) -> None:
+    task_db = tmp_path / "secret-free-workflow.sqlite3"
+    credential_store = _MemoryCloudCredentialStore()
+    app = create_app(task_db)
+    app.state.cloud_credentials = credential_store
+    encoded = _project_path(project.root)
+    secret = "sk-workflow-migration-secret"
+
+    with TestClient(app) as client:
+        submitted = client.post(
+            f"/api/projects/{encoded}/workflows/account-distill",
+            params={"dry_run": "true"},
+            json={
+                "url": "https://v.douyin.com/demo/",
+                "cloud_base_url": ("https://dashscope.aliyuncs.com/compatible-mode/v1"),
+                "cloud_api_key": secret,
+                "cloud_text_model": "qwen3.7-plus",
+            },
+        )
+        assert submitted.status_code == 200
+        task = _wait_for_task(client, str(_json(submitted)["task_id"]))
+
+    assert credential_store.get("bailian") == secret
+    assert task["status"] == "completed"
+    assert task["task_metadata"]["body"]["cloud_credential_provider"] == "bailian"
+    assert task["task_metadata"]["body"]["cloud_api_key"] is None
+    assert secret not in json.dumps(task, ensure_ascii=False)
+    for database_file in tmp_path.glob("secret-free-workflow.sqlite3*"):
+        assert secret.encode("utf-8") not in database_file.read_bytes()
+
+
 def test_cloud_model_settings_and_ephemeral_gpt_analysis_contract(
     normalized_project: ProjectLayout,
     tmp_path: Path,
@@ -865,7 +900,7 @@ def test_cloud_preset_round_trips_into_project_config(
     normalized_project: ProjectLayout,
     tmp_path: Path,
 ) -> None:
-    """Cloud endpoint presets persist in distiller.yaml and never echo the key."""
+    """Cloud endpoint presets keep secrets out of distiller.yaml and responses."""
     from video_account_distiller.config import load_config
 
     task_db = tmp_path / "preset-tasks.sqlite3"
@@ -902,7 +937,7 @@ def test_cloud_preset_round_trips_into_project_config(
 
         config = load_config(normalized_project.config_path)
         assert config.models.cloud_base_url == ("https://dashscope.aliyuncs.com/compatible-mode/v1")
-        assert config.models.cloud_api_key == secret
+        assert config.models.cloud_api_key is None
         assert config.models.cloud_text_model == "qwen3.7-plus"
         assert config.models.cloud_vision_model == "qwen-vl-max-latest"
 
@@ -928,9 +963,10 @@ def test_cloud_preset_round_trips_into_project_config(
         assert config.models.cloud_api_key is None
         assert config.models.cloud_base_url is None
 
-    # The preset API key is stored only in the project-local config, never in
-    # the API response bodies or the task database.
+    # The preset API key is stored only in the OS-keyring abstraction, never in
+    # project YAML, API response bodies, or the task database.
     assert secret.encode("utf-8") not in task_db.read_bytes()
+    assert secret not in normalized_project.config_path.read_text(encoding="utf-8")
 
 
 class _BailianContractExecutor(_OpenAIContractExecutor):

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="surface" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0F172A"/>
+      <stop offset="1" stop-color="#1E293B"/>
+    </linearGradient>
+    <linearGradient id="signal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22D3EE"/>
+      <stop offset="1" stop-color="#38BDF8"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="54" fill="url(#surface)"/>
+  <rect x="35" y="34" width="10" height="188" rx="5" fill="#FB923C"/>
+  <path d="M81 67c0-13 14-21 25-14l74 46c11 7 11 23 0 30l-74 46c-11 7-25-1-25-14z"
+        fill="url(#signal)"/>
+  <path d="M100 83v94" stroke="#E2E8F0" stroke-width="8" stroke-linecap="round" opacity=".78"/>
+  <path d="M132 174h60M132 194h42" stroke="#F8FAFC" stroke-width="8" stroke-linecap="round"/>
+</svg>
