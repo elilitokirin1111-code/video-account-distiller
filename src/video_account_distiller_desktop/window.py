@@ -113,6 +113,16 @@ def _repolish(widget: QWidget) -> None:
     widget.update()
 
 
+def _service_display_message(name: str, available: bool, message: str) -> str:
+    if available:
+        return message
+    return {
+        "api": "本地任务服务异常，请重新启动应用",
+        "ollama": "本地模型服务未启动，可点击下方按钮启动",
+        "weknora": "知识库服务未连接，请检查地址与服务状态",
+    }.get(name, "服务暂不可用，请检查配置后重试")
+
+
 def _nav_icon(name: str, color: str) -> QIcon:
     """Return a small code-owned line icon without adding another asset runtime."""
 
@@ -1603,7 +1613,11 @@ class DistillerMainWindow(QMainWindow):
                     labels[0].setStyleSheet(
                         "color: #237A57;" if status.available else "color: #B84A4A;"
                     )
-                    labels[1].setText(f"{status.message}\n{status.endpoint}")
+                    labels[1].setText(
+                        f"{_service_display_message(status.name, status.available, status.message)}"
+                        f"\n{status.endpoint}"
+                    )
+                    labels[1].setToolTip(f"{status.message}\n{status.endpoint}")
                 header_label = self.header_service_labels.get(status.name)
                 if header_label is not None:
                     display_name = {

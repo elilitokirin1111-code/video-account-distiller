@@ -102,3 +102,14 @@ def test_task_progress_and_wait_feedback_reflect_live_work() -> None:
     panel.close()
     footer.close()
     app.processEvents()
+
+
+def test_unavailable_service_message_is_concise_but_actionable() -> None:
+    from video_account_distiller_desktop.window import _service_display_message
+
+    raw_error = "HTTPConnectionPool(host='127.0.0.1', port=11434): Max retries exceeded"
+
+    assert _service_display_message("ollama", False, raw_error) == (
+        "本地模型服务未启动，可点击下方按钮启动"
+    )
+    assert _service_display_message("ollama", True, "模型服务可达") == "模型服务可达"
