@@ -23,8 +23,10 @@ from video_account_distiller.media.enrichment import (
 from video_account_distiller.media.pipeline import LocalMediaAnalysisService
 from video_account_distiller.media.providers import (
     CloudVisionProvider,
+    DeepSeekVisionProvider,
     LlamaCppVisionProvider,
     OllamaVisionProvider,
+    QwenNativeVideoProvider,
     StructuredVisionFileProvider,
     VisionModelProvider,
     VisionProviderUnavailable,
@@ -38,6 +40,7 @@ __all__ = [
     "CLAUDE_VIDEO_UPSTREAM_COMMIT",
     "AccountMediaEnrichmentService",
     "CloudVisionProvider",
+    "DeepSeekVisionProvider",
     "DownloadedMedia",
     "DownloadedMediaCleanupService",
     "FasterWhisperTranscriber",
@@ -49,6 +52,7 @@ __all__ = [
     "LlamaCppVisionProvider",
     "MediaDownloader",
     "OllamaVisionProvider",
+    "QwenNativeVideoProvider",
     "SceneDetectionResult",
     "StructuredVisionFileProvider",
     "TranscribedMedia",

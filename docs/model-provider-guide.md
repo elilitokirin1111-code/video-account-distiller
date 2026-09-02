@@ -50,8 +50,8 @@ predictions, actual snapshots, Rule status, or approval metadata.
 retry array. It performs no network operation. Every returned annotation must cite an existing
 `shot_id`; every OCR observation must cite an existing `keyframe_id` and timestamp interval.
 
-The bundle contains local keyframe paths so an explicitly supplied custom local Provider can read
-them. The bundled `OllamaVisionProvider` accepts only
+The bundle contains local keyframe paths and, during live analysis, the retained source-video path.
+The bundled `OllamaVisionProvider` accepts only
 `http://127.0.0.1:11434` or `http://localhost:11434`, defaults to `qwen3-vl:8b`, batches one to
 eight keyframes, requests JSON Schema output, and maps frame indexes back to exact shot/keyframe
 evidence. It extracts scene labels, colors, composition, camera, lighting, artistic text,
@@ -59,11 +59,14 @@ motion-graphic traces, branding, and OCR. Qwen3-VL may return valid structured J
 local `message.thinking` field when `message.content` is empty; both are validated by the same
 strict Pydantic contract.
 
-Remote hosts, HTTPS, alternate ports, embedded credentials, paths, queries, and fragments are
-rejected before image bytes are read. A cloud implementation must not be bundled or activated
-implicitly. It requires explicit user
-authorization, `privacy.allow_cloud_model_upload: true`, documented retention and region, redacted
-logging, and mocked upload/timeout/Schema tests.
+Local providers still reject remote hosts, embedded credentials, paths, queries, and fragments.
+Cloud visual providers require an explicit `vision_provider=cloud` selection and a credential from
+the operating-system keyring. `QwenNativeVideoProvider` sends a local video to Model Studio as a
+Base64 data URL when `qwen3.7-plus` is selected, samples at 2 FPS for clips up to three minutes,
+and sends the mixed opening/ending, scene-change, and uniform keyframes in the same request as
+evidence anchors. Files over 64 MiB, unsupported containers, unavailable sources, or rejected native
+requests fall back to keyframe-only cloud analysis and record the fallback in `unknowns`. Qwen's
+video path is visual-only; Whisper remains the speech/audio evidence source.
 
 ## Account-level cloud analysis providers
 
@@ -108,8 +111,8 @@ Alibaba Cloud Model Studio works everywhere a cloud provider is selectable:
   use `https://dashscope.aliyuncs.com/compatible-mode/v1` or paste your Model Studio MaaS gateway
   (`ws-<workspace>.cn-beijing.maas.aliyuncs.com`) — a missing `https://` scheme is completed
   automatically. Use a Qwen text model such as `qwen-max-latest`.
-- **Visual analysis**: `vision_provider=cloud` defaults to `qwen-vl-max-latest` on
-  DashScope/MaaS.
+- **Visual analysis**: selecting `qwen3.7-plus` uses the retained original video plus mixed
+  keyframe anchors. Other cloud vision models continue to use bounded keyframe batches.
 - **CLI deep distillation**: `--deep-provider cloud --deep-model qwen-max-latest
   --deep-base-url <dashscope-or-maas>`.
 
@@ -117,6 +120,20 @@ Environment fallbacks are `DASHSCOPE_API_KEY`/`DASHSCOPE_BASE_URL` for Bailian a
 `DEEPSEEK_API_KEY`/`DEEPSEEK_BASE_URL` for DeepSeek. A `401` on a task almost always means the key
 does not match the selected provider/endpoint: verify in the「云端模型权限」tab which provider slot
 holds the key and that the task selected the same provider.
+
+### Recommended Qwen-video + DeepSeek-distillation route
+
+The desktop preset uses one Bailian endpoint and credential:
+
+- cloud endpoint: `https://dashscope.aliyuncs.com/compatible-mode/v1`;
+- visual model: `qwen3.7-plus` (native video plus keyframe evidence anchors);
+- knowledge model: `deepseek-v4-flash` supplied through Model Studio, with thinking enabled,
+  high reasoning effort, JSON mode, and a 65,536-token completion budget.
+
+This split lets Qwen inspect temporal visual information while DeepSeek receives the transcript,
+OCR, shot annotations, and source references for validated knowledge extraction. Direct
+`deepseek-v4-flash-vision-exp` remains available as an experimental keyframe provider, but is not
+the recommended native-video route.
 
 Only a redacted context is uploaded. Direct platform account IDs, handles, profile URLs, raw
 hashes, and source-row metadata are removed, while raw comments, provider pages, signed media URLs,

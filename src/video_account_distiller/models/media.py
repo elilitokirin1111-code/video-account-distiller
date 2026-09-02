@@ -185,6 +185,8 @@ class MediaVisionBundle(StrictModel):
     media_hash: str
     shots: list[VisionInputShot]
     keyframes: list[VisionInputKeyframe]
+    source_video_path: str | None = None
+    duration_ms: int | None = Field(default=None, ge=0)
 
 
 class VisionTaskTrace(StrictModel):

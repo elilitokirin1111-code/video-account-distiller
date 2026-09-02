@@ -13,6 +13,9 @@ changes.
 
 ### Added
 
+- Native `qwen3.7-plus` cloud video understanding with adaptive FPS, mixed keyframe evidence
+  anchors, bounded Base64 upload, and keyframe-only fallback; the desktop adds a one-click
+  Qwen-video + DeepSeek-V4-Flash knowledge-distillation preset.
 - Backup-first project schema migration preview/apply commands with verified archives, validation,
   migration receipts, automatic state rollback, and explicit future/unknown-version rejection.
 - An immutable 7-14 day public-beta evidence gate covering hashed multi-account/machine identities,

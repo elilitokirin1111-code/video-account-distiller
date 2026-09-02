@@ -222,8 +222,9 @@ def _parse_structured_vision_response(
     raise VisionSchemaFailure(f"{provider_label} vision schema invalid: {validation_errors}")
 
 
-OLLAMA_VISION_PROMPT_VERSION = "1.4.0"
+OLLAMA_VISION_PROMPT_VERSION = "1.5.0"
 LLAMACPP_VISION_CONTRACT_VERSION = "1.3.0"
+QWEN_NATIVE_VIDEO_MAX_BYTES = 64 * 1024 * 1024
 _FIELD_NAME_ECHOES = {
     "人物/物体/酒店场景",
     "人物",
@@ -815,11 +816,12 @@ class CloudVisionProvider(LlamaCppVisionProvider):
         if "://" not in raw_base_url:
             raw_base_url = f"https://{raw_base_url}"
         parsed = urlparse(raw_base_url)
+        normalized_path = parsed.path.rstrip("/")
         if (
             parsed.scheme not in {"http", "https"}
             or parsed.username is not None
             or parsed.password is not None
-            or parsed.path not in {"", "/"}
+            or normalized_path not in {"", "/compatible-mode/v1"}
             or parsed.query
             or parsed.fragment
             or (parsed.scheme == "http" and parsed.hostname not in {"127.0.0.1", "localhost"})
@@ -829,7 +831,7 @@ class CloudVisionProvider(LlamaCppVisionProvider):
                 "Cloud vision base URL must be an HTTPS origin (or loopback HTTP)",
             )
         self.model_name = model.strip()
-        self.base_url = f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+        self.base_url = (f"{parsed.scheme}://{parsed.netloc}{normalized_path}").rstrip("/")
         self.batch_size = batch_size
         self.timeout_seconds = timeout_seconds
         self.executor = executor or UrllibVisionHttpExecutor()
@@ -844,6 +846,182 @@ class CloudVisionProvider(LlamaCppVisionProvider):
                 "contract": "media-vision-v2",
                 "prompt_version": OLLAMA_VISION_PROMPT_VERSION,
             }
+        )
+
+
+class DeepSeekVisionProvider(CloudVisionProvider):
+    """DeepSeek V4 Flash Vision with fast structured keyframe extraction."""
+
+    provider_name = "deepseek_vision"
+
+    @staticmethod
+    def _structured_output_options(schema: dict[str, Any]) -> dict[str, Any]:
+        del schema
+        return {
+            "response_format": {"type": "json_object"},
+            "thinking": {"type": "disabled"},
+            "max_tokens": 8_192,
+        }
+
+
+class QwenNativeVideoProvider(CloudVisionProvider):
+    """Analyze the source video with Qwen and retain keyframes as evidence anchors."""
+
+    provider_name = "qwen_native_video"
+
+    def __init__(
+        self,
+        *,
+        model: str = "qwen3.7-plus",
+        base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        batch_size: int = 4,
+        timeout_seconds: int = 300,
+        api_key: str | None = None,
+        executor: VisionHttpExecutor | None = None,
+        max_video_bytes: int = QWEN_NATIVE_VIDEO_MAX_BYTES,
+    ) -> None:
+        super().__init__(
+            model=model,
+            base_url=base_url,
+            batch_size=batch_size,
+            timeout_seconds=max(timeout_seconds, 300),
+            api_key=api_key,
+            executor=executor,
+        )
+        self.batch_size = 100
+        self.max_video_bytes = max_video_bytes
+        self._active_bundle: MediaVisionBundle | None = None
+        self.input_hash = sha256_json(
+            {
+                "provider": self.provider_name,
+                "model": self.model_name,
+                "base_url": self.base_url,
+                "native_video": True,
+                "max_video_bytes": self.max_video_bytes,
+                "prompt_version": OLLAMA_VISION_PROMPT_VERSION,
+            }
+        )
+
+    @staticmethod
+    def _structured_output_options(schema: dict[str, Any]) -> dict[str, Any]:
+        del schema
+        return {
+            "response_format": {"type": "json_object"},
+            "enable_thinking": False,
+            "max_tokens": 8_192,
+        }
+
+    @staticmethod
+    def _fps(duration_ms: int | None) -> float:
+        if duration_ms is None or duration_ms <= 180_000:
+            return 2.0
+        if duration_ms <= 600_000:
+            return 1.0
+        return 0.5
+
+    @staticmethod
+    def _video_mime_type(path: Path) -> str | None:
+        return {
+            ".mp4": "video/mp4",
+            ".mov": "video/quicktime",
+            ".m4v": "video/x-m4v",
+            ".webm": "video/webm",
+            ".avi": "video/x-msvideo",
+            ".mkv": "video/x-matroska",
+        }.get(path.suffix.casefold())
+
+    def _analyze_batch(self, batch: Sequence[Any]) -> _OllamaVisionResponse:
+        bundle = self._active_bundle
+        if bundle is None or not bundle.source_video_path:
+            return super()._analyze_batch(batch)
+        video_path = Path(bundle.source_video_path)
+        mime_type = self._video_mime_type(video_path)
+        if mime_type is None:
+            raise VisionProviderUnavailable("native video format is not supported")
+        video_data = base64.b64encode(video_path.read_bytes()).decode("ascii")
+        content: list[dict[str, Any]] = [
+            {
+                "type": "text",
+                "text": (
+                    self._prompt(batch)
+                    + "\n第一项媒体是完整原视频，后续图片是上面 frame_index 对应的证据关键帧。"
+                    "请利用原视频理解动作、转场、字幕出现顺序和镜头时序；"
+                    "每条 frames 结果仍必须锚定对应关键帧，不得虚构未看到的内容。"
+                ),
+            },
+            {
+                "type": "video_url",
+                "video_url": {
+                    "url": f"data:{mime_type};base64,{video_data}",
+                    "fps": self._fps(bundle.duration_ms),
+                },
+                "min_pixels": 65_536,
+                "max_pixels": 655_360,
+                "total_pixels": 134_217_728,
+            },
+        ]
+        for item in batch:
+            path = Path(item.path)
+            if not path.is_file():
+                raise VisionSchemaFailure(f"keyframe file not found: {item.keyframe_id}")
+            encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{encoded}"},
+                }
+            )
+        payload = self.executor.request_json(
+            url=_chat_completions_url(self.base_url),
+            method="POST",
+            payload={
+                "model": self.model_name,
+                "messages": [{"role": "user", "content": content}],
+                "temperature": 0,
+                "stream": False,
+                **self._structured_output_options(self._response_schema(len(batch))),
+            },
+            timeout_seconds=self.timeout_seconds,
+            headers=({"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}),
+        )
+        self.raw_responses.append(payload)
+        candidates, finish_reason = self._completion_candidates(payload)
+        errors: list[str] = []
+        for candidate in candidates:
+            try:
+                return _parse_structured_vision_response(
+                    candidate,
+                    provider_label="Qwen native video",
+                )
+            except VisionSchemaFailure as exc:
+                errors.append(str(exc))
+        detail = "; ".join(errors) if errors else "no message content"
+        raise VisionSchemaFailure(
+            f"Qwen native video response invalid (finish_reason={finish_reason}): {detail}"
+        )
+
+    def analyze(self, bundle: MediaVisionBundle) -> MediaVisionAnnotation:
+        source = Path(bundle.source_video_path) if bundle.source_video_path else None
+        fallback_reason: str | None = None
+        if source is None or not source.is_file():
+            fallback_reason = "native_video_fallback:source_unavailable"
+        elif source.stat().st_size > self.max_video_bytes:
+            fallback_reason = "native_video_fallback:file_too_large"
+        elif self._video_mime_type(source) is None:
+            fallback_reason = "native_video_fallback:unsupported_format"
+
+        if fallback_reason is None:
+            self._active_bundle = bundle
+            try:
+                return super().analyze(bundle)
+            except (VisionProviderUnavailable, VisionSchemaFailure) as exc:
+                fallback_reason = f"native_video_fallback:{type(exc).__name__}"
+            finally:
+                self._active_bundle = None
+
+        result = super().analyze(bundle)
+        return result.model_copy(
+            update={"unknowns": list(dict.fromkeys([*result.unknowns, fallback_reason]))}
         )
 
 

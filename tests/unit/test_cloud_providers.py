@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import json
+from typing import Any
+
 import pytest
+from pydantic import BaseModel
 
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.features.providers import (
@@ -14,7 +18,17 @@ from video_account_distiller.insights.gpt_analysis import (
     DeepSeekModel,
     GptAnalysisOptions,
 )
-from video_account_distiller.media.providers import CloudVisionProvider
+from video_account_distiller.media.providers import (
+    CloudVisionProvider,
+    DeepSeekVisionProvider,
+    QwenNativeVideoProvider,
+)
+from video_account_distiller.models import (
+    MediaVisionBundle,
+    VisionInputKeyframe,
+    VisionInputShot,
+)
+from video_account_distiller.workflows.account_distill import build_vision_provider
 
 
 @pytest.mark.parametrize(
@@ -70,6 +84,27 @@ def test_cloud_text_provider_normalizes_scheme_less_maas_gateway() -> None:
         api_key="sk-test",
     )
     assert provider.base_url == "https://ws-e8t5qxy8pxu50zz0.cn-beijing.maas.aliyuncs.com"
+
+
+def test_cloud_text_provider_uses_deepseek_switch_for_selected_gateway() -> None:
+    direct = CloudChatTextProvider(
+        model="deepseek-v4-flash",
+        base_url="https://api.deepseek.com",
+        api_key="sk-test",
+    )
+    assert direct._request_options(BaseModel) == {
+        "response_format": {"type": "json_object"},
+        "reasoning_effort": "high",
+        "max_tokens": 65_536,
+        "thinking": {"type": "enabled"},
+    }
+
+    bailian = CloudChatTextProvider(
+        model="deepseek-v4-flash",
+        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        api_key="sk-test",
+    )
+    assert bailian._request_options(BaseModel)["enable_thinking"] is True
 
 
 @pytest.mark.parametrize(
@@ -136,6 +171,145 @@ def test_cloud_vision_provider_accepts_any_https_origin_without_scheme() -> None
         api_key="sk-test",
     )
     assert provider.base_url == "https://openai-compatible.example.com"
+
+
+def test_cloud_vision_provider_preserves_dashscope_compatible_path() -> None:
+    provider = CloudVisionProvider(
+        model="qwen3.7-plus",
+        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        api_key="sk-test",
+    )
+    assert provider.base_url == "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+
+class _RecordingVisionExecutor:
+    def __init__(self, response: dict[str, Any]) -> None:
+        self.response = response
+        self.calls: list[dict[str, Any]] = []
+
+    def request_json(
+        self,
+        *,
+        url: str,
+        method: str,
+        payload: dict[str, Any] | None,
+        timeout_seconds: int,
+        headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        self.calls.append(
+            {
+                "url": url,
+                "method": method,
+                "payload": payload,
+                "timeout_seconds": timeout_seconds,
+                "headers": headers,
+            }
+        )
+        return self.response
+
+
+def test_qwen37_cloud_provider_sends_native_video_with_keyframe_anchors(tmp_path) -> None:
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"short-video")
+    frames: list[VisionInputKeyframe] = []
+    shots: list[VisionInputShot] = []
+    response_frames: list[dict[str, Any]] = []
+    for index in range(2):
+        frame = tmp_path / f"frame-{index}.jpg"
+        frame.write_bytes(f"jpeg-{index}".encode())
+        shot_id = f"shot_{index}"
+        shots.append(
+            VisionInputShot(shot_id=shot_id, start_ms=index * 1_000, end_ms=(index + 1) * 1_000)
+        )
+        frames.append(
+            VisionInputKeyframe(
+                keyframe_id=f"key_{index}",
+                shot_id=shot_id,
+                timestamp_ms=index * 1_000 + 500,
+                path=str(frame),
+                sha256=f"{index + 1}" * 64,
+            )
+        )
+        response_frames.append(
+            {
+                "frame_index": index,
+                "summary": f"画面 {index}",
+                "labels": [],
+                "dominant_colors": [],
+                "shot_scale": [],
+                "camera_movement": [],
+                "composition": [],
+                "camera": [],
+                "lighting": [],
+                "text_overlay_styles": [],
+                "motion_graphics": [],
+                "branding": [],
+                "ocr": [],
+                "confidence": 0.9,
+            }
+        )
+    executor = _RecordingVisionExecutor(
+        {
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {"content": json.dumps({"frames": response_frames, "unknowns": []})},
+                }
+            ]
+        }
+    )
+    provider = QwenNativeVideoProvider(
+        model="qwen3.7-plus",
+        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        api_key="sk-test",
+        executor=executor,
+    )
+
+    result = provider.analyze(
+        MediaVisionBundle(
+            video_id="vid_native",
+            media_hash="a" * 64,
+            shots=shots,
+            keyframes=frames,
+            source_video_path=str(video),
+            duration_ms=2_000,
+        )
+    )
+
+    assert len(executor.calls) == 1
+    call = executor.calls[0]
+    assert call["url"].endswith("/compatible-mode/v1/chat/completions")
+    payload = call["payload"]
+    assert payload["model"] == "qwen3.7-plus"
+    assert payload["enable_thinking"] is False
+    content = payload["messages"][0]["content"]
+    assert [item["type"] for item in content] == ["text", "video_url", "image_url", "image_url"]
+    assert content[1]["video_url"]["fps"] == 2.0
+    assert content[1]["video_url"]["url"].startswith("data:video/mp4;base64,")
+    assert len(result.shot_annotations) == 2
+
+
+def test_cloud_factory_selects_native_qwen_and_deepseek_vision() -> None:
+    qwen = build_vision_provider(
+        provider="cloud",
+        model="qwen3.7-plus",
+        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        batch_size=4,
+        timeout_seconds=300,
+        api_key="sk-test",
+    )
+    deepseek = build_vision_provider(
+        provider="cloud",
+        model="deepseek-v4-flash-vision-exp",
+        base_url="https://api.deepseek.com",
+        batch_size=4,
+        timeout_seconds=300,
+        api_key="sk-test",
+    )
+
+    assert isinstance(qwen, QwenNativeVideoProvider)
+    assert isinstance(deepseek, DeepSeekVisionProvider)
+    assert deepseek._structured_output_options({})["thinking"] == {"type": "disabled"}
 
 
 def test_cloud_vision_provider_rejects_plain_http_remote() -> None:

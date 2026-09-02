@@ -11,6 +11,7 @@ from video_account_distiller.media.pipeline import (
     _audio_features,
     _generate_vision,
     _jpeg_dimensions,
+    _keyframe_points,
     _selected_shot_indexes,
 )
 from video_account_distiller.media.providers import (
@@ -53,6 +54,33 @@ def test_keyframe_selection_is_bounded_and_deterministic() -> None:
     assert _selected_shot_indexes(3, 5) == [0, 1, 2]
     assert _selected_shot_indexes(10, 3) == [0, 4, 9]
     assert _selected_shot_indexes(10, 1) == [0]
+
+
+def test_keyframe_points_cover_opening_ending_and_full_timeline() -> None:
+    shots = [
+        ShotSegment(shot_id="shot_0", index=0, start_ms=0, end_ms=1_000, duration_ms=1_000),
+        ShotSegment(shot_id="shot_1", index=1, start_ms=1_000, end_ms=9_000, duration_ms=8_000),
+        ShotSegment(shot_id="shot_2", index=2, start_ms=9_000, end_ms=60_000, duration_ms=51_000),
+    ]
+
+    points = _keyframe_points(shots, duration_ms=60_000, maximum=8)
+    timestamps = [timestamp_ms for _, timestamp_ms in points]
+
+    assert len(points) == 8
+    assert timestamps[0] == 250
+    assert timestamps[-1] == 59_749
+    assert any(15_000 <= value <= 25_000 for value in timestamps)
+    assert any(35_000 <= value <= 45_000 for value in timestamps)
+
+
+def test_short_single_shot_gets_more_than_one_visual_sample() -> None:
+    shots = [ShotSegment(shot_id="shot_0", index=0, start_ms=0, end_ms=8_000, duration_ms=8_000)]
+
+    points = _keyframe_points(shots, duration_ms=8_000, maximum=12)
+
+    assert len(points) == 4
+    assert points[0][1] == 250
+    assert points[-1][1] == 7_749
 
 
 def test_jpeg_dimensions_are_read_without_an_image_dependency(tmp_path: Path) -> None:

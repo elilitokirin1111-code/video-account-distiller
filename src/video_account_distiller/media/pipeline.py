@@ -54,7 +54,7 @@ from video_account_distiller.utils.ids import stable_id
 from video_account_distiller.utils.io import atomic_write_json, atomic_write_text, read_json
 from video_account_distiller.utils.lookup import resolve_video
 
-MEDIA_ANALYSIS_VERSION = "1.1.1"
+MEDIA_ANALYSIS_VERSION = "1.2.0"
 
 
 def _pacing_tags(average_shot_duration_ms: float | None) -> list[str]:
@@ -190,53 +190,84 @@ def _keyframe_points(
     duration_ms: int,
     maximum: int,
 ) -> list[tuple[int, int]]:
-    """Keep scene midpoints and add uniform coverage when long clips have few cuts."""
+    """Blend opening/ending anchors, scene midpoints, and uniform time coverage."""
 
     if not shots or maximum < 1:
         return []
-    selected_indexes = _selected_shot_indexes(len(shots), maximum)
-    points = {
-        (index, shots[index].start_ms + shots[index].duration_ms // 2) for index in selected_indexes
-    }
-    if duration_ms >= 10_000:
-        target = (
-            6
-            if duration_ms <= 30_000
-            else 8
-            if duration_ms <= 60_000
-            else 12
-            if duration_ms <= 180_000
-            else 16
+    duration = max(duration_ms, max((shot.end_ms for shot in shots), default=0))
+    if duration <= 0:
+        return [
+            (index, shots[index].start_ms + shots[index].duration_ms // 2)
+            for index in _selected_shot_indexes(len(shots), maximum)
+        ]
+
+    def shot_index_at(timestamp_ms: int) -> int:
+        return next(
+            (
+                index
+                for index, shot in enumerate(shots)
+                if shot.start_ms <= timestamp_ms < shot.end_ms
+            ),
+            len(shots) - 1,
         )
-        target = min(maximum, target)
-        if len(points) < target:
-            uniform_candidates: list[tuple[int, int]] = []
-            for position in range(target):
-                timestamp_ms = min(
-                    max(0, duration_ms - 1),
-                    round((position + 0.5) * duration_ms / target),
-                )
-                shot_index = next(
-                    (
-                        index
-                        for index, shot in enumerate(shots)
-                        if shot.start_ms <= timestamp_ms < shot.end_ms
-                    ),
-                    len(shots) - 1,
-                )
-                if any(abs(existing - timestamp_ms) < 250 for _, existing in points):
-                    continue
-                uniform_candidates.append((shot_index, timestamp_ms))
-            remaining = target - len(points)
-            for candidate_index in _selected_shot_indexes(
-                len(uniform_candidates),
-                min(remaining, len(uniform_candidates)),
-            ):
-                points.add(uniform_candidates[candidate_index])
-    ordered = sorted(points, key=lambda item: (item[1], item[0]))
-    if len(ordered) > maximum:
-        ordered = [ordered[index] for index in _selected_shot_indexes(len(ordered), maximum)]
-    return ordered
+
+    coverage_target = (
+        4
+        if duration <= 10_000
+        else 6
+        if duration <= 30_000
+        else 8
+        if duration <= 60_000
+        else 12
+        if duration <= 180_000
+        else 16
+    )
+    target = min(maximum, max(min(len(shots), maximum), coverage_target))
+    if target == 1:
+        timestamp_ms = min(duration - 1, duration // 2)
+        return [(shot_index_at(timestamp_ms), timestamp_ms)]
+
+    edge_offset = min(250, max(1, duration // 20))
+    opening_ms = min(duration - 1, edge_offset)
+    ending_ms = max(0, duration - 1 - edge_offset)
+    selected: list[tuple[int, int]] = [
+        (shot_index_at(opening_ms), opening_ms),
+        (shot_index_at(ending_ms), ending_ms),
+    ]
+    selected = list(dict.fromkeys(selected))
+
+    # Keep both types of evidence in the candidate pool. Farthest-point
+    # selection spreads samples through time while preferring a real scene
+    # midpoint when two candidates provide the same temporal coverage.
+    candidates: dict[int, tuple[int, bool]] = {}
+    for index, shot in enumerate(shots):
+        timestamp_ms = min(duration - 1, shot.start_ms + shot.duration_ms // 2)
+        candidates[timestamp_ms] = (index, True)
+    grid_size = max(target * 2, 4)
+    for position in range(grid_size):
+        timestamp_ms = min(duration - 1, round((position + 0.5) * duration / grid_size))
+        previous = candidates.get(timestamp_ms)
+        candidates[timestamp_ms] = (
+            shot_index_at(timestamp_ms),
+            bool(previous and previous[1]),
+        )
+    for _, timestamp_ms in selected:
+        candidates.pop(timestamp_ms, None)
+
+    while len(selected) < target and candidates:
+        timestamp_ms, (shot_index, _is_scene) = max(
+            candidates.items(),
+            key=lambda item: (
+                min(abs(item[0] - existing) for _, existing in selected),
+                item[1][1],
+                -abs(item[0] - duration // 2),
+                -item[0],
+            ),
+        )
+        selected.append((shot_index, timestamp_ms))
+        candidates.pop(timestamp_ms)
+
+    return sorted(selected, key=lambda item: (item[1], item[0]))
 
 
 def _jpeg_dimensions(path: Path) -> tuple[int, int] | None:
@@ -786,6 +817,8 @@ class LocalMediaAnalysisService:
                     for item in shots
                 ],
                 keyframes=provisional_keyframes,
+                source_video_path=str(source),
+                duration_ms=metadata.duration_ms,
             )
             vision, vision_trace = _generate_vision(
                 bundle=vision_bundle,

@@ -28,9 +28,11 @@ from video_account_distiller.knowledge import KnowledgeExportService
 from video_account_distiller.media import (
     AccountMediaEnrichmentService,
     CloudVisionProvider,
+    DeepSeekVisionProvider,
     DownloadedMediaCleanupService,
     LlamaCppVisionProvider,
     OllamaVisionProvider,
+    QwenNativeVideoProvider,
     VisionModelProvider,
     build_local_transcriber,
 )
@@ -200,6 +202,23 @@ def build_vision_provider(
             api_key=api_key,
         )
     if provider == "cloud":
+        normalized_model = model.casefold()
+        if normalized_model.startswith("qwen3.7-plus"):
+            return QwenNativeVideoProvider(
+                model=model,
+                base_url=base_url,
+                batch_size=batch_size,
+                timeout_seconds=timeout_seconds,
+                api_key=api_key,
+            )
+        if normalized_model.startswith("deepseek-v4-flash-vision"):
+            return DeepSeekVisionProvider(
+                model=model,
+                base_url=base_url,
+                batch_size=batch_size,
+                timeout_seconds=timeout_seconds,
+                api_key=api_key,
+            )
         return CloudVisionProvider(
             model=model,
             base_url=base_url,

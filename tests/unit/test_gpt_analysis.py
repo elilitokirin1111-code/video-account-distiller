@@ -748,7 +748,7 @@ def test_remote_analysis_is_redacted_audited_and_idempotent(
     assert audit["privacy"]["api_key_source"] == "DEEPSEEK_API_KEY"
     assert audit["privacy"]["raw_response_persisted"] is False
     assert audit["response"]["response_id"] == "resp_test"
-    assert audit["response"]["estimated_cost"]["estimated_total_usd"] == 0.000028
+    assert audit["response"]["estimated_cost"]["estimated_total_usd"] == 0.00011
     evaluation: Any = read_json(evaluation_path)
     statuses = {item["id"]: item["status"] for item in evaluation["checks"]}
     assert statuses["citation_completeness"] == "pass"

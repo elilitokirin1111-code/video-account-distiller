@@ -424,6 +424,12 @@ class LlamaCppTextProvider(OllamaTextProvider):
         self.timeout_seconds = timeout_seconds
         self.api_key = api_key or os.environ.get("DISTILLER_LLAMACPP_API_KEY")
 
+    def _request_options(self, response_model: type[BaseModel]) -> dict[str, Any]:
+        """Return provider-specific OpenAI-compatible request options."""
+
+        del response_model
+        return {}
+
     def generate_structured(
         self,
         prompt: str,
@@ -434,14 +440,14 @@ class LlamaCppTextProvider(OllamaTextProvider):
         """Call llama.cpp with a prompt and validate the response against the schema."""
 
         content = self._build_prompt(prompt, response_model)
-        body = json.dumps(
-            {
-                "model": self.model_name,
-                "messages": [{"role": "user", "content": content}],
-                "temperature": temperature,
-                "stream": False,
-            }
-        ).encode()
+        request_payload: dict[str, Any] = {
+            "model": self.model_name,
+            "messages": [{"role": "user", "content": content}],
+            "temperature": temperature,
+            "stream": False,
+            **self._request_options(response_model),
+        }
+        body = json.dumps(request_payload).encode()
         url = _chat_completions_url(self.base_url)
         request_headers = {"Content-Type": "application/json"}
         if self.api_key:
@@ -464,6 +470,8 @@ class LlamaCppTextProvider(OllamaTextProvider):
         choices = result.get("choices")
         message = choices[0].get("message") if isinstance(choices, list) and choices else None
         raw = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(raw, str) or not raw.strip():
+            raw = message.get("reasoning_content") if isinstance(message, dict) else None
         if not raw:
             raise ModelSchemaFailure("llama.cpp returned an empty text response")
         try:
@@ -504,3 +512,28 @@ class CloudChatTextProvider(LlamaCppTextProvider):
     """Any OpenAI-compatible chat API (DeepSeek, DashScope, OpenAI, etc.)."""
 
     provider_name = "cloud"
+
+    def _request_options(self, response_model: type[BaseModel]) -> dict[str, Any]:
+        del response_model
+        model = self.model_name.casefold()
+        if model.startswith("deepseek-v4-"):
+            options: dict[str, Any] = {
+                "response_format": {"type": "json_object"},
+                "reasoning_effort": "high",
+                "max_tokens": 65_536,
+            }
+            if "deepseek.com" in self.base_url.casefold():
+                options["thinking"] = {"type": "enabled"}
+            else:
+                # Alibaba Model Studio exposes DeepSeek through the same
+                # OpenAI-compatible endpoint as Qwen, but its HTTP switch is
+                # named enable_thinking rather than thinking.type.
+                options["enable_thinking"] = True
+            return options
+        if model.startswith(("qwen3.7-", "qwen3.8-")):
+            return {
+                "response_format": {"type": "json_object"},
+                "enable_thinking": False,
+                "max_tokens": 65_536,
+            }
+        return {}

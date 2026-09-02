@@ -418,7 +418,9 @@ class _StageTracker(QWidget):
                 widget.setProperty("stageState", state)
                 _repolish(widget)
         for index, line in enumerate(self.lines):
-            line.setProperty("stageState", "complete" if index < current or completed else "pending")
+            line.setProperty(
+                "stageState", "complete" if index < current or completed else "pending"
+            )
             _repolish(line)
 
 
@@ -505,7 +507,9 @@ class _TaskProgressPanel(QFrame):
         self.title.setText(title)
         self.message.setText(str(task.get("message") or "正在准备任务，请稍候…"))
         self._set_status(status, self.STATUS_TEXT.get(status, status))
-        self.pulse.set_active(active, color="#2F7D63" if status != "cancel_requested" else "#B7791F")
+        self.pulse.set_active(
+            active, color="#2F7D63" if status != "cancel_requested" else "#B7791F"
+        )
         value = max(0, min(100, round(float(task.get("progress") or 0.0) * 100)))
         self.progress.setRange(0, 100)
         self._animation.stop()
@@ -870,7 +874,9 @@ class DistillerMainWindow(QMainWindow):
         models_layout.setSpacing(14)
         models_header = QLabel("3   模型能力")
         models_header.setObjectName("sectionTitle")
-        models_caption = QLabel("本地模型优先；云端密钥只从 Windows 凭据管理器读取")
+        models_caption = QLabel(
+            "支持本地关键帧，也支持 Qwen 3.7 Plus 原视频理解；云端密钥只从 Windows 凭据管理器读取"
+        )
         models_caption.setObjectName("sectionCaption")
         models_layout.addWidget(models_header)
         models_layout.addWidget(models_caption)
@@ -908,7 +914,9 @@ class DistillerMainWindow(QMainWindow):
         )
         advanced.content_layout.addWidget(_field("转写模型", self.whisper_model), 0, 1)
         advanced.content_layout.addWidget(
-            _field("下载 / 转写上限", self.media_limit, "0 表示不限制，但长账号会显著增加等待时间。"),
+            _field(
+                "下载 / 转写上限", self.media_limit, "0 表示不限制，但长账号会显著增加等待时间。"
+            ),
             1,
             0,
             1,
@@ -1115,6 +1123,15 @@ class DistillerMainWindow(QMainWindow):
         form.addRow("文本模型", self.cloud_text_model)
         form.addRow("视觉模型", self.cloud_vision_model)
         form.addRow("云模型 API Key", self.cloud_key)
+        recommended = _button("应用 Qwen 视频 + DeepSeek 蒸馏组合")
+        recommended.clicked.connect(self._apply_qwen_deepseek_preset)
+        form.addRow("推荐组合", recommended)
+        preset_help = QLabel(
+            "Qwen 3.7 Plus 读取原视频并保留混合关键帧证据；DeepSeek V4 Flash 负责知识提取与深度推理。"
+        )
+        preset_help.setObjectName("muted")
+        preset_help.setWordWrap(True)
+        form.addRow("", preset_help)
         layout.addWidget(models)
         crawler = QGroupBox("采集凭据")
         crawler_form = QFormLayout(crawler)
@@ -1849,6 +1866,20 @@ class DistillerMainWindow(QMainWindow):
             done,
             message="正在验证云模型密钥…",
         )
+
+    def _apply_qwen_deepseek_preset(self) -> None:
+        """Configure the single-key Bailian route for native video plus deep synthesis."""
+
+        self._select_data(self.cloud_provider, "bailian")
+        self.cloud_url.setText("https://dashscope.aliyuncs.com/compatible-mode/v1")
+        self.cloud_vision_model.setText("qwen3.7-plus")
+        self.cloud_text_model.setText("deepseek-v4-flash")
+        self._select_data(self.vision_provider, "cloud")
+        self.vision_model.setText("qwen3.7-plus")
+        self._select_data(self.knowledge_provider, "cloud")
+        self.knowledge_model.setText("deepseek-v4-flash")
+        self.save_settings(silent=True)
+        self.footer.setText("已应用：Qwen 3.7 Plus 原视频理解 + DeepSeek V4 Flash 深度蒸馏")
 
     def _capture_settings_from_ui(self) -> None:
         self.settings.project_path = self.project_edit.text().strip() or None

@@ -163,7 +163,7 @@ def test_local_media_analysis_is_traceable_queryable_and_idempotent(
     assert all(path.is_file() for path in outputs)
     assert analysis.status == "complete"
     assert [(item.start_ms, item.end_ms) for item in analysis.shots] == [(0, 1000), (1000, 3000)]
-    assert len(analysis.keyframes) == 2
+    assert len(analysis.keyframes) == 4
     assert analysis.audio.silence_ratio == 0.5
     assert analysis.vision is not None
     assert analysis.vision.ocr_observations[0].text == "欢迎入住"

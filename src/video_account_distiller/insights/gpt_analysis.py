@@ -45,7 +45,7 @@ GPT_PROMPT_VERSION = "account-learning-playbook-v5"
 GPT_EVALUATION_VERSION = "account-analysis-eval-v2"
 GPT_PRICING_SNAPSHOT = "openai-api-pricing-2026-07-28"
 BAILIAN_PRICING_SNAPSHOT = "aliyun-model-studio-pricing-2026-08-04"
-DEEPSEEK_PRICING_SNAPSHOT = "deepseek-api-pricing-2026-08-05"
+DEEPSEEK_PRICING_SNAPSHOT = "deepseek-api-pricing-2026-08-21-peak"
 MAX_CLOUD_CONTEXT_BYTES = 3_500_000
 MAX_OUTPUT_TOKENS = 5_000
 MODEL_MAX_INPUT_TOKENS = 922_000
@@ -508,9 +508,9 @@ MODEL_PRICING: dict[AnalysisModel, ModelPricing] = {
     ),
     DeepSeekModel.V4_FLASH: ModelPricing(
         currency="USD",
-        input_per_million=0.14,
-        cached_input_per_million=0.0028,
-        output_per_million=0.28,
+        input_per_million=0.44,
+        cached_input_per_million=0.014,
+        output_per_million=1.32,
         source_url="https://api-docs.deepseek.com/quick_start/pricing",
         snapshot=DEEPSEEK_PRICING_SNAPSHOT,
         authoritative_source="DeepSeek platform pricing",
@@ -522,9 +522,9 @@ MODEL_PRICING: dict[AnalysisModel, ModelPricing] = {
     ),
     DeepSeekModel.V4_PRO: ModelPricing(
         currency="USD",
-        input_per_million=0.435,
-        cached_input_per_million=0.003625,
-        output_per_million=0.87,
+        input_per_million=1.32,
+        cached_input_per_million=0.044,
+        output_per_million=3.96,
         source_url="https://api-docs.deepseek.com/quick_start/pricing",
         snapshot=DEEPSEEK_PRICING_SNAPSHOT,
         authoritative_source="DeepSeek platform pricing",
