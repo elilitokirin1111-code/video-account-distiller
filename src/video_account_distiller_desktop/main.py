@@ -17,9 +17,14 @@ from video_account_distiller.application import (
     DesktopApiClient,
     DesktopSecretStore,
     DesktopSettingsStore,
+    EmbeddedApiServer,
     LocalServiceSupervisor,
 )
 from video_account_distiller.application.desktop_updates import DesktopUpdateService
+from video_account_distiller.collection.mediacrawler import (
+    MEDIACRAWLER_REQUIRED_FILES,
+    default_mediacrawler_home,
+)
 from video_account_distiller_desktop.window import DistillerMainWindow
 
 
@@ -46,16 +51,19 @@ def _application(argv: list[str]) -> QApplication:
 def _run_smoke_test(output_path: Path) -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     app = _application([])
-    supervisor = LocalServiceSupervisor()
-    client: DesktopApiClient | None = None
-    try:
-        supervisor.start()
-        client = DesktopApiClient(supervisor.api.base_url)
-        with tempfile.TemporaryDirectory(prefix="distiller-desktop-smoke-") as temporary:
-            project_path = Path(temporary) / "验收项目"
+    with tempfile.TemporaryDirectory(prefix="distiller-desktop-smoke-") as temporary:
+        temporary_root = Path(temporary)
+        supervisor = LocalServiceSupervisor(
+            api=EmbeddedApiServer(task_db_path=temporary_root / "smoke-tasks.sqlite3")
+        )
+        client: DesktopApiClient | None = None
+        try:
+            supervisor.start()
+            client = DesktopApiClient(supervisor.api.base_url)
+            project_path = temporary_root / "验收项目"
             initialized = client.initialize_project(project_path, name="桌面打包验收")
             validation = client.validate_project(project_path)
-            settings_store = DesktopSettingsStore(Path(temporary) / "settings.json")
+            settings_store = DesktopSettingsStore(temporary_root / "settings.json")
             window = DistillerMainWindow(
                 supervisor=supervisor,
                 client=client,
@@ -71,27 +79,35 @@ def _run_smoke_test(output_path: Path) -> None:
             window.task_timer.stop()
             window.close()
             app.processEvents()
+            mediacrawler_home = default_mediacrawler_home()
+            mediacrawler_missing = [
+                relative.as_posix()
+                for relative in MEDIACRAWLER_REQUIRED_FILES
+                if not (mediacrawler_home / relative).is_file()
+            ]
             payload = {
                 "ok": True,
                 "native_qt_window": True,
                 "page_count": page_count,
                 "progress_stage_count": progress_stage_count,
                 "animated_wait_feedback": animated_wait_feedback,
+                "mediacrawler_runtime_complete": not mediacrawler_missing,
+                "mediacrawler_runtime_missing": mediacrawler_missing,
                 "health": client.health(),
                 "project_initialized": initialized.get("ok") is True,
                 "project_valid": validation.get("ok") is True,
                 "api_base_url": supervisor.api.base_url,
             }
-    except Exception as exc:  # pragma: no cover - packaged failure evidence
-        payload = {
-            "ok": False,
-            "error_type": type(exc).__name__,
-            "message": str(exc),
-        }
-    finally:
-        if client is not None:
-            client.close()
-        supervisor.stop()
+        except Exception as exc:  # pragma: no cover - packaged failure evidence
+            payload = {
+                "ok": False,
+                "error_type": type(exc).__name__,
+                "message": str(exc),
+            }
+        finally:
+            if client is not None:
+                client.close()
+            supervisor.stop()
     destination = output_path.expanduser().resolve()
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary_output = destination.with_suffix(destination.suffix + ".tmp")

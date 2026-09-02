@@ -40,6 +40,14 @@ from video_account_distiller.models.core import StrictModel
 
 MEDIACRAWLER_PINNED_COMMIT = "0625e01a6bc717a3fc9c96d3dac7fb8957043838"
 MEDIACRAWLER_BRIDGE_SCHEMA_VERSION = "1.0"
+MEDIACRAWLER_REQUIRED_FILES = (
+    Path("pyproject.toml"),
+    Path("uv.lock"),
+    Path("LICENSE"),
+    Path("cache/__init__.py"),
+    Path("cache/cache_factory.py"),
+    Path("media_platform/douyin/client.py"),
+)
 WINDOWS_STATUS_DLL_INIT_FAILED = 0xC0000142
 MAX_PROCESS_ERROR_CHARS = 4000
 
@@ -272,14 +280,10 @@ def mediacrawler_diagnostic(
         .expanduser()
         .resolve()
     )
-    required_files = (
-        Path("pyproject.toml"),
-        Path("uv.lock"),
-        Path("LICENSE"),
-        Path("media_platform/douyin/client.py"),
-    )
     missing_files = [
-        item.as_posix() for item in required_files if not (selected_home / item).is_file()
+        item.as_posix()
+        for item in MEDIACRAWLER_REQUIRED_FILES
+        if not (selected_home / item).is_file()
     ]
     actual_commit = _git_commit(selected_home)
     commit_matches = actual_commit == MEDIACRAWLER_PINNED_COMMIT
@@ -491,13 +495,8 @@ class MediaCrawlerAccountProvider:
             )
 
     def _validate_runtime(self) -> None:
-        required = [
-            self.home / "pyproject.toml",
-            self.home / "uv.lock",
-            self.home / "LICENSE",
-            self.home / "media_platform" / "douyin" / "client.py",
-            self.bridge_script,
-        ]
+        required = [self.home / relative for relative in MEDIACRAWLER_REQUIRED_FILES]
+        required.append(self.bridge_script)
         missing = [str(path) for path in required if not path.is_file()]
         if self.uv_executable is None or missing:
             raise DistillerError(

@@ -69,6 +69,8 @@ def _runtime(tmp_path: Path) -> tuple[Path, Path]:
         "pyproject.toml",
         "uv.lock",
         "LICENSE",
+        "cache/__init__.py",
+        "cache/cache_factory.py",
         "media_platform/douyin/client.py",
     ):
         path = home / relative
@@ -278,6 +280,29 @@ def test_mediacrawler_provider_requires_bundled_runtime(tmp_path: Path) -> None:
 
     assert captured.value.code == ErrorCode.MEDIACRAWLER_UNAVAILABLE
     assert captured.value.details["missing"]
+
+
+def test_mediacrawler_provider_requires_functional_cache_package(tmp_path: Path) -> None:
+    home, bridge = _runtime(tmp_path)
+    missing_cache = home / "cache" / "cache_factory.py"
+    missing_cache.unlink()
+    provider = MediaCrawlerAccountProvider(
+        home=home,
+        bridge_script=bridge,
+        uv_executable="uv-fixture",
+        executor=FixtureProcessExecutor(tmp_path / "unused.json"),
+    )
+
+    with pytest.raises(DistillerError) as captured:
+        provider.collect(
+            AccountCollectionRequest(
+                profile_url="https://www.douyin.com/user/demo",
+                provider=CollectionProviderKind.MEDIACRAWLER,
+            )
+        )
+
+    assert captured.value.code == ErrorCode.MEDIACRAWLER_UNAVAILABLE
+    assert str(missing_cache) in captured.value.details["missing"]
 
 
 def test_mediacrawler_provider_rejects_invalid_login_timeout(

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
 import os
+import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any, cast
@@ -148,3 +151,125 @@ def test_unavailable_service_message_is_concise_but_actionable() -> None:
         "本地模型服务未启动，可点击下方按钮启动"
     )
     assert _service_display_message("ollama", True, "模型服务可达") == "模型服务可达"
+
+
+def test_native_window_defers_close_until_active_worker_finishes(tmp_path: Path) -> None:
+    from PySide6.QtWidgets import QApplication
+
+    from video_account_distiller.application import DesktopSettings, DesktopSettingsStore
+    from video_account_distiller_desktop.window import DistillerMainWindow
+
+    app = QApplication.instance() or QApplication([])
+    window = DistillerMainWindow(
+        supervisor=cast(Any, _Supervisor()),
+        client=cast(Any, _Client()),
+        settings_store=DesktopSettingsStore(tmp_path / "settings.json"),
+        secret_store=cast(Any, _Secrets()),
+        settings=DesktopSettings(),
+    )
+    completed: list[object] = []
+
+    def delayed_result() -> str:
+        time.sleep(0.08)
+        return "done"
+
+    window.show()
+    app.processEvents()
+    window._run(
+        delayed_result,
+        completed.append,
+        message="closing worker regression",
+        show_busy=False,
+    )
+
+    assert len(window._workers) == 1
+    window.close()
+    assert window._closing is True
+    assert window.isVisible() is True
+
+    deadline = time.monotonic() + 5
+    while (window._workers or window.isVisible()) and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.005)
+
+    assert window._workers == {}
+    assert completed == []
+    assert window.isVisible() is False
+
+
+def test_background_workers_survive_until_queued_callbacks_complete() -> None:
+    """Exercise the PySide wrapper lifetime in a child process to contain native failures."""
+
+    script = r"""
+import gc
+import json
+import time
+
+from PySide6.QtCore import QCoreApplication, QThreadPool
+
+from video_account_distiller_desktop.window import DistillerMainWindow
+
+
+class Harness:
+    _run = DistillerMainWindow._run
+    _start_worker = DistillerMainWindow._start_worker
+
+    def __init__(self):
+        self.pool = QThreadPool.globalInstance()
+        self.pool.setMaxThreadCount(4)
+        self._workers = {}
+        self._closing = False
+
+
+app = QCoreApplication([])
+harness = Harness()
+completed = []
+failures = []
+for index in range(40):
+    harness._run(
+        lambda value=index: (time.sleep(0.05), value)[1],
+        completed.append,
+        message="worker lifetime regression",
+        on_failure=failures.append,
+        show_busy=False,
+    )
+
+retained_after_submit = len(harness._workers)
+gc.collect()
+deadline = time.monotonic() + 10
+while len(completed) + len(failures) < 40 and time.monotonic() < deadline:
+    app.processEvents()
+    time.sleep(0.005)
+harness.pool.waitForDone(5000)
+for _ in range(10):
+    app.processEvents()
+    time.sleep(0.001)
+
+print(json.dumps({
+    "retained_after_submit": retained_after_submit,
+    "completed": len(completed),
+    "failures": len(failures),
+    "remaining": len(harness._workers),
+}))
+"""
+    environment = dict(os.environ)
+    environment.setdefault("QT_QPA_PLATFORM", "offscreen")
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).resolve().parents[2],
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=30,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout.strip().splitlines()[-1])
+    assert payload == {
+        "retained_after_submit": 40,
+        "completed": 40,
+        "failures": 0,
+        "remaining": 0,
+    }

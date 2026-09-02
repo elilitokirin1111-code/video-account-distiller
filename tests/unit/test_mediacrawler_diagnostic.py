@@ -16,12 +16,15 @@ from video_account_distiller.collection.mediacrawler import (
 def _runtime(root: Path) -> Path:
     home = root / "MediaCrawler"
     (home / "media_platform" / "douyin").mkdir(parents=True)
+    (home / "cache").mkdir(parents=True)
     (home / "pyproject.toml").write_text(
         '[project]\nname = "mediacrawler"\nrequires-python = ">=3.11"\n',
         encoding="utf-8",
     )
     (home / "uv.lock").write_text("version = 1\n", encoding="utf-8")
     (home / "LICENSE").write_text("test fixture\n", encoding="utf-8")
+    (home / "cache" / "__init__.py").write_text("# fixture\n", encoding="utf-8")
+    (home / "cache" / "cache_factory.py").write_text("# fixture\n", encoding="utf-8")
     (home / "media_platform" / "douyin" / "client.py").write_text(
         "# fixture\n",
         encoding="utf-8",

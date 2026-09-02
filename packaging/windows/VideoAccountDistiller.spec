@@ -34,7 +34,6 @@ excluded_parts = {
     ".github",
     ".venv",
     "__pycache__",
-    "cache",
     "docs",
     "test",
     "tests",

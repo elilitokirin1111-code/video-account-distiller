@@ -265,6 +265,8 @@ def _mediacrawler_runtime(tmp_path: Path) -> tuple[Path, Path]:
         "pyproject.toml",
         "uv.lock",
         "LICENSE",
+        "cache/__init__.py",
+        "cache/cache_factory.py",
         "media_platform/douyin/client.py",
     ):
         path = home / relative

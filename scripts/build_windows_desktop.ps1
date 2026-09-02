@@ -27,6 +27,14 @@ try {
         --workpath (Join-Path $repository "build\pyinstaller") $spec
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller build failed" }
 
+    $mediacrawlerRuntime = Join-Path $applicationDir "_internal\third_party\MediaCrawler"
+    uv run python -c `
+        "import importlib, sys; sys.path.insert(0, sys.argv[1]); importlib.import_module('cache.cache_factory')" `
+        $mediacrawlerRuntime
+    if ($LASTEXITCODE -ne 0) {
+        throw "Packaged MediaCrawler cache import probe failed"
+    }
+
     Copy-Item -LiteralPath (Join-Path $repository "docs\desktop-user-guide.md") `
         -Destination (Join-Path $applicationDir "desktop-user-guide.md") -Force
     Copy-Item -LiteralPath (Join-Path $repository "LICENSE") `
@@ -48,7 +56,8 @@ try {
         -or -not $smoke.native_qt_window `
         -or $smoke.page_count -ne 6 `
         -or $smoke.progress_stage_count -ne 6 `
-        -or -not $smoke.animated_wait_feedback
+        -or -not $smoke.animated_wait_feedback `
+        -or -not $smoke.mediacrawler_runtime_complete
     ) {
         throw "Packaged desktop smoke result did not satisfy the acceptance contract"
     }

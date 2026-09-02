@@ -38,7 +38,6 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QApplication,
     QCheckBox,
     QComboBox,
     QFileDialog,
@@ -95,6 +94,10 @@ class _WorkerSignals(QObject):
 class _Worker(QRunnable):
     def __init__(self, call: Callable[[], Any]) -> None:
         super().__init__()
+        # Python owns the runnable until its queued completion callback runs.
+        # Letting QThreadPool auto-delete a wrapper that also owns Python signal
+        # objects can become a use-after-free on PySide/Python 3.14.
+        self.setAutoDelete(False)
         self.call = call
         self.signals = _WorkerSignals()
 
@@ -115,6 +118,7 @@ class _ProgressWorker(QRunnable):
         call: Callable[[Callable[[int, int], None]], Any],
     ) -> None:
         super().__init__()
+        self.setAutoDelete(False)
         self.call = call
         self.signals = _WorkerSignals()
 
@@ -611,6 +615,10 @@ class DistillerMainWindow(QMainWindow):
         self._bundle_rows: list[dict[str, str]] = []
         self._last_tasks: list[dict[str, Any]] = []
         self._page_animation: QPropertyAnimation | None = None
+        # QThreadPool only owns the C++ runnable. Keep each Python wrapper and
+        # its signal object alive until the queued UI callback has completed.
+        self._workers: dict[int, _Worker | _ProgressWorker] = {}
+        self._closing = False
         self.update_service = DesktopUpdateService()
         self._available_update: AvailableDesktopUpdate | None = None
         self._prepared_update: PreparedDesktopUpdate | None = None
@@ -1379,6 +1387,8 @@ class DistillerMainWindow(QMainWindow):
         on_failure: Callable[[Exception], None] | None = None,
         show_busy: bool = True,
     ) -> None:
+        if self._closing:
+            return
         if show_busy:
             self.footer.begin(message)
         worker = _Worker(call)
@@ -1397,9 +1407,54 @@ class DistillerMainWindow(QMainWindow):
             else:
                 self._show_error(value)
 
-        worker.signals.success.connect(success)
-        worker.signals.failure.connect(failure)
-        self.pool.start(worker)
+        self._start_worker(worker, on_success=success, on_failure=failure)
+
+    def _start_worker(
+        self,
+        worker: _Worker | _ProgressWorker,
+        *,
+        on_success: Callable[[object], None],
+        on_failure: Callable[[object], None],
+        on_progress: Callable[[object], None] | None = None,
+    ) -> None:
+        """Start a Qt runnable while retaining its Python signal owner safely."""
+
+        token = id(worker)
+        self._workers[token] = worker
+
+        def release() -> None:
+            self._workers.pop(token, None)
+            if self._closing and not self._workers:
+                QTimer.singleShot(0, self.close)
+
+        def success(value: object) -> None:
+            try:
+                if not self._closing:
+                    on_success(value)
+            finally:
+                release()
+
+        def failure(value: object) -> None:
+            try:
+                if not self._closing:
+                    on_failure(value)
+            finally:
+                release()
+
+        def progress(value: object) -> None:
+            if not self._closing and on_progress is not None:
+                on_progress(value)
+
+        connection = Qt.ConnectionType.QueuedConnection
+        try:
+            worker.signals.success.connect(success, connection)
+            worker.signals.failure.connect(failure, connection)
+            if on_progress is not None:
+                worker.signals.progress.connect(progress, connection)
+            self.pool.start(worker)
+        except Exception:
+            release()
+            raise
 
     def _show_error(self, exc: Exception) -> None:
         if isinstance(exc, DesktopApiError):
@@ -1543,10 +1598,12 @@ class DistillerMainWindow(QMainWindow):
             self.footer.finish("更新未安装", state="error")
             self._show_error(value)
 
-        worker.signals.progress.connect(report)
-        worker.signals.success.connect(done)
-        worker.signals.failure.connect(failed)
-        self.pool.start(worker)
+        self._start_worker(
+            worker,
+            on_success=done,
+            on_failure=failed,
+            on_progress=report,
+        )
 
     def _install_prepared_update(self) -> None:
         prepared = self._prepared_update
@@ -1584,7 +1641,7 @@ class DistillerMainWindow(QMainWindow):
             self.footer.finish("即将原地更新并退出", state="success")
             self.save_settings(silent=True)
             self.task_timer.stop()
-            QTimer.singleShot(350, QApplication.quit)
+            QTimer.singleShot(350, self.close)
 
         def failed(exc: Exception) -> None:
             self.update_button.setEnabled(True)
@@ -2226,6 +2283,17 @@ class DistillerMainWindow(QMainWindow):
             self.footer.setText("设置已保存；设置文件不包含任何密钥")
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - Qt override
+        if self._workers:
+            if not self._closing:
+                self._closing = True
+                self.task_timer.stop()
+                central = self.centralWidget()
+                if central is not None:
+                    central.setEnabled(False)
+                self.footer.begin(f"正在等待 {len(self._workers)} 个后台操作安全结束，再退出…")
+            event.ignore()
+            return
+        self._closing = True
         try:
             self.save_settings(silent=True)
         finally:
