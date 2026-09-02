@@ -42,7 +42,13 @@ try {
         throw "Packaged desktop smoke test failed with exit code $($process.ExitCode)"
     }
     $smoke = Get-Content -LiteralPath $smokeResult -Raw | ConvertFrom-Json
-    if (-not $smoke.ok -or -not $smoke.native_qt_window -or $smoke.page_count -ne 6) {
+    if (
+        -not $smoke.ok `
+        -or -not $smoke.native_qt_window `
+        -or $smoke.page_count -ne 6 `
+        -or $smoke.progress_stage_count -ne 6 `
+        -or -not $smoke.animated_wait_feedback
+    ) {
         throw "Packaged desktop smoke result did not satisfy the acceptance contract"
     }
 

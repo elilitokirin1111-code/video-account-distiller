@@ -1001,6 +1001,21 @@ requirements from later phases.
   machine-verifiable packaged smoke contract catches missing Qt plugins, templates, prompt assets,
   routers, and data files that source-level unit tests cannot detect.
 
+## ID-102 — Combine Fluent navigation with progressive workflow disclosure
+
+- **Decision:** Use a compact Fluent/WinUI-style application shell, Linear-like information
+  hierarchy, settings cards inspired by model desktop clients, and a Carbon/Dify-style six-stage
+  task tracker. Frequently changed account and objective controls remain visible; model settings are
+  grouped separately, while uncommon media parameters live in an animated disclosure section.
+  Background work exposes both a global pulsing wait timer and durable per-task stage, progress,
+  message, elapsed time, and status. Animations are short Qt property animations over native widgets
+  and never substitute for task state reported by the API.
+- **Reason:** The earlier dense three-column form made all controls appear equally important and
+  gave long operations only a static status sentence. A staged, progressively disclosed layout
+  shortens the primary path, makes waiting legible, and keeps the window usable while work runs;
+  binding every progress cue to durable task data prevents decorative motion from implying progress
+  that did not occur.
+
 
 
 

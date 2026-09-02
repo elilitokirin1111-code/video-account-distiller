@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 from typing import Any, cast
 
@@ -59,4 +60,45 @@ def test_native_window_builds_secret_free_knowledge_workflow_payload(tmp_path: P
     assert "weknora" not in payload
     window.task_timer.stop()
     window.close()
+    app.processEvents()
+
+
+def test_task_progress_and_wait_feedback_reflect_live_work() -> None:
+    from PySide6.QtWidgets import QApplication
+
+    from video_account_distiller_desktop.window import _BusyStatusBar, _TaskProgressPanel
+
+    app = QApplication.instance() or QApplication([])
+    panel = _TaskProgressPanel()
+    panel.set_task(
+        {
+            "task_id": "task-12345678",
+            "status": "running",
+            "stage": "video_knowledge",
+            "progress": 0.58,
+            "message": "正在提取逐视频知识",
+            "created_at": "2026-09-02T09:00:00+08:00",
+        }
+    )
+
+    assert panel.status.text() == "正在运行"
+    assert panel.message.text() == "正在提取逐视频知识"
+    assert panel._animation.endValue() == 58
+    assert panel.stages.items[3][0].property("stageState") == "active"
+    assert panel.stages.items[0][0].property("stageState") == "complete"
+
+    footer = _BusyStatusBar()
+    footer.begin("正在检查项目与依赖")
+    footer._started_at = time.monotonic() - 65
+    footer._tick()
+
+    assert footer.property("state") == "busy"
+    assert "程序仍在工作" in footer.elapsed.text()
+
+    footer.finish("预检完成")
+    assert footer.text() == "预检完成"
+    assert footer.elapsed.text() == ""
+    panel._timer.stop()
+    panel.close()
+    footer.close()
     app.processEvents()

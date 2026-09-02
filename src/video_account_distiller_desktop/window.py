@@ -3,13 +3,39 @@
 from __future__ import annotations
 
 import json
+import math
 import os
+import time
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QObject, QRunnable, QSize, Qt, QThreadPool, QTimer, QUrl, Signal
-from PySide6.QtGui import QCloseEvent, QDesktopServices
+from PySide6.QtCore import (
+    QEasingCurve,
+    QObject,
+    QPointF,
+    QPropertyAnimation,
+    QRectF,
+    QRunnable,
+    QSize,
+    Qt,
+    QThreadPool,
+    QTimer,
+    QUrl,
+    Signal,
+)
+from PySide6.QtGui import (
+    QCloseEvent,
+    QColor,
+    QDesktopServices,
+    QIcon,
+    QPainter,
+    QPainterPath,
+    QPaintEvent,
+    QPen,
+    QPixmap,
+)
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -17,6 +43,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QFrame,
+    QGraphicsOpacityEffect,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -25,7 +52,10 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QMessageBox,
+    QProgressBar,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QStackedWidget,
     QTableWidget,
@@ -76,6 +106,428 @@ def _button(text: str, *, primary: bool = False) -> QPushButton:
     return result
 
 
+def _repolish(widget: QWidget) -> None:
+    style = widget.style()
+    style.unpolish(widget)
+    style.polish(widget)
+    widget.update()
+
+
+def _nav_icon(name: str, color: str) -> QIcon:
+    """Return a small code-owned line icon without adding another asset runtime."""
+
+    pixmap = QPixmap(22, 22)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    pen = QPen(QColor(color), 1.7)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    painter.setPen(pen)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+
+    if name == "home":
+        path = QPainterPath(QPointF(3.5, 10.2))
+        path.lineTo(11, 4)
+        path.lineTo(18.5, 10.2)
+        painter.drawPath(path)
+        painter.drawRoundedRect(QRectF(5.5, 9.5, 11, 9), 1.5, 1.5)
+        painter.drawLine(QPointF(10, 18.5), QPointF(10, 13.5))
+    elif name == "spark":
+        path = QPainterPath(QPointF(11, 2.8))
+        path.lineTo(13.1, 8.9)
+        path.lineTo(19.2, 11)
+        path.lineTo(13.1, 13.1)
+        path.lineTo(11, 19.2)
+        path.lineTo(8.9, 13.1)
+        path.lineTo(2.8, 11)
+        path.lineTo(8.9, 8.9)
+        path.closeSubpath()
+        painter.drawPath(path)
+    elif name == "tasks":
+        for y in (5.0, 11.0, 17.0):
+            painter.drawRoundedRect(QRectF(3, y - 1.4, 2.8, 2.8), 0.7, 0.7)
+            painter.drawLine(QPointF(8, y), QPointF(19, y))
+    elif name == "documents":
+        painter.drawRoundedRect(QRectF(5, 3, 12, 16), 1.8, 1.8)
+        painter.drawLine(QPointF(8, 8), QPointF(14, 8))
+        painter.drawLine(QPointF(8, 12), QPointF(14, 12))
+        painter.drawLine(QPointF(8, 16), QPointF(12, 16))
+    elif name == "database":
+        painter.drawEllipse(QRectF(4, 3, 14, 5))
+        painter.drawArc(QRectF(4, 7, 14, 5), 0, -180 * 16)
+        painter.drawArc(QRectF(4, 12, 14, 5), 0, -180 * 16)
+        painter.drawLine(QPointF(4, 5.5), QPointF(4, 14.5))
+        painter.drawLine(QPointF(18, 5.5), QPointF(18, 14.5))
+    else:
+        painter.drawEllipse(QRectF(6, 6, 10, 10))
+        painter.drawEllipse(QRectF(9, 9, 4, 4))
+        for angle in range(0, 360, 45):
+            radians = math.radians(angle)
+            painter.drawLine(
+                QPointF(11 + math.cos(radians) * 6.2, 11 + math.sin(radians) * 6.2),
+                QPointF(11 + math.cos(radians) * 8.3, 11 + math.sin(radians) * 8.3),
+            )
+    painter.end()
+    return QIcon(pixmap)
+
+
+def _field(label: str, control: QWidget, hint: str | None = None) -> QWidget:
+    container = QWidget()
+    container.setObjectName("fieldBlock")
+    layout = QVBoxLayout(container)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(6)
+    title = QLabel(label)
+    title.setObjectName("fieldLabel")
+    layout.addWidget(title)
+    layout.addWidget(control)
+    if hint:
+        detail = QLabel(hint)
+        detail.setObjectName("fieldHint")
+        detail.setWordWrap(True)
+        layout.addWidget(detail)
+    return container
+
+
+class _PulseDots(QWidget):
+    """A lightweight native busy animation that remains smooth during polling."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setFixedSize(42, 18)
+        self._phase = 0.0
+        self._active = False
+        self._color = QColor("#2F7D63")
+        self._timer = QTimer(self)
+        self._timer.setInterval(70)
+        self._timer.timeout.connect(self._advance)
+
+    def set_active(self, active: bool, *, color: str = "#2F7D63") -> None:
+        self._active = active
+        self._color = QColor(color)
+        if active:
+            self._timer.start()
+        else:
+            self._timer.stop()
+        self.update()
+
+    def _advance(self) -> None:
+        self._phase = (self._phase + 0.32) % (math.pi * 2)
+        self.update()
+
+    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802 - Qt override
+        del event
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        for index, x in enumerate((8.0, 21.0, 34.0)):
+            wave = (math.sin(self._phase - index * 0.72) + 1.0) / 2.0
+            radius = 2.5 + (1.4 * wave if self._active else 0.0)
+            color = QColor(self._color)
+            color.setAlpha(105 + int(150 * wave) if self._active else 125)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(color)
+            painter.drawEllipse(QPointF(x, 9), radius, radius)
+        painter.end()
+
+
+class _BusyStatusBar(QFrame):
+    """Global operation feedback with a wait timer and a reassuring heartbeat."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("footerBar")
+        self.setProperty("state", "idle")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(12, 7, 12, 7)
+        layout.setSpacing(8)
+        self.pulse = _PulseDots()
+        self.message = QLabel("就绪")
+        self.message.setObjectName("footerMessage")
+        self.elapsed = QLabel("")
+        self.elapsed.setObjectName("footerElapsed")
+        layout.addWidget(self.pulse)
+        layout.addWidget(self.message, 1)
+        layout.addWidget(self.elapsed)
+        self._started_at: float | None = None
+        self._timer = QTimer(self)
+        self._timer.setInterval(1000)
+        self._timer.timeout.connect(self._tick)
+
+    def begin(self, text: str) -> None:
+        self._started_at = time.monotonic()
+        self.message.setText(text)
+        self.elapsed.setText("刚刚开始")
+        self.setProperty("state", "busy")
+        _repolish(self)
+        self.pulse.set_active(True)
+        self._timer.start()
+
+    def finish(self, text: str, *, state: str = "idle") -> None:
+        self._timer.stop()
+        self._started_at = None
+        self.message.setText(text)
+        self.elapsed.setText("")
+        self.setProperty("state", state)
+        _repolish(self)
+        color = "#B42318" if state == "error" else "#2F7D63"
+        self.pulse.set_active(False, color=color)
+
+    def setText(self, text: str) -> None:  # noqa: N802 - compatibility with QLabel callers
+        self.finish(text)
+
+    def text(self) -> str:
+        return self.message.text()
+
+    def _tick(self) -> None:
+        if self._started_at is None:
+            return
+        elapsed = max(0, int(time.monotonic() - self._started_at))
+        if elapsed < 60:
+            self.elapsed.setText(f"已等待 {elapsed} 秒")
+        else:
+            minutes, seconds = divmod(elapsed, 60)
+            self.elapsed.setText(f"已等待 {minutes}:{seconds:02d} · 程序仍在工作")
+
+
+class _CollapsibleSection(QFrame):
+    """Animated progressive disclosure for uncommon model parameters."""
+
+    def __init__(self, title: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("collapsibleSection")
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        self.toggle = QPushButton(f"›  {title}")
+        self.toggle.setObjectName("collapseToggle")
+        self.toggle.setCheckable(True)
+        self.toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.toggle.toggled.connect(self._toggle)
+        outer.addWidget(self.toggle)
+        self.content = QWidget()
+        self.content.setObjectName("collapseContent")
+        self.content_layout = QGridLayout(self.content)
+        self.content_layout.setContentsMargins(16, 14, 16, 16)
+        self.content_layout.setHorizontalSpacing(16)
+        self.content_layout.setVerticalSpacing(14)
+        self.content.setMaximumHeight(0)
+        self.content.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        outer.addWidget(self.content)
+        self.animation = QPropertyAnimation(self.content, b"maximumHeight", self)
+        self.animation.setDuration(240)
+        self.animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+    def _toggle(self, expanded: bool) -> None:
+        self.toggle.setText(("⌄" if expanded else "›") + self.toggle.text()[1:])
+        self.animation.stop()
+        self.animation.setStartValue(self.content.maximumHeight())
+        target = self.content.sizeHint().height() if expanded else 0
+        self.animation.setEndValue(target)
+        self.animation.start()
+
+
+class _StageTracker(QWidget):
+    STAGES = ("准备", "采集", "媒体处理", "知识蒸馏", "生成报告", "完成")
+    STAGE_INDEX = {
+        "pending": 0,
+        "starting": 0,
+        "preflight": 0,
+        "ready": 0,
+        "resuming": 0,
+        "collect": 1,
+        "collection_complete": 1,
+        "media": 2,
+        "media_reparse": 2,
+        "media_complete": 2,
+        "video_knowledge": 3,
+        "video_knowledge_complete": 3,
+        "distill": 3,
+        "report": 4,
+        "report_complete": 4,
+        "knowledge_synthesis": 4,
+        "knowledge_export": 4,
+        "knowledge_export_complete": 4,
+        "narrative": 4,
+        "narrative_complete": 4,
+        "media_cleanup": 5,
+        "media_cleanup_complete": 5,
+        "completed": 5,
+        "failed": 5,
+        "cancelled": 5,
+    }
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        self.items: list[tuple[QLabel, QLabel]] = []
+        self.lines: list[QFrame] = []
+        for index, label in enumerate(self.STAGES):
+            item = QWidget()
+            item_layout = QVBoxLayout(item)
+            item_layout.setContentsMargins(0, 0, 0, 0)
+            item_layout.setSpacing(5)
+            dot = QLabel(str(index + 1))
+            dot.setObjectName("stageDot")
+            dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            dot.setFixedSize(24, 24)
+            text = QLabel(label)
+            text.setObjectName("stageLabel")
+            text.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.items.append((dot, text))
+            item_layout.addWidget(dot, 0, Qt.AlignmentFlag.AlignHCenter)
+            item_layout.addWidget(text)
+            layout.addWidget(item)
+            if index < len(self.STAGES) - 1:
+                line = QFrame()
+                line.setObjectName("stageLine")
+                line.setFixedHeight(2)
+                line.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+                self.lines.append(line)
+                layout.addWidget(line, 1, Qt.AlignmentFlag.AlignTop)
+                layout.setAlignment(line, Qt.AlignmentFlag.AlignVCenter)
+        self.update_stage("pending", "queued")
+
+    def update_stage(self, stage: str, status: str) -> None:
+        current = self.STAGE_INDEX.get(stage, 0)
+        failed = status in {"failed", "cancelled"}
+        completed = status == "completed"
+        for index, (dot, label) in enumerate(self.items):
+            if index < current or completed:
+                state = "complete"
+                dot.setText("✓")
+            elif index == current:
+                state = "error" if failed else "active"
+                dot.setText("!" if failed else str(index + 1))
+            else:
+                state = "pending"
+                dot.setText(str(index + 1))
+            for widget in (dot, label):
+                widget.setProperty("stageState", state)
+                _repolish(widget)
+        for index, line in enumerate(self.lines):
+            line.setProperty("stageState", "complete" if index < current or completed else "pending")
+            _repolish(line)
+
+
+class _TaskProgressPanel(QFrame):
+    STATUS_TEXT = {
+        "queued": "排队中",
+        "pending": "等待执行",
+        "running": "正在运行",
+        "completed": "已完成",
+        "failed": "执行失败",
+        "cancel_requested": "正在取消",
+        "cancelled": "已取消",
+    }
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("taskProgressPanel")
+        self._task: dict[str, Any] | None = None
+        self._observed_at = time.monotonic()
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 18, 20, 18)
+        layout.setSpacing(12)
+        top = QHBoxLayout()
+        self.pulse = _PulseDots()
+        self.title = QLabel("等待任务")
+        self.title.setObjectName("taskProgressTitle")
+        self.status = QLabel("暂无运行任务")
+        self.status.setObjectName("statusPill")
+        top.addWidget(self.pulse)
+        top.addWidget(self.title)
+        top.addStretch(1)
+        top.addWidget(self.status)
+        layout.addLayout(top)
+        self.message = QLabel("提交蒸馏任务后，这里会持续显示当前步骤和等待时间。")
+        self.message.setObjectName("taskProgressMessage")
+        self.message.setWordWrap(True)
+        layout.addWidget(self.message)
+        self.progress = QProgressBar()
+        self.progress.setObjectName("taskProgressBar")
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress.setTextVisible(False)
+        layout.addWidget(self.progress)
+        self.stages = _StageTracker()
+        layout.addWidget(self.stages)
+        bottom = QHBoxLayout()
+        self.detail = QLabel("系统会每 2.5 秒刷新一次，窗口可以继续使用。")
+        self.detail.setObjectName("taskProgressDetail")
+        self.elapsed = QLabel("")
+        self.elapsed.setObjectName("taskProgressElapsed")
+        bottom.addWidget(self.detail, 1)
+        bottom.addWidget(self.elapsed)
+        layout.addLayout(bottom)
+        self._animation = QPropertyAnimation(self.progress, b"value", self)
+        self._animation.setDuration(420)
+        self._animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._timer = QTimer(self)
+        self._timer.setInterval(1000)
+        self._timer.timeout.connect(self._update_elapsed)
+        self._timer.start()
+
+    def set_task(self, task: dict[str, Any] | None) -> None:
+        if task is None:
+            self._task = None
+            self.title.setText("等待任务")
+            self.message.setText("提交蒸馏任务后，这里会持续显示当前步骤和等待时间。")
+            self._set_status("idle", "暂无运行任务")
+            self.pulse.set_active(False)
+            self.progress.setRange(0, 100)
+            self.progress.setValue(0)
+            self.stages.update_stage("pending", "queued")
+            self.elapsed.setText("")
+            return
+
+        task_id = str(task.get("task_id") or "")
+        previous_id = str((self._task or {}).get("task_id") or "")
+        if task_id != previous_id:
+            self._observed_at = time.monotonic()
+        self._task = task
+        status = str(task.get("status") or "pending")
+        stage = str(task.get("stage") or "pending")
+        active = status in {"queued", "pending", "running", "cancel_requested"}
+        title = "正在执行账号蒸馏" if active else "最近一次账号蒸馏"
+        self.title.setText(title)
+        self.message.setText(str(task.get("message") or "正在准备任务，请稍候…"))
+        self._set_status(status, self.STATUS_TEXT.get(status, status))
+        self.pulse.set_active(active, color="#2F7D63" if status != "cancel_requested" else "#B7791F")
+        value = max(0, min(100, round(float(task.get("progress") or 0.0) * 100)))
+        self.progress.setRange(0, 100)
+        self._animation.stop()
+        self._animation.setStartValue(self.progress.value())
+        self._animation.setEndValue(value)
+        self._animation.start()
+        self.stages.update_stage(stage, status)
+        self.detail.setText(f"阶段：{stage or '准备'}  ·  任务 {task_id[:8] or '-'}")
+        self._update_elapsed()
+
+    def _set_status(self, state: str, text: str) -> None:
+        self.status.setText(text)
+        self.status.setProperty("statusState", state)
+        _repolish(self.status)
+
+    def _update_elapsed(self) -> None:
+        if self._task is None:
+            return
+        status = str(self._task.get("status") or "")
+        created_at = str(self._task.get("created_at") or "")
+        elapsed: int | None = None
+        try:
+            created = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+            now = datetime.now(created.tzinfo) if created.tzinfo else datetime.now()
+            elapsed = max(0, int((now - created).total_seconds()))
+        except (TypeError, ValueError):
+            elapsed = max(0, int(time.monotonic() - self._observed_at))
+        minutes, seconds = divmod(elapsed, 60)
+        prefix = "已用时" if status in {"completed", "failed", "cancelled"} else "运行中"
+        self.elapsed.setText(f"{prefix} {minutes:02d}:{seconds:02d}")
+
+
 def _title(text: str, subtitle: str) -> QWidget:
     container = QWidget()
     layout = QVBoxLayout(container)
@@ -110,6 +562,8 @@ class DistillerMainWindow(QMainWindow):
         self._tasks_busy = False
         self._service_busy = False
         self._bundle_rows: list[dict[str, str]] = []
+        self._last_tasks: list[dict[str, Any]] = []
+        self._page_animation: QPropertyAnimation | None = None
 
         self.setWindowTitle("Video Account Distiller")
         self.resize(1420, 900)
@@ -128,6 +582,7 @@ class DistillerMainWindow(QMainWindow):
 
     def _build_ui(self) -> None:
         root = QWidget()
+        root.setObjectName("appRoot")
         self.setCentralWidget(root)
         outer = QHBoxLayout(root)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -135,36 +590,56 @@ class DistillerMainWindow(QMainWindow):
 
         sidebar = QFrame()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(230)
+        sidebar.setFixedWidth(218)
         side = QVBoxLayout(sidebar)
-        side.setContentsMargins(22, 26, 22, 20)
-        brand = QLabel("VAD")
-        brand.setObjectName("brandMark")
-        name = QLabel("Video Account\nDistiller")
-        name.setObjectName("brandName")
-        strapline = QLabel("账号内容蒸馏工作台")
+        side.setContentsMargins(16, 20, 16, 16)
+        side.setSpacing(6)
+        brand_row = QHBoxLayout()
+        brand_mark = QLabel("V")
+        brand_mark.setObjectName("brandMark")
+        brand_mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        brand_mark.setFixedSize(38, 38)
+        brand_text = QWidget()
+        brand_text_layout = QVBoxLayout(brand_text)
+        brand_text_layout.setContentsMargins(0, 0, 0, 0)
+        brand_text_layout.setSpacing(1)
+        brand_name = QLabel("账号蒸馏台")
+        brand_name.setObjectName("brandName")
+        strapline = QLabel("VIDEO DISTILLER")
         strapline.setObjectName("brandStrapline")
-        side.addWidget(brand)
-        side.addWidget(name)
-        side.addWidget(strapline)
-        side.addSpacing(24)
+        brand_text_layout.addWidget(brand_name)
+        brand_text_layout.addWidget(strapline)
+        brand_row.addWidget(brand_mark)
+        brand_row.addWidget(brand_text, 1)
+        side.addLayout(brand_row)
+        side.addSpacing(20)
+        section_label = QLabel("工作区")
+        section_label.setObjectName("navSectionLabel")
+        side.addWidget(section_label)
 
         self.stack = QStackedWidget()
         pages = [
-            ("总览", self._overview_page()),
-            ("账号蒸馏", self._distill_page()),
-            ("任务中心", self._tasks_page()),
-            ("知识结果", self._results_page()),
-            ("WeKnora", self._weknora_page()),
-            ("设置", self._settings_page()),
+            ("home", "总览", self._overview_page()),
+            ("spark", "账号蒸馏", self._distill_page()),
+            ("tasks", "任务中心", self._tasks_page()),
+            ("documents", "知识结果", self._results_page()),
+            ("database", "WeKnora", self._weknora_page()),
+            ("settings", "设置", self._settings_page()),
         ]
         self.nav_buttons: list[QPushButton] = []
-        for index, (label, page) in enumerate(pages):
+        for index, (icon_name, label, page) in enumerate(pages):
             nav = QPushButton(label)
             nav.setObjectName("navButton")
+            nav.setIcon(_nav_icon(icon_name, "#91A4B3"))
+            nav.setIconSize(QSize(20, 20))
             nav.setCheckable(True)
             nav.setAutoExclusive(True)
             nav.clicked.connect(lambda _checked=False, value=index: self._show_page(value))
+            nav.toggled.connect(
+                lambda checked, button=nav, key=icon_name: button.setIcon(
+                    _nav_icon(key, "#E9FFF7" if checked else "#91A4B3")
+                )
+            )
             self.nav_buttons.append(nav)
             side.addWidget(nav)
             self.stack.addWidget(page)
@@ -177,14 +652,18 @@ class DistillerMainWindow(QMainWindow):
         outer.addWidget(sidebar)
 
         content = QWidget()
+        content.setObjectName("contentShell")
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(28, 20, 28, 18)
-        content_layout.setSpacing(14)
+        content_layout.setContentsMargins(24, 16, 24, 14)
+        content_layout.setSpacing(12)
         project_bar = QFrame()
         project_bar.setObjectName("projectBar")
         project_layout = QHBoxLayout(project_bar)
-        project_layout.setContentsMargins(16, 10, 16, 10)
-        project_layout.addWidget(QLabel("当前项目"))
+        project_layout.setContentsMargins(14, 9, 12, 9)
+        project_layout.setSpacing(8)
+        project_label = QLabel("项目")
+        project_label.setObjectName("projectLabel")
+        project_layout.addWidget(project_label)
         self.project_edit = QLineEdit()
         self.project_edit.setPlaceholderText("选择或初始化一个本地蒸馏项目目录")
         project_layout.addWidget(self.project_edit, 1)
@@ -194,10 +673,24 @@ class DistillerMainWindow(QMainWindow):
         initialize.clicked.connect(self.initialize_project)
         project_layout.addWidget(browse)
         project_layout.addWidget(initialize)
+        service_divider = QFrame()
+        service_divider.setObjectName("toolbarDivider")
+        service_divider.setFixedSize(1, 24)
+        project_layout.addWidget(service_divider)
+        self.header_service_labels: dict[str, QLabel] = {}
+        for service_name, label in (
+            ("api", "API"),
+            ("ollama", "Ollama"),
+            ("weknora", "WeKnora"),
+        ):
+            pill = QLabel(f"● {label}")
+            pill.setObjectName("servicePill")
+            pill.setProperty("statusState", "unknown")
+            self.header_service_labels[service_name] = pill
+            project_layout.addWidget(pill)
         content_layout.addWidget(project_bar)
         content_layout.addWidget(self.stack, 1)
-        self.footer = QLabel("就绪")
-        self.footer.setObjectName("footer")
+        self.footer = _BusyStatusBar()
         content_layout.addWidget(self.footer)
         outer.addWidget(content, 1)
 
@@ -263,42 +756,45 @@ class DistillerMainWindow(QMainWindow):
 
     def _distill_page(self) -> QWidget:
         page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 0, 0, 0)
+        outer = QVBoxLayout(page)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(10)
+
+        scroll = QScrollArea()
+        scroll.setObjectName("pageScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        body = QWidget()
+        body.setObjectName("scrollBody")
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(0, 0, 8, 4)
+        layout.setSpacing(14)
         layout.addWidget(
             _title(
                 "账号采集与蒸馏",
-                "一个入口完成主页采集、视频下载、语音转写、视觉理解以及运营蒸馏或纯知识蒸馏。",
+                "按步骤配置账号来源、蒸馏目标与模型能力；提交后可实时查看每个处理阶段。",
             )
         )
-        form_frame = QFrame()
-        form_frame.setObjectName("panel")
-        grid = QGridLayout(form_frame)
-        grid.setHorizontalSpacing(20)
-        grid.setVerticalSpacing(14)
 
+        source = QFrame()
+        source.setObjectName("formSection")
+        source_layout = QVBoxLayout(source)
+        source_layout.setContentsMargins(18, 16, 18, 18)
+        source_layout.setSpacing(14)
+        source_header = QLabel("1   账号与采集")
+        source_header.setObjectName("sectionTitle")
+        source_caption = QLabel("选择内容来源和本次处理范围")
+        source_caption.setObjectName("sectionCaption")
+        source_layout.addWidget(source_header)
+        source_layout.addWidget(source_caption)
+        source_grid = QGridLayout()
+        source_grid.setHorizontalSpacing(16)
+        source_grid.setVerticalSpacing(14)
         self.account_url = QLineEdit()
         self.account_url.setPlaceholderText("粘贴抖音账号主页链接")
-        grid.addWidget(QLabel("账号主页"), 0, 0)
-        grid.addWidget(self.account_url, 0, 1, 1, 5)
-
-        self.mode_combo = QComboBox()
-        self.mode_combo.addItem("纯知识蒸馏 · 一视频一文档", "knowledge")
-        self.mode_combo.addItem("运营蒸馏 · 选题/表达/增长", "creative_learning")
-        self.mode_combo.currentIndexChanged.connect(self._update_mode_help)
-        self.focus_combo = QComboBox()
-        self.focus_combo.addItem("通用分析", "general")
-        self.focus_combo.addItem("酒旅迁移分析", "hospitality")
         self.collection_provider = QComboBox()
         self.collection_provider.addItem("MediaCrawler（本机浏览器）", "mediacrawler")
         self.collection_provider.addItem("TikHub（付费 API）", "tikhub")
-        grid.addWidget(QLabel("蒸馏目标"), 1, 0)
-        grid.addWidget(self.mode_combo, 1, 1)
-        grid.addWidget(QLabel("分析方向"), 1, 2)
-        grid.addWidget(self.focus_combo, 1, 3)
-        grid.addWidget(QLabel("采集方式"), 1, 4)
-        grid.addWidget(self.collection_provider, 1, 5)
-
         self.collection_count = QSpinBox()
         self.collection_count.setRange(1, 20_000)
         self.collection_count.setValue(20)
@@ -309,11 +805,68 @@ class DistillerMainWindow(QMainWindow):
         self.media_limit = QSpinBox()
         self.media_limit.setRange(0, 20_000)
         self.media_limit.setValue(20)
-        grid.addWidget(QLabel("视频数量"), 2, 0)
-        grid.addWidget(self.collection_count, 2, 1)
-        grid.addWidget(self.all_videos, 2, 2, 1, 2)
-        grid.addWidget(QLabel("下载/转写数量"), 2, 4)
-        grid.addWidget(self.media_limit, 2, 5)
+        source_grid.addWidget(
+            _field("账号主页", self.account_url, "支持粘贴完整主页链接，提交前会先验证格式。"),
+            0,
+            0,
+            1,
+            2,
+        )
+        source_grid.addWidget(_field("采集方式", self.collection_provider), 1, 0)
+        source_grid.addWidget(_field("主页视频数量", self.collection_count), 1, 1)
+        all_row = QWidget()
+        all_layout = QHBoxLayout(all_row)
+        all_layout.setContentsMargins(0, 0, 0, 0)
+        all_layout.addWidget(self.all_videos)
+        all_layout.addStretch(1)
+        source_grid.addWidget(all_row, 2, 0, 1, 2)
+        source_layout.addLayout(source_grid)
+        layout.addWidget(source)
+
+        objective = QFrame()
+        objective.setObjectName("formSection")
+        objective_layout = QVBoxLayout(objective)
+        objective_layout.setContentsMargins(18, 16, 18, 18)
+        objective_layout.setSpacing(14)
+        objective_header = QLabel("2   蒸馏目标")
+        objective_header.setObjectName("sectionTitle")
+        objective_caption = QLabel("决定输出是逐视频知识文档，还是账号运营方法论")
+        objective_caption.setObjectName("sectionCaption")
+        objective_layout.addWidget(objective_header)
+        objective_layout.addWidget(objective_caption)
+        objective_grid = QGridLayout()
+        objective_grid.setHorizontalSpacing(16)
+        objective_grid.setVerticalSpacing(14)
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItem("纯知识蒸馏 · 一视频一文档", "knowledge")
+        self.mode_combo.addItem("运营蒸馏 · 选题 / 表达 / 增长", "creative_learning")
+        self.mode_combo.currentIndexChanged.connect(self._update_mode_help)
+        self.focus_combo = QComboBox()
+        self.focus_combo.addItem("通用分析", "general")
+        self.focus_combo.addItem("酒旅迁移分析", "hospitality")
+        objective_grid.addWidget(_field("蒸馏模式", self.mode_combo), 0, 0)
+        objective_grid.addWidget(_field("分析方向", self.focus_combo), 0, 1)
+        objective_layout.addLayout(objective_grid)
+        self.mode_help = QLabel()
+        self.mode_help.setObjectName("callout")
+        self.mode_help.setWordWrap(True)
+        objective_layout.addWidget(self.mode_help)
+        layout.addWidget(objective)
+
+        models = QFrame()
+        models.setObjectName("formSection")
+        models_layout = QVBoxLayout(models)
+        models_layout.setContentsMargins(18, 16, 18, 18)
+        models_layout.setSpacing(14)
+        models_header = QLabel("3   模型能力")
+        models_header.setObjectName("sectionTitle")
+        models_caption = QLabel("本地模型优先；云端密钥只从 Windows 凭据管理器读取")
+        models_caption.setObjectName("sectionCaption")
+        models_layout.addWidget(models_header)
+        models_layout.addWidget(models_caption)
+        model_grid = QGridLayout()
+        model_grid.setHorizontalSpacing(16)
+        model_grid.setVerticalSpacing(14)
 
         self.whisper_backend = QComboBox()
         self.whisper_backend.addItem("自动选择", "auto")
@@ -326,41 +879,52 @@ class DistillerMainWindow(QMainWindow):
         self.vision_provider.addItem("云端兼容 API", "cloud")
         self.vision_provider.addItem("不使用视觉", "none")
         self.vision_model = QLineEdit("qwen3-vl-8b")
-        grid.addWidget(QLabel("转写引擎"), 3, 0)
-        grid.addWidget(self.whisper_backend, 3, 1)
-        grid.addWidget(QLabel("转写模型"), 3, 2)
-        grid.addWidget(self.whisper_model, 3, 3)
-        grid.addWidget(QLabel("视觉服务"), 3, 4)
-        grid.addWidget(self.vision_provider, 3, 5)
-        grid.addWidget(QLabel("视觉模型"), 4, 4)
-        grid.addWidget(self.vision_model, 4, 5)
-
         self.knowledge_provider = QComboBox()
         self.knowledge_provider.addItem("Ollama", "ollama")
         self.knowledge_provider.addItem("llama.cpp", "llamacpp")
         self.knowledge_provider.addItem("云端兼容 API", "cloud")
         self.knowledge_provider.addItem("规则降级（无模型）", "none")
         self.knowledge_model = QLineEdit("qwen3:8b")
-        grid.addWidget(QLabel("知识模型服务"), 4, 0)
-        grid.addWidget(self.knowledge_provider, 4, 1)
-        grid.addWidget(QLabel("知识模型"), 4, 2)
-        grid.addWidget(self.knowledge_model, 4, 3)
+        model_grid.addWidget(_field("知识模型服务", self.knowledge_provider), 0, 0)
+        model_grid.addWidget(_field("知识模型", self.knowledge_model), 0, 1)
+        model_grid.addWidget(_field("视觉理解服务", self.vision_provider), 1, 0)
+        model_grid.addWidget(_field("视觉模型", self.vision_model), 1, 1)
+        models_layout.addLayout(model_grid)
+        advanced = _CollapsibleSection("高级处理参数")
+        advanced.content_layout.addWidget(
+            _field("转写引擎", self.whisper_backend, "自动模式会优先选择当前可用的本地转写后端。"),
+            0,
+            0,
+        )
+        advanced.content_layout.addWidget(_field("转写模型", self.whisper_model), 0, 1)
+        advanced.content_layout.addWidget(
+            _field("下载 / 转写上限", self.media_limit, "0 表示不限制，但长账号会显著增加等待时间。"),
+            1,
+            0,
+            1,
+            2,
+        )
+        models_layout.addWidget(advanced)
+        layout.addWidget(models)
+        layout.addStretch(1)
+        scroll.setWidget(body)
+        outer.addWidget(scroll, 1)
 
-        self.mode_help = QLabel()
-        self.mode_help.setObjectName("callout")
-        self.mode_help.setWordWrap(True)
-        grid.addWidget(self.mode_help, 5, 0, 1, 6)
-        layout.addWidget(form_frame)
-        actions = QHBoxLayout()
+        action_bar = QFrame()
+        action_bar.setObjectName("actionBar")
+        actions = QHBoxLayout(action_bar)
+        actions.setContentsMargins(16, 10, 12, 10)
+        action_hint = QLabel("提交后可继续浏览其他页面；任务会在后台持续运行并保留检查点。")
+        action_hint.setObjectName("actionHint")
+        actions.addWidget(action_hint, 1)
         preflight = _button("仅做预检")
         preflight.clicked.connect(lambda: self.submit_workflow(dry_run=True))
-        submit = _button("开始完整蒸馏", primary=True)
-        submit.clicked.connect(lambda: self.submit_workflow(dry_run=False))
-        actions.addStretch(1)
+        self.submit_button = _button("开始完整蒸馏", primary=True)
+        self.submit_button.setIcon(_nav_icon("spark", "#FFFFFF"))
+        self.submit_button.clicked.connect(lambda: self.submit_workflow(dry_run=False))
         actions.addWidget(preflight)
-        actions.addWidget(submit)
-        layout.addLayout(actions)
-        layout.addStretch(1)
+        actions.addWidget(self.submit_button)
+        outer.addWidget(action_bar)
         self._update_mode_help()
         return page
 
@@ -368,7 +932,23 @@ class DistillerMainWindow(QMainWindow):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(_title("任务中心", "轻量轮询任务摘要；只有查看单个任务时才读取完整结果。"))
+        layout.setSpacing(12)
+        layout.addWidget(
+            _title(
+                "任务中心",
+                "实时观察采集、媒体处理和知识生成进度；离开此页面不会中断任务。",
+            )
+        )
+        self.task_progress_panel = _TaskProgressPanel()
+        layout.addWidget(self.task_progress_panel)
+        history = QFrame()
+        history.setObjectName("panel")
+        history_layout = QVBoxLayout(history)
+        history_layout.setContentsMargins(16, 14, 16, 16)
+        history_layout.setSpacing(10)
+        history_title = QLabel("任务记录")
+        history_title.setObjectName("sectionTitle")
+        history_layout.addWidget(history_title)
         actions = QHBoxLayout()
         refresh = _button("刷新")
         refresh.clicked.connect(self.refresh_tasks)
@@ -383,7 +963,7 @@ class DistillerMainWindow(QMainWindow):
         actions.addWidget(retry)
         actions.addWidget(cancel)
         actions.addStretch(1)
-        layout.addLayout(actions)
+        history_layout.addLayout(actions)
         self.tasks_table = QTableWidget(0, 7)
         self.tasks_table.setHorizontalHeaderLabels(
             ["状态", "类型", "阶段", "进度", "消息", "更新时间", "任务 ID"]
@@ -395,11 +975,15 @@ class DistillerMainWindow(QMainWindow):
         header = self.tasks_table.horizontalHeader()
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
-        layout.addWidget(self.tasks_table, 3)
+        self.tasks_table.verticalHeader().setVisible(False)
+        self.tasks_table.setAlternatingRowColors(True)
+        history_layout.addWidget(self.tasks_table, 3)
+        layout.addWidget(history, 3)
         self.task_details = QTextEdit()
         self.task_details.setReadOnly(True)
         self.task_details.setPlaceholderText("选择一个任务查看 checkpoint、错误与输出路径。")
-        layout.addWidget(self.task_details, 2)
+        self.task_details.setMaximumHeight(160)
+        layout.addWidget(self.task_details)
         return page
 
     def _results_page(self) -> QWidget:
@@ -548,44 +1132,140 @@ class DistillerMainWindow(QMainWindow):
     def _apply_theme(self) -> None:
         self.setStyleSheet(
             """
-            QMainWindow, QWidget { background: #F4F6F8; color: #17212B; }
-            #sidebar { background: #12202B; }
-            #brandMark { color: #67E8B4; font-size: 13px; font-weight: 800; letter-spacing: 2px; }
-            #brandName { color: white; font-size: 22px; font-weight: 700; }
-            #brandStrapline, #sidebarStatus { color: #91A4B3; font-size: 12px; }
-            #navButton { text-align: left; color: #C9D5DE; background: transparent; border: 0;
-                         padding: 11px 13px; border-radius: 8px; font-weight: 600; }
-            #navButton:hover { background: #1B303E; color: white; }
-            #navButton:checked { background: #245C4A; color: #D9FFF0; }
-            #projectBar, #panel, QGroupBox, #metricCard { background: white; border: 1px solid #DCE3E8; border-radius: 10px; }
-            #projectBar QLabel { font-weight: 700; }
-            #pageTitle { font-size: 26px; font-weight: 750; color: #10202C; }
-            #pageSubtitle, #muted, #cardDetail { color: #667784; }
+            QMainWindow, #appRoot, #contentShell { background: #F3F5F7; color: #16212A; }
+            QLabel { background: transparent; }
+            QStackedWidget, QStackedWidget > QWidget, #scrollBody { background: transparent; }
+            #sidebar { background: #111D27; border: 0; }
+            #brandMark { color: #F4FFFA; background: #2F7D63; border-radius: 11px;
+                         font-size: 17px; font-weight: 800; }
+            #brandName { color: #F4F7F9; font-size: 17px; font-weight: 700; }
+            #brandStrapline { color: #6F8796; font-size: 9px; font-weight: 700; letter-spacing: 1px; }
+            #navSectionLabel { color: #617786; font-size: 10px; font-weight: 700;
+                               padding: 0 8px 5px 8px; letter-spacing: 1px; }
+            #sidebarStatus { color: #8EA1AE; background: #172732; border: 1px solid #223743;
+                             border-radius: 9px; padding: 10px; font-size: 11px; }
+            #navButton { min-height: 40px; text-align: left; color: #AFC0CA; background: transparent;
+                         border: 0; padding: 0 12px; border-radius: 9px; font-weight: 600; }
+            #navButton:hover { background: #192B36; color: #F5F8FA; }
+            #navButton:checked { background: #214C40; color: #E9FFF7; }
+
+            #projectBar, #panel, QGroupBox, #metricCard, #formSection, #taskProgressPanel,
+            #actionBar { background: #FFFFFF; border: 1px solid #DDE3E7; border-radius: 11px; }
+            #projectBar { min-height: 48px; }
+            #projectLabel { color: #5B6973; font-size: 11px; font-weight: 700;
+                            background: #F1F4F5; border-radius: 6px; padding: 6px 8px; }
+            #toolbarDivider { background: #E1E6E9; border: 0; }
+            #servicePill { color: #6C7A84; background: #F5F7F8; border: 1px solid #E2E7EA;
+                           border-radius: 11px; padding: 4px 8px; font-size: 10px; }
+            #servicePill[statusState="available"] { color: #236B53; background: #ECF8F2; border-color: #CBE9DA; }
+            #servicePill[statusState="unavailable"] { color: #9A3412; background: #FFF5EE; border-color: #FED7C3; }
+
+            #pageTitle { font-size: 25px; font-weight: 700; color: #14232D; }
+            #pageSubtitle, #muted, #cardDetail, #sectionCaption, #fieldHint { color: #6B7882; }
+            #pageSubtitle { font-size: 12px; }
+            #sectionTitle { color: #1A2A34; font-size: 15px; font-weight: 700; }
+            #sectionCaption { font-size: 11px; }
+            #fieldLabel { color: #3E4C56; font-size: 11px; font-weight: 650; }
+            #fieldHint { font-size: 10px; }
             #cardLabel { color: #667784; font-weight: 650; }
-            #cardValue { font-size: 22px; font-weight: 750; color: #153D31; }
+            #cardValue { font-size: 22px; font-weight: 750; color: #205744; }
             #largeSummary { font-size: 20px; font-weight: 700; }
-            #callout { background: #EAF7F1; border: 1px solid #BEE7D5; border-radius: 8px;
-                       padding: 12px; color: #245C4A; }
-            #footer { color: #63727C; padding-top: 4px; }
-            QGroupBox { margin-top: 12px; padding: 18px 14px 12px 14px; font-weight: 700; }
-            QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 6px; }
+            #callout { background: #EDF8F3; border: 1px solid #C9E8DA; border-radius: 8px;
+                       padding: 11px; color: #245C4A; font-size: 11px; }
+            #actionHint { color: #687781; font-size: 11px; }
+            #pageScroll { background: transparent; border: 0; }
+            #pageScroll > QWidget > QWidget { background: transparent; }
+            #actionBar { background: #FAFBFB; }
+
+            #collapsibleSection { background: #F7F9FA; border: 1px solid #E3E8EB; border-radius: 8px; }
+            #collapseToggle { text-align: left; color: #40515C; background: transparent; border: 0;
+                              padding: 10px 13px; font-weight: 650; }
+            #collapseToggle:hover { color: #236B53; background: #F0F5F3; }
+            #collapseContent { background: #FBFCFC; border-top: 1px solid #E7EBED; }
+
+            #footerBar { background: #FAFBFB; border: 1px solid #E1E6E9; border-radius: 9px; }
+            #footerBar[state="busy"] { background: #F0F8F4; border-color: #C9E6D8; }
+            #footerBar[state="error"] { background: #FFF3F1; border-color: #F3C9C3; }
+            #footerMessage { color: #52616B; font-size: 11px; }
+            #footerElapsed { color: #7A8992; font-size: 10px; }
+
+            #taskProgressPanel { background: #FCFDFD; }
+            #taskProgressTitle { color: #183027; font-size: 16px; font-weight: 700; }
+            #taskProgressMessage { color: #354650; font-size: 12px; }
+            #taskProgressDetail, #taskProgressElapsed { color: #73818A; font-size: 10px; }
+            #statusPill { color: #52616A; background: #EEF1F3; border-radius: 10px;
+                          padding: 4px 9px; font-size: 10px; font-weight: 700; }
+            #statusPill[statusState="running"], #statusPill[statusState="queued"],
+            #statusPill[statusState="pending"] { color: #236B53; background: #E7F5EE; }
+            #statusPill[statusState="completed"] { color: #17633F; background: #DCF5E8; }
+            #statusPill[statusState="failed"] { color: #B42318; background: #FDEAE7; }
+            #statusPill[statusState="cancel_requested"] { color: #9A6700; background: #FFF4D6; }
+            #statusPill[statusState="cancelled"] { color: #6B7280; background: #ECEFF1; }
+            #taskProgressBar { min-height: 7px; max-height: 7px; background: #E5EBE8;
+                               border: 0; border-radius: 3px; }
+            #taskProgressBar::chunk { background: #2F7D63; border-radius: 3px; }
+            #stageDot { color: #7B8991; background: #EEF1F2; border: 1px solid #DCE2E5;
+                        border-radius: 12px; font-size: 9px; font-weight: 700; }
+            #stageDot[stageState="active"] { color: white; background: #2F7D63; border-color: #2F7D63; }
+            #stageDot[stageState="complete"] { color: white; background: #5F9B82; border-color: #5F9B82; }
+            #stageDot[stageState="error"] { color: white; background: #C24135; border-color: #C24135; }
+            #stageLabel { color: #839098; font-size: 9px; }
+            #stageLabel[stageState="active"] { color: #245C4A; font-weight: 700; }
+            #stageLabel[stageState="complete"] { color: #4F6B60; }
+            #stageLabel[stageState="error"] { color: #B42318; font-weight: 700; }
+            #stageLine { background: #E2E7E5; border: 0; }
+            #stageLine[stageState="complete"] { background: #8BB9A5; }
+
+            QGroupBox { margin-top: 12px; padding: 20px 15px 14px 15px; font-weight: 700; }
+            QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 6px; color: #263842; }
             QLineEdit, QComboBox, QSpinBox, QTextEdit, QTableWidget {
-                background: white; border: 1px solid #CAD4DB; border-radius: 7px; padding: 7px;
-                selection-background-color: #2F8064;
+                background: #FFFFFF; border: 1px solid #CDD6DB; border-radius: 7px; padding: 7px 9px;
+                selection-background-color: #2F7D63; min-height: 20px;
             }
-            QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QTextEdit:focus { border: 1px solid #2F8064; }
-            QPushButton { background: white; border: 1px solid #BAC7CF; border-radius: 7px; padding: 7px 14px; font-weight: 650; }
-            QPushButton:hover { border-color: #2F8064; color: #245C4A; }
+            QLineEdit:hover, QComboBox:hover, QSpinBox:hover { border-color: #9AAAB3; }
+            QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QTextEdit:focus {
+                border: 1px solid #2F7D63; background: #FEFFFF;
+            }
+            QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled {
+                color: #8D989F; background: #F2F4F5; border-color: #E0E5E8;
+            }
+            QComboBox::drop-down { border: 0; width: 28px; }
+            QSpinBox::up-button, QSpinBox::down-button { width: 22px; background: #F5F7F8; border: 0; }
+            QCheckBox { color: #44545E; spacing: 8px; }
+            QPushButton { background: #FFFFFF; border: 1px solid #BAC6CC; border-radius: 7px;
+                          padding: 7px 14px; font-weight: 650; color: #2B3C46; }
+            QPushButton:hover { border-color: #2F7D63; color: #245C4A; background: #F6FAF8; }
+            QPushButton:pressed { background: #EAF3EF; }
             QPushButton[primary="true"] { background: #236B53; border-color: #236B53; color: white; }
-            QPushButton[primary="true"]:hover { background: #195440; }
-            QHeaderView::section { background: #EDF1F4; color: #4C5E69; border: 0; border-bottom: 1px solid #D8E0E5; padding: 8px; font-weight: 700; }
-            QTableWidget { gridline-color: #E3E8EC; }
+            QPushButton[primary="true"]:hover { background: #195440; border-color: #195440; }
+            QPushButton[primary="true"]:pressed { background: #123F30; }
+            QHeaderView::section { background: #F2F5F6; color: #53636D; border: 0;
+                                   border-bottom: 1px solid #D8E0E4; padding: 9px; font-weight: 700; }
+            QTableWidget { gridline-color: #E7EBED; alternate-background-color: #FAFBFB; }
+            QTableWidget::item { padding: 5px; border-bottom: 1px solid #EFF2F3; }
+            QTableWidget::item:selected { background: #DDEFE7; color: #173C2F; }
+            QScrollBar:vertical { width: 9px; background: transparent; margin: 2px; }
+            QScrollBar::handle:vertical { background: #C6D0D5; min-height: 32px; border-radius: 4px; }
+            QScrollBar::handle:vertical:hover { background: #9DACB4; }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
             """
         )
 
     def _show_page(self, index: int) -> None:
         self.stack.setCurrentIndex(index)
         self.nav_buttons[index].setChecked(True)
+        target = self.stack.currentWidget()
+        assert target is not None
+        effect = QGraphicsOpacityEffect(target)
+        target.setGraphicsEffect(effect)
+        animation = QPropertyAnimation(effect, b"opacity", target)
+        animation.setDuration(180)
+        animation.setStartValue(0.35)
+        animation.setEndValue(1.0)
+        animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        animation.finished.connect(lambda widget=target: widget.setGraphicsEffect(None))
+        self._page_animation = animation
+        animation.start()
         if index == 2:
             self.refresh_tasks()
         elif index == 3:
@@ -600,19 +1280,27 @@ class DistillerMainWindow(QMainWindow):
         *,
         message: str,
         on_failure: Callable[[Exception], None] | None = None,
+        show_busy: bool = True,
     ) -> None:
-        self.footer.setText(message)
+        if show_busy:
+            self.footer.begin(message)
         worker = _Worker(call)
+
+        def success(value: object) -> None:
+            if show_busy:
+                self.footer.finish("操作完成", state="success")
+            on_success(value)
 
         def failure(value: object) -> None:
             assert isinstance(value, Exception)
-            self.footer.setText("操作失败")
+            if show_busy:
+                self.footer.finish("操作失败", state="error")
             if on_failure is not None:
                 on_failure(value)
             else:
                 self._show_error(value)
 
-        worker.signals.success.connect(on_success)
+        worker.signals.success.connect(success)
         worker.signals.failure.connect(failure)
         self.pool.start(worker)
 
@@ -739,13 +1427,38 @@ class DistillerMainWindow(QMainWindow):
 
         def done(result: object) -> None:
             task_id = result.get("task_id") if isinstance(result, dict) else None
+            self.submit_button.setEnabled(True)
+            self.submit_button.setText("开始完整蒸馏")
             self.footer.setText(f"任务已提交：{task_id or '-'}")
+            self.task_progress_panel.set_task(
+                {
+                    "task_id": task_id,
+                    "task_type": "account_distill",
+                    "status": "pending",
+                    "stage": "pending",
+                    "progress": 0.0,
+                    "message": "任务已经进入本地队列，正在等待执行…",
+                    "created_at": datetime.now().astimezone().isoformat(),
+                }
+            )
             self._show_page(2)
             self.refresh_tasks()
 
+        def failed(exc: Exception) -> None:
+            self.submit_button.setEnabled(True)
+            self.submit_button.setText("开始完整蒸馏")
+            self._show_error(exc)
+
         self._capture_settings_from_ui()
         self.settings_store.save(self.settings)
-        self._run(submit, done, message="正在提交预检…" if dry_run else "正在提交蒸馏任务…")
+        self.submit_button.setEnabled(False)
+        self.submit_button.setText("正在提交…")
+        self._run(
+            submit,
+            done,
+            message="正在提交预检…" if dry_run else "正在提交蒸馏任务…",
+            on_failure=failed,
+        )
 
     def refresh_tasks(self) -> None:
         if self._tasks_busy or not self.supervisor.api.running:
@@ -755,14 +1468,23 @@ class DistillerMainWindow(QMainWindow):
         def done(value: object) -> None:
             self._tasks_busy = False
             tasks = value if isinstance(value, list) else []
+            self._last_tasks = [task for task in tasks if isinstance(task, dict)]
+            active_states = {"queued", "pending", "running", "cancel_requested"}
+            featured = next(
+                (task for task in self._last_tasks if task.get("status") in active_states),
+                self._last_tasks[0] if self._last_tasks else None,
+            )
+            self.task_progress_panel.set_task(featured)
             self.tasks_table.setRowCount(len(tasks))
             for row, task in enumerate(tasks):
                 progress = task.get("progress")
                 progress_text = (
                     f"{float(progress) * 100:.0f}%" if isinstance(progress, int | float) else "-"
                 )
+                status = str(task.get("status") or "")
+                status_text = _TaskProgressPanel.STATUS_TEXT.get(status, status)
                 values = [
-                    task.get("status"),
+                    status_text,
                     task.get("task_type"),
                     task.get("stage"),
                     progress_text,
@@ -771,21 +1493,32 @@ class DistillerMainWindow(QMainWindow):
                     task.get("task_id"),
                 ]
                 for column, text in enumerate(values):
-                    self.tasks_table.setItem(row, column, QTableWidgetItem(str(text or "")))
-            self.footer.setText(f"已刷新 {len(tasks)} 个任务")
+                    item = QTableWidgetItem(str(text or ""))
+                    if column == 0:
+                        color = {
+                            "completed": "#237A57",
+                            "failed": "#B42318",
+                            "running": "#236B53",
+                            "cancelled": "#6B7280",
+                        }.get(status)
+                        if color:
+                            item.setForeground(QColor(color))
+                    self.tasks_table.setItem(row, column, item)
             if any(task.get("status") == "completed" for task in tasks[:3]):
                 self.refresh_bundles()
 
         def failed(exc: Exception) -> None:
             self._tasks_busy = False
             self.sidebar_status.setText("● 本地 API 未连接")
-            self.footer.setText(str(exc))
+            if self.stack.currentIndex() == 2:
+                self.footer.finish(str(exc), state="error")
 
         self._run(
             lambda: self.client.list_tasks(limit=80),
             done,
             message="正在刷新任务…",
             on_failure=failed,
+            show_busy=False,
         )
 
     def _selected_task_id(self) -> str:
@@ -871,6 +1604,19 @@ class DistillerMainWindow(QMainWindow):
                         "color: #237A57;" if status.available else "color: #B84A4A;"
                     )
                     labels[1].setText(f"{status.message}\n{status.endpoint}")
+                header_label = self.header_service_labels.get(status.name)
+                if header_label is not None:
+                    display_name = {
+                        "api": "API",
+                        "ollama": "Ollama",
+                        "weknora": "WeKnora",
+                    }.get(status.name, status.name)
+                    header_label.setText(f"● {display_name}")
+                    header_label.setProperty(
+                        "statusState", "available" if status.available else "unavailable"
+                    )
+                    header_label.setToolTip(f"{status.message}\n{status.endpoint}")
+                    _repolish(header_label)
             api_ok = bool(statuses and statuses[0].available)
             self.sidebar_status.setText("● 服务运行中" if api_ok else "● 服务异常")
             by_status = queue.get("by_status", {}) if isinstance(queue, dict) else {}
@@ -884,14 +1630,23 @@ class DistillerMainWindow(QMainWindow):
                 if isinstance(limits, dict)
                 else ""
             )
-            self.footer.setText("服务状态已刷新")
 
         def failed(exc: Exception) -> None:
             self._service_busy = False
             self.sidebar_status.setText("● 服务异常")
-            self.footer.setText(str(exc))
+            for header_label in self.header_service_labels.values():
+                header_label.setProperty("statusState", "unavailable")
+                _repolish(header_label)
+            if self.stack.currentIndex() == 0:
+                self.footer.finish(str(exc), state="error")
 
-        self._run(check, done, message="正在检查服务…", on_failure=failed)
+        self._run(
+            check,
+            done,
+            message="正在检查服务…",
+            on_failure=failed,
+            show_busy=False,
+        )
 
     def start_ollama(self) -> None:
         url = self.ollama_url.text().strip() or "http://127.0.0.1:11434"

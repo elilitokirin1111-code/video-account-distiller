@@ -2,6 +2,8 @@
   "ok": true,
   "native_qt_window": true,
   "page_count": 6,
+  "progress_stage_count": 6,
+  "animated_wait_feedback": true,
   "health": {
     "status": "ok",
     "version": "1.0.0",
@@ -11,5 +13,5 @@
   },
   "project_initialized": true,
   "project_valid": true,
-  "api_base_url": "http://127.0.0.1:8001"
+  "api_base_url": "http://127.0.0.1:8002"
 }

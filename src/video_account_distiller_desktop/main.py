@@ -63,6 +63,10 @@ def _run_smoke_test(output_path: Path) -> None:
                 settings=settings_store.load(),
             )
             page_count = window.stack.count()
+            progress_stage_count = len(window.task_progress_panel.stages.items)
+            animated_wait_feedback = all(
+                hasattr(window.footer, member) for member in ("begin", "finish", "pulse")
+            )
             window.task_timer.stop()
             window.close()
             app.processEvents()
@@ -70,6 +74,8 @@ def _run_smoke_test(output_path: Path) -> None:
                 "ok": True,
                 "native_qt_window": True,
                 "page_count": page_count,
+                "progress_stage_count": progress_stage_count,
+                "animated_wait_feedback": animated_wait_feedback,
                 "health": client.health(),
                 "project_initialized": initialized.get("ok") is True,
                 "project_valid": validation.get("ok") is True,
