@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -128,6 +129,7 @@ class AccountVideoKnowledgeService:
         *,
         account_id: str,
         limit: int | None = None,
+        video_ids: Sequence[str] | None = None,
         provider: Literal["ollama", "llamacpp", "cloud", "none"] | None = None,
         model: str | None = None,
         base_url: str | None = None,
@@ -149,9 +151,31 @@ class AccountVideoKnowledgeService:
                 ErrorCode.INPUT_MISSING,
                 f"No normalized videos found for account: {account_id}",
             )
-        selected = videos[:limit] if limit is not None else videos
+        requested_video_ids: list[str] | None = None
+        missing_video_ids: list[str] = []
+        if video_ids is None:
+            selected = videos[:limit] if limit is not None else videos
+        else:
+            requested_video_ids = list(dict.fromkeys(item for item in video_ids if item))
+            if limit is not None:
+                requested_video_ids = requested_video_ids[:limit]
+            videos_by_id = {video.video_id: video for video in videos}
+            selected = [
+                videos_by_id[video_id]
+                for video_id in requested_video_ids
+                if video_id in videos_by_id
+            ]
+            missing_video_ids = [
+                video_id for video_id in requested_video_ids if video_id not in videos_by_id
+            ]
         eligible: list[Video] = []
-        skipped: list[AccountVideoKnowledgeSkip] = []
+        skipped = [
+            AccountVideoKnowledgeSkip(
+                video_id=video_id,
+                reason="本次媒体增强选择的视频不属于该账号或缺少标准化记录",
+            )
+            for video_id in missing_video_ids
+        ]
         for video in selected:
             if _latest_text_analysis(self.project, video.video_id) is None:
                 skipped.append(
@@ -169,7 +193,9 @@ class AccountVideoKnowledgeService:
                 "ok": True,
                 "dry_run": True,
                 "account_id": account_id,
-                "requested_count": len(selected),
+                "requested_count": (
+                    len(requested_video_ids) if requested_video_ids is not None else len(selected)
+                ),
                 "eligible_count": len(eligible),
                 "skipped": [item.model_dump(mode="json") for item in skipped],
                 "plan": {
@@ -276,7 +302,9 @@ class AccountVideoKnowledgeService:
             generated_at=generated_at,
             run_id=run.run_id,
             status=status,
-            requested_count=len(selected),
+            requested_count=(
+                len(requested_video_ids) if requested_video_ids is not None else len(selected)
+            ),
             eligible_count=len(eligible),
             completed_count=completed_count,
             degraded_count=degraded_count,
@@ -299,7 +327,9 @@ class AccountVideoKnowledgeService:
             run,
             success=True,
             processed_counts={
-                "requested_videos": len(selected),
+                "requested_videos": (
+                    len(requested_video_ids) if requested_video_ids is not None else len(selected)
+                ),
                 "knowledge_documents": len(documents),
                 "skipped_videos": len(skipped),
             },

@@ -179,8 +179,7 @@ def _fallback_knowledge(
             or "单视频知识提取"
         )[:200],
         content_summary=(
-            "；".join(summary_parts)
-            or "当前转写与事实抽取不足，无法形成可靠内容摘要。"
+            "；".join(summary_parts) or "当前转写与事实抽取不足，无法形成可靠内容摘要。"
         )[:3000],
         core_conclusions=[item.content for item in items[:8]],
         knowledge_items=items,

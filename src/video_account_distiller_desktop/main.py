@@ -19,6 +19,7 @@ from video_account_distiller.application import (
     DesktopSettingsStore,
     LocalServiceSupervisor,
 )
+from video_account_distiller.application.desktop_updates import DesktopUpdateService
 from video_account_distiller_desktop.window import DistillerMainWindow
 
 
@@ -108,6 +109,14 @@ def main(argv: list[str] | None = None) -> None:
     if arguments.smoke_test_output is not None:
         _run_smoke_test(arguments.smoke_test_output)
         return
+
+    update_service = DesktopUpdateService()
+    try:
+        update_service.cleanup_stale_updates()
+    except (OSError, ValueError):
+        pass
+    finally:
+        update_service.close()
 
     settings_store = DesktopSettingsStore()
     settings = settings_store.load()

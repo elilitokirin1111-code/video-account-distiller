@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from video_account_distiller.distillation import AccountDistillationService
-from video_account_distiller.models import AccountDistillation, MediaFeatureRecord
+from video_account_distiller.models import AccountDistillation, MediaFeatureRecord, Platform
 from video_account_distiller.sampling.dataset import load_account_dataset
 from video_account_distiller.storage.parquet import write_models
 from video_account_distiller.storage.project import ProjectLayout
 from video_account_distiller.utils.io import read_json
 
 
-def _craft_feature(video_id: str, *, band: str, index: int) -> MediaFeatureRecord:
+def _craft_feature(video_id: str, *, band: str | None, index: int) -> MediaFeatureRecord:
     high = band in {"S", "A"}
     low = band in {"C", "D"}
     if high:
@@ -48,7 +48,7 @@ def _craft_feature(video_id: str, *, band: str, index: int) -> MediaFeatureRecor
         pacing_tags=["快节奏剪辑"] if high else ["中等节奏剪辑"],
         analysis_status="complete",
         analysis_path=f"analyses/media/{video_id}/mda_craft_{index}/media-analysis.json",
-        source_platform="douyin",
+        source_platform=Platform.DOUYIN,
         source_type="local_media",
         source_uri=None,
         source_record_id="source",

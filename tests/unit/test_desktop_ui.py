@@ -46,18 +46,41 @@ def test_native_window_builds_secret_free_knowledge_workflow_payload(tmp_path: P
         client=cast(Any, _Client()),
         settings_store=DesktopSettingsStore(tmp_path / "settings.json"),
         secret_store=cast(Any, _Secrets()),
-        settings=DesktopSettings(),
+        settings=DesktopSettings(
+            distillation_mode="creative_learning",
+            vision_provider="cloud",
+            vision_model="qwen3.7-plus",
+            cloud_credential_provider="bailian",
+            cloud_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            cloud_text_model="deepseek-v4-flash",
+            cloud_vision_model="qwen3.7-plus",
+            video_knowledge_provider="cloud",
+            video_knowledge_model="deepseek-v4-flash",
+        ),
     )
     window.account_url.setText("https://www.douyin.com/user/demo")
 
     payload = window._workflow_payload()
 
     assert window.stack.count() == 6
-    assert payload["distillation_mode"] == "knowledge"
+    assert window.mode_combo.currentText() == ("完整创作蒸馏 · 内容 / 选材 / 表达 / 拍摄 / 增长")
+    assert payload["distillation_mode"] == "creative_learning"
     assert payload["distill_video_knowledge"] is True
+    assert payload["vision_provider"] == "cloud"
+    assert payload["vision_model"] == "qwen3.7-plus"
+    assert payload["video_knowledge_provider"] == "cloud"
+    assert payload["video_knowledge_model"] == "deepseek-v4-flash"
     assert payload["cloud_credential_provider"] == "bailian"
     assert "cloud_api_key" not in payload
     assert "weknora" not in payload
+    assert window.update_version.text().startswith("当前版本 ")
+    assert window.update_button.text() == "检查更新"
+    assert "覆盖当前安装目录" in window.update_status.text()
+    assert window._active_update_task([{"task_id": "task-running", "status": "running"}]) == {
+        "task_id": "task-running",
+        "status": "running",
+    }
+    assert window._active_update_task([{"task_id": "task-complete", "status": "completed"}]) is None
     window.task_timer.stop()
     window.close()
     app.processEvents()
@@ -86,6 +109,18 @@ def test_task_progress_and_wait_feedback_reflect_live_work() -> None:
     assert panel._animation.endValue() == 58
     assert panel.stages.items[3][0].property("stageState") == "active"
     assert panel.stages.items[0][0].property("stageState") == "complete"
+
+    panel.set_task(
+        {
+            "task_id": "task-12345678",
+            "status": "running",
+            "stage": "video_creative_distillation",
+            "progress": 0.84,
+            "message": "正在拆解选材与表达",
+            "created_at": "2026-09-02T09:00:00+08:00",
+        }
+    )
+    assert panel.stages.items[3][0].property("stageState") == "active"
 
     footer = _BusyStatusBar()
     footer.begin("正在检查项目与依赖")

@@ -9,6 +9,7 @@ from video_account_distiller.media.pipeline import _opening_technique_tags, _pac
 from video_account_distiller.models import (
     CraftProfile,
     MediaFeatureRecord,
+    Platform,
     ShotVisualAnnotation,
 )
 
@@ -58,7 +59,7 @@ def _feature(
         pacing_tags=pacing or [],
         analysis_status="complete",
         analysis_path=f"analyses/media/{video_id}/mda_1/media-analysis.json",
-        source_platform="douyin",
+        source_platform=Platform.DOUYIN,
         source_type="local_media",
         source_uri=None,
         source_record_id="source",

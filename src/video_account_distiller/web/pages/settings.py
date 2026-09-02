@@ -236,7 +236,9 @@ with model_tab:
                 key="settings_cloud_preset_text_model",
             )
         with preset_columns[1]:
-            preset_key_placeholder = "已保存（留空保持不变）" if preset_has_key else "输入新的 API Key"
+            preset_key_placeholder = (
+                "已保存（留空保持不变）" if preset_has_key else "输入新的 API Key"
+            )
             preset_key_input = st.text_input(
                 "云端 API Key",
                 type="password",

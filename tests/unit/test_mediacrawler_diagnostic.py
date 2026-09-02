@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import shutil
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from video_account_distiller.collection import mediacrawler as module
 from video_account_distiller.collection.mediacrawler import (
     MEDIACRAWLER_PINNED_COMMIT,
     mediacrawler_diagnostic,
@@ -37,9 +38,9 @@ def test_mediacrawler_diagnostic_reports_pinned_ready_runtime(
     profile.mkdir()
     bridge = tmp_path / "bridge.py"
     bridge.write_text("# fixture\n", encoding="utf-8")
-    monkeypatch.setattr(module.shutil, "which", lambda name: f"/tools/{name}")
+    monkeypatch.setattr(shutil, "which", lambda name: f"/tools/{name}")
     monkeypatch.setattr(
-        module.subprocess,
+        subprocess,
         "run",
         lambda *args, **kwargs: SimpleNamespace(
             returncode=0,
@@ -69,9 +70,9 @@ def test_mediacrawler_diagnostic_exposes_mismatch_and_missing_login(
     home = _runtime(tmp_path)
     bridge = tmp_path / "bridge.py"
     bridge.write_text("# fixture\n", encoding="utf-8")
-    monkeypatch.setattr(module.shutil, "which", lambda name: f"/tools/{name}")
+    monkeypatch.setattr(shutil, "which", lambda name: f"/tools/{name}")
     monkeypatch.setattr(
-        module.subprocess,
+        subprocess,
         "run",
         lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="unexpected\n"),
     )

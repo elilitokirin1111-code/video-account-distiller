@@ -23,6 +23,7 @@ from video_account_distiller.api.tasks import (
 from video_account_distiller.errors import DistillerError
 from video_account_distiller.insights import KeyringCloudCredentialStore
 from video_account_distiller.logging import configure_logging
+from video_account_distiller.version import PACKAGE_VERSION
 
 
 def create_app(
@@ -46,7 +47,7 @@ def create_app(
     app = FastAPI(
         title="Video Account Distiller API",
         description="REST API for evidence-based video account analysis and reporting.",
-        version="1.0.0",
+        version=PACKAGE_VERSION,
         lifespan=lifespan,
     )
 
@@ -166,7 +167,7 @@ def create_app(
     async def health() -> dict[str, Any]:
         return {
             "status": "ok",
-            "version": "1.0.0",
+            "version": PACKAGE_VERSION,
             "features": {
                 # The Streamlit process can hot-reload while the embedded API
                 # keeps older modules in memory.  The UI checks this capability

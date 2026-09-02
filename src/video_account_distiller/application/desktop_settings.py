@@ -33,7 +33,7 @@ class DesktopSettings(BaseModel):
     collection_count: int = Field(default=20, ge=1, le=20_000)
     collect_all_videos: bool = False
     media_limit: int = Field(default=20, ge=0, le=20_000)
-    distillation_mode: str = "knowledge"
+    distillation_mode: str = "creative_learning"
     analysis_focus: str = "general"
     whisper_backend: str = "auto"
     whisper_model: str = "base"

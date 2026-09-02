@@ -1,5 +1,5 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.0"
+  #define MyAppVersion "1.1.0"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\..\dist\windows\VideoAccountDistiller"
@@ -13,7 +13,9 @@ AppId={{8EECC661-966C-4CA4-86CC-8EC1E6C4982B}
 AppName=视频账号蒸馏器
 AppVersion={#MyAppVersion}
 AppPublisher=video-account-distiller contributors
+AppUpdatesURL=https://github.com/elilitokirin1111-code/video-account-distiller/releases/latest
 DefaultDirName={localappdata}\Programs\Video Account Distiller
+UsePreviousAppDir=yes
 DefaultGroupName=视频账号蒸馏器
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest

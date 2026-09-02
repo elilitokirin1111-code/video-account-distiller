@@ -188,6 +188,8 @@ class RecordingExecutor:
 class RecordingProvider:
     provider_name = "fake_deepseek"
     model_name = "deepseek-v4-flash"
+    credential_env = "DEEPSEEK_API_KEY"
+    credential_source = "DEEPSEEK_API_KEY"
 
     def __init__(self, analysis: GptAccountAnalysis) -> None:
         self.analysis = analysis

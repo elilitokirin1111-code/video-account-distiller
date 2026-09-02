@@ -38,6 +38,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QCheckBox,
     QComboBox,
     QFileDialog,
@@ -74,13 +75,21 @@ from video_account_distiller.application import (
     KnowledgePackageService,
     LocalServiceSupervisor,
 )
+from video_account_distiller.application.desktop_updates import (
+    AvailableDesktopUpdate,
+    DesktopUpdateError,
+    DesktopUpdateService,
+    PreparedDesktopUpdate,
+)
 from video_account_distiller.errors import DistillerError
 from video_account_distiller.storage import ProjectLayout
+from video_account_distiller.version import PACKAGE_VERSION
 
 
 class _WorkerSignals(QObject):
     success = Signal(object)
     failure = Signal(object)
+    progress = Signal(object)
 
 
 class _Worker(QRunnable):
@@ -92,6 +101,28 @@ class _Worker(QRunnable):
     def run(self) -> None:
         try:
             result = self.call()
+        except Exception as exc:  # noqa: BLE001 - cross-thread error boundary
+            self.signals.failure.emit(exc)
+        else:
+            self.signals.success.emit(result)
+
+
+class _ProgressWorker(QRunnable):
+    """Run a background operation that can report byte-level progress to Qt."""
+
+    def __init__(
+        self,
+        call: Callable[[Callable[[int, int], None]], Any],
+    ) -> None:
+        super().__init__()
+        self.call = call
+        self.signals = _WorkerSignals()
+
+    def run(self) -> None:
+        try:
+            result = self.call(
+                lambda completed, total: self.signals.progress.emit((completed, total))
+            )
         except Exception as exc:  # noqa: BLE001 - cross-thread error boundary
             self.signals.failure.emit(exc)
         else:
@@ -352,6 +383,8 @@ class _StageTracker(QWidget):
         "media_complete": 2,
         "video_knowledge": 3,
         "video_knowledge_complete": 3,
+        "video_creative_distillation": 3,
+        "video_full_complete": 3,
         "distill": 3,
         "report": 4,
         "report_complete": 4,
@@ -578,6 +611,9 @@ class DistillerMainWindow(QMainWindow):
         self._bundle_rows: list[dict[str, str]] = []
         self._last_tasks: list[dict[str, Any]] = []
         self._page_animation: QPropertyAnimation | None = None
+        self.update_service = DesktopUpdateService()
+        self._available_update: AvailableDesktopUpdate | None = None
+        self._prepared_update: PreparedDesktopUpdate | None = None
 
         self.setWindowTitle("Video Account Distiller")
         self.resize(1420, 900)
@@ -844,7 +880,7 @@ class DistillerMainWindow(QMainWindow):
         objective_layout.setSpacing(14)
         objective_header = QLabel("2   蒸馏目标")
         objective_header.setObjectName("sectionTitle")
-        objective_caption = QLabel("决定输出是逐视频知识文档，还是账号运营方法论")
+        objective_caption = QLabel("可同时生成逐视频知识、创作拆解与账号运营方法论")
         objective_caption.setObjectName("sectionCaption")
         objective_layout.addWidget(objective_header)
         objective_layout.addWidget(objective_caption)
@@ -852,8 +888,10 @@ class DistillerMainWindow(QMainWindow):
         objective_grid.setHorizontalSpacing(16)
         objective_grid.setVerticalSpacing(14)
         self.mode_combo = QComboBox()
+        self.mode_combo.addItem(
+            "完整创作蒸馏 · 内容 / 选材 / 表达 / 拍摄 / 增长", "creative_learning"
+        )
         self.mode_combo.addItem("纯知识蒸馏 · 一视频一文档", "knowledge")
-        self.mode_combo.addItem("运营蒸馏 · 选题 / 表达 / 增长", "creative_learning")
         self.mode_combo.currentIndexChanged.connect(self._update_mode_help)
         self.focus_combo = QComboBox()
         self.focus_combo.addItem("通用分析", "general")
@@ -901,8 +939,8 @@ class DistillerMainWindow(QMainWindow):
         self.knowledge_provider.addItem("云端兼容 API", "cloud")
         self.knowledge_provider.addItem("规则降级（无模型）", "none")
         self.knowledge_model = QLineEdit("qwen3:8b")
-        model_grid.addWidget(_field("知识模型服务", self.knowledge_provider), 0, 0)
-        model_grid.addWidget(_field("知识模型", self.knowledge_model), 0, 1)
+        model_grid.addWidget(_field("深度蒸馏服务", self.knowledge_provider), 0, 0)
+        model_grid.addWidget(_field("深度蒸馏模型", self.knowledge_model), 0, 1)
         model_grid.addWidget(_field("视觉理解服务", self.vision_provider), 1, 0)
         model_grid.addWidget(_field("视觉模型", self.vision_model), 1, 1)
         models_layout.addLayout(model_grid)
@@ -1140,6 +1178,34 @@ class DistillerMainWindow(QMainWindow):
         self.tikhub_key.setPlaceholderText("可选；MediaCrawler 不需要 TikHub Key")
         crawler_form.addRow("TikHub API Key", self.tikhub_key)
         layout.addWidget(crawler)
+
+        updates = QGroupBox("软件更新")
+        update_layout = QVBoxLayout(updates)
+        update_layout.setSpacing(8)
+        update_header = QHBoxLayout()
+        self.update_version = QLabel(f"当前版本 {PACKAGE_VERSION}")
+        self.update_version.setObjectName("sectionTitle")
+        self.update_button = _button("检查更新")
+        self.update_button.clicked.connect(self.check_for_updates)
+        update_header.addWidget(self.update_version)
+        update_header.addStretch(1)
+        update_header.addWidget(self.update_button)
+        update_layout.addLayout(update_header)
+        self.update_status = QLabel(
+            "在应用内校验并覆盖当前安装目录，不会再创建一份并行的新版程序。"
+        )
+        self.update_status.setObjectName("muted")
+        self.update_status.setWordWrap(True)
+        update_layout.addWidget(self.update_status)
+        self.update_progress = QProgressBar()
+        self.update_progress.setObjectName("updateProgress")
+        self.update_progress.setRange(0, 100)
+        self.update_progress.setValue(0)
+        self.update_progress.setTextVisible(True)
+        self.update_progress.hide()
+        update_layout.addWidget(self.update_progress)
+        layout.addWidget(updates)
+
         buttons = QHBoxLayout()
         save_cloud = _button("验证并保存云模型密钥")
         save_cloud.clicked.connect(self.save_cloud_key)
@@ -1231,6 +1297,10 @@ class DistillerMainWindow(QMainWindow):
             #taskProgressBar { min-height: 7px; max-height: 7px; background: #E5EBE8;
                                border: 0; border-radius: 3px; }
             #taskProgressBar::chunk { background: #2F7D63; border-radius: 3px; }
+            #updateProgress { min-height: 16px; max-height: 16px; color: #315A4B;
+                              background: #E8EEEB; border: 0; border-radius: 8px;
+                              text-align: center; font-size: 9px; font-weight: 700; }
+            #updateProgress::chunk { background: #71AA90; border-radius: 8px; }
             #stageDot { color: #7B8991; background: #EEF1F2; border: 1px solid #DCE2E5;
                         border-radius: 12px; font-size: 9px; font-weight: 700; }
             #stageDot[stageState="active"] { color: white; background: #2F7D63; border-color: #2F7D63; }
@@ -1343,6 +1413,197 @@ class DistillerMainWindow(QMainWindow):
             message = str(exc)
         QMessageBox.critical(self, "操作未完成", message)
 
+    @staticmethod
+    def _active_update_task(
+        tasks: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        active_states = {"queued", "pending", "running", "cancel_requested"}
+        return next(
+            (task for task in tasks if task.get("status") in active_states),
+            None,
+        )
+
+    def check_for_updates(self) -> None:
+        """Check GitHub in the background, then stage an in-place update on consent."""
+
+        if self._prepared_update is not None:
+            self._install_prepared_update()
+            return
+        active = self._active_update_task(self._last_tasks)
+        if active is not None:
+            QMessageBox.information(
+                self,
+                "任务仍在运行",
+                "请等待当前采集或蒸馏任务结束后再更新，任务数据不会被中断。",
+            )
+            return
+
+        self.update_button.setEnabled(False)
+        self.update_button.setText("正在检查…")
+        self.update_status.setText("正在安全连接 GitHub Release 检查新版本…")
+
+        def check() -> AvailableDesktopUpdate | None:
+            tasks = (
+                self.client.list_tasks(limit=80)
+                if self.supervisor.api.running
+                else list(self._last_tasks)
+            )
+            running = self._active_update_task([task for task in tasks if isinstance(task, dict)])
+            if running is not None:
+                raise DesktopUpdateError(
+                    "已有任务正在运行，请等待任务完成后再更新。",
+                    code="UPDATE_TASKS_ACTIVE",
+                )
+            return self.update_service.check_for_update()
+
+        def done(value: object) -> None:
+            self.update_button.setEnabled(True)
+            self.update_button.setText("检查更新")
+            if value is None:
+                self.update_status.setText(f"当前已是最新版（{PACKAGE_VERSION}）。")
+                return
+            assert isinstance(value, AvailableDesktopUpdate)
+            self._available_update = value
+            self.update_status.setText(
+                f"发现 {value.version}，更新将覆盖当前安装目录并保留项目与设置。"
+            )
+            answer = QMessageBox.question(
+                self,
+                "发现可用更新",
+                (
+                    f"当前版本：{value.current_version}\n"
+                    f"可用版本：{value.version}\n\n"
+                    "现在后台下载并原地更新吗？下载完成后应用会自动退出。"
+                ),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if answer == QMessageBox.StandardButton.Yes:
+                self._download_update(value)
+
+        def failed(exc: Exception) -> None:
+            self.update_button.setEnabled(True)
+            self.update_button.setText("重新检查")
+            self.update_status.setText("更新检查失败；当前程序未发生任何改变。")
+            self._show_error(exc)
+
+        self._run(
+            check,
+            done,
+            message="正在检查软件更新…",
+            on_failure=failed,
+        )
+
+    def _download_update(self, update: AvailableDesktopUpdate) -> None:
+        self.update_button.setEnabled(False)
+        self.update_button.setText("正在下载…")
+        self.update_progress.setValue(0)
+        self.update_progress.show()
+        self.update_status.setText(f"正在后台下载 {update.version}；完成后还会再次校验 SHA-256。")
+        self.footer.begin("正在下载并校验原地更新包…")
+        worker = _ProgressWorker(
+            lambda progress: self.update_service.download_update(
+                update,
+                progress=progress,
+            )
+        )
+
+        def report(value: object) -> None:
+            if not isinstance(value, tuple) or len(value) != 2:
+                return
+            completed, total = value
+            if not isinstance(completed, int) or not isinstance(total, int) or total <= 0:
+                return
+            percent = max(0, min(100, round(completed * 100 / total)))
+            self.update_progress.setValue(percent)
+            self.update_status.setText(
+                f"正在下载 {update.version}：{percent}% · 校验完成前不会执行任何文件。"
+            )
+
+        def done(value: object) -> None:
+            assert isinstance(value, PreparedDesktopUpdate)
+            self._prepared_update = value
+            self.update_progress.setValue(100)
+            self.update_button.setEnabled(True)
+            self.update_button.setText("安装更新并退出")
+            self.footer.finish("更新包下载并校验完成", state="success")
+            if self._active_update_task(self._last_tasks) is not None:
+                self.update_status.setText(
+                    "更新包已安全就绪；请等待当前任务结束，再点击“安装更新并退出”。"
+                )
+                return
+            self._install_prepared_update()
+
+        def failed(value: object) -> None:
+            assert isinstance(value, Exception)
+            self.update_button.setEnabled(True)
+            self.update_button.setText("重新检查")
+            self.update_progress.hide()
+            self.update_status.setText("更新包未通过下载或安全校验，已拒绝安装。")
+            self.footer.finish("更新未安装", state="error")
+            self._show_error(value)
+
+        worker.signals.progress.connect(report)
+        worker.signals.success.connect(done)
+        worker.signals.failure.connect(failed)
+        self.pool.start(worker)
+
+    def _install_prepared_update(self) -> None:
+        prepared = self._prepared_update
+        if prepared is None:
+            return
+        if self._active_update_task(self._last_tasks) is not None:
+            QMessageBox.information(
+                self,
+                "任务仍在运行",
+                "更新包已经校验并保留，请等待当前任务结束后再安装。",
+            )
+            return
+        self.update_button.setEnabled(False)
+        self.update_button.setText("正在启动更新…")
+        self.update_status.setText("正在启动原地覆盖安装；成功启动后应用才会退出。")
+
+        def launch() -> object:
+            tasks = (
+                self.client.list_tasks(limit=80)
+                if self.supervisor.api.running
+                else list(self._last_tasks)
+            )
+            running = self._active_update_task([task for task in tasks if isinstance(task, dict)])
+            if running is not None:
+                raise DesktopUpdateError(
+                    "任务刚刚开始运行，更新已安全暂停；任务结束后可直接重试安装。",
+                    code="UPDATE_TASKS_ACTIVE",
+                )
+            return self.update_service.launch_installer(prepared)
+
+        def done(_value: object) -> None:
+            self.update_status.setText(
+                "更新程序已启动，应用正在安全退出；项目、密钥和设置都会保留。"
+            )
+            self.footer.finish("即将原地更新并退出", state="success")
+            self.save_settings(silent=True)
+            self.task_timer.stop()
+            QTimer.singleShot(350, QApplication.quit)
+
+        def failed(exc: Exception) -> None:
+            self.update_button.setEnabled(True)
+            self.update_button.setText("重试安装更新")
+            if isinstance(exc, DesktopUpdateError) and exc.code == "UPDATE_TASKS_ACTIVE":
+                self.update_status.setText(
+                    "检测到任务刚刚开始；更新包仍已安全保留，任务结束后可重试。"
+                )
+            else:
+                self.update_status.setText("安装程序未能启动，应用将继续正常运行。")
+            self._show_error(exc)
+
+        self._run(
+            launch,
+            done,
+            message="正在启动原地更新程序…",
+            on_failure=failed,
+        )
+
     def _project(self, *, require_initialized: bool = True) -> Path:
         raw = self.project_edit.text().strip()
         if not raw:
@@ -1384,9 +1645,14 @@ class DistillerMainWindow(QMainWindow):
         self._run(lambda: self.client.initialize_project(path), done, message="正在初始化项目…")
 
     def _update_mode_help(self) -> None:
-        knowledge = self.mode_combo.currentData() == "knowledge"
+        mode = self.mode_combo.currentData()
+        knowledge = mode == "knowledge"
         self.focus_combo.setEnabled(not knowledge)
-        if knowledge:
+        if mode == "creative_learning":
+            self.mode_help.setText(
+                "完整模式：每条视频提取内容知识，并拆解选材、目标人群、开场、结构、字幕、声音、剪辑与拍摄手法；最后汇总账号规律、反例和增长建议。"
+            )
+        elif knowledge:
             self.mode_help.setText(
                 "纯知识模式：逐条提取视频中的事实、概念、方法、案例、数据、新闻与观点；不生成运营画像，成功后输出标题命名的一视频一文档知识包。"
             )
@@ -1426,13 +1692,13 @@ class DistillerMainWindow(QMainWindow):
             "cloud_base_url": self.cloud_url.text().strip() or None,
             "cloud_text_model": self.cloud_text_model.text().strip() or None,
             "cloud_vision_model": self.cloud_vision_model.text().strip() or None,
-            "distill_video_knowledge": mode == "knowledge",
-            "video_knowledge_provider": knowledge_provider if mode == "knowledge" else None,
+            "distill_video_knowledge": True,
+            "video_knowledge_provider": knowledge_provider,
             "video_knowledge_model": self.knowledge_model.text().strip() or None,
             "export_knowledge": True,
         }
-        if mode == "knowledge" and self.media_limit.value() <= 0:
-            raise ValueError("纯知识蒸馏需要把“下载/转写数量”设置为大于 0。")
+        if self.media_limit.value() <= 0:
+            raise ValueError("完整或纯知识蒸馏需要把“下载/转写数量”设置为大于 0。")
         return payload
 
     def submit_workflow(self, *, dry_run: bool) -> None:
@@ -1964,4 +2230,5 @@ class DistillerMainWindow(QMainWindow):
             self.save_settings(silent=True)
         finally:
             self.task_timer.stop()
+            self.update_service.close()
         event.accept()

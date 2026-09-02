@@ -33,7 +33,7 @@ python -m video_account_distiller release audit --repository . --json
 ```powershell
 uv build
 Compress-Archive -Path skills\video-account-distiller `
-  -DestinationPath dist\video-account-distiller-skill-1.0.0.zip
+  -DestinationPath dist\video-account-distiller-skill-1.1.0.zip
 python -m video_account_distiller release checksums --artifacts dist --json
 python -m video_account_distiller release audit --repository . --artifacts dist --json
 ```
@@ -48,7 +48,7 @@ python -m video_account_distiller release audit --repository . --artifacts dist 
 ```powershell
 uv venv .rc-venv --python 3.11
 uv pip install --python .rc-venv\Scripts\python.exe `
-  dist\video_account_distiller-1.0.0-py3-none-any.whl
+  dist\video_account_distiller-1.1.0-py3-none-any.whl
 .\.rc-venv\Scripts\python.exe -m video_account_distiller --version
 .\.rc-venv\Scripts\python.exe -m video_account_distiller doctor --json
 .\.rc-venv\Scripts\python.exe tools\release_acceptance.py `
@@ -118,7 +118,7 @@ distiller backup drill --project C:\data\distiller-project --json
 distiller release audit `
   --repository . `
   --artifacts dist `
-  --public-beta-evidence dist\video-account-distiller-public-beta-1.0.0.zip `
+  --public-beta-evidence dist\video-account-distiller-public-beta-1.1.0.zip `
   --require-public-beta-freeze `
   --json
 ```

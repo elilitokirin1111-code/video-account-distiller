@@ -7,14 +7,14 @@ installation, then install into an isolated Python 3.11+ environment:
 
 ```powershell
 uv venv .venv --python 3.11
-uv pip install --python .venv\Scripts\python.exe .\video_account_distiller-1.0.0-py3-none-any.whl
+uv pip install --python .venv\Scripts\python.exe .\video_account_distiller-1.1.0-py3-none-any.whl
 .\.venv\Scripts\python.exe -m video_account_distiller --version
 .\.venv\Scripts\python.exe -m video_account_distiller doctor --json
 ```
 
 On macOS or Linux, replace `.venv\Scripts\python.exe` with `.venv/bin/python`.
 
-The release also contains `video-account-distiller-skill-1.0.0.zip`. Extract its
+The release also contains `video-account-distiller-skill-1.1.0.zip`. Extract its
 `video-account-distiller` directory into `$CODEX_HOME/skills/` when the Codex Agent Skill is needed;
 the Python wheel and Skill archive are versioned together but installed independently.
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, Literal
 
@@ -15,6 +15,10 @@ from video_account_distiller.collection import (
 from video_account_distiller.config import load_config
 from video_account_distiller.distillation import AccountDistillationService
 from video_account_distiller.distillation.account_knowledge import AccountVideoKnowledgeService
+from video_account_distiller.distillation.video import (
+    SingleVideoDistillationService,
+    _latest_text_analysis,
+)
 from video_account_distiller.doctor import doctor_report
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.features import CloudChatTextProvider, TextModelProvider
@@ -36,8 +40,9 @@ from video_account_distiller.media import (
     VisionModelProvider,
     build_local_transcriber,
 )
-from video_account_distiller.models import AccountCollectionRequest, CollectionProviderKind
+from video_account_distiller.models import AccountCollectionRequest, CollectionProviderKind, Video
 from video_account_distiller.reports import NarrativeReportService, ReportService
+from video_account_distiller.storage.parquet import read_models
 from video_account_distiller.storage.project import ProjectLayout
 
 WorkflowProgress = Callable[[float, str, str], None]
@@ -50,6 +55,287 @@ def _ignore_progress(progress: float, stage: str, message: str) -> None:
 
 def _ignore_checkpoint(stage: str, state: dict[str, Any]) -> None:
     del stage, state
+
+
+def _select_video_distillation_targets(
+    project: ProjectLayout,
+    *,
+    account_id: str,
+    media_enrichment: Any,
+    limit: int,
+) -> dict[str, Any]:
+    """Resolve one shared, ordered target list for both per-video distillers."""
+
+    enrichment = media_enrichment.get("enrichment") if isinstance(media_enrichment, dict) else None
+    enrichment_videos = enrichment.get("videos") if isinstance(enrichment, dict) else None
+    if isinstance(enrichment_videos, list):
+        target_ids: list[str] = []
+        seen: set[str] = set()
+        for item in enrichment_videos:
+            if not isinstance(item, dict) or item.get("status") == "failed":
+                continue
+            video_id = str(item.get("video_id") or "").strip()
+            if not video_id or video_id in seen:
+                continue
+            if (
+                not item.get("text_analysis_id")
+                and _latest_text_analysis(project, video_id) is None
+            ):
+                continue
+            seen.add(video_id)
+            target_ids.append(video_id)
+        target_ids = target_ids[: max(limit, 0)]
+        return {
+            "source": "current_media_enrichment",
+            "video_ids": target_ids,
+            "target_count": len(target_ids),
+            "media_selected_count": len(enrichment_videos),
+        }
+
+    eligible = [
+        video
+        for video in sorted(
+            (
+                video
+                for video in read_models(project.normalized_dir / "videos.parquet", Video)
+                if video.account_id == account_id
+            ),
+            key=lambda item: item.video_id,
+        )
+        if _latest_text_analysis(project, video.video_id) is not None
+    ]
+    target_ids = [video.video_id for video in eligible[: max(limit, 0)]]
+    return {
+        "source": "existing_text_analysis_fallback",
+        "video_ids": target_ids,
+        "target_count": len(target_ids),
+        "eligible_before_limit": len(eligible),
+    }
+
+
+def _distill_account_creative_cards(
+    project: ProjectLayout,
+    *,
+    account_id: str,
+    video_ids: Sequence[str],
+    provider: Literal["ollama", "llamacpp", "cloud", "none"] | None,
+    model: str | None,
+    base_url: str | None,
+    api_key: str | None,
+    strict_model: bool,
+    progress: WorkflowProgress,
+) -> dict[str, Any]:
+    """Create one evidence-bound topic/expression/craft card per eligible video."""
+
+    requested_video_ids = list(dict.fromkeys(item for item in video_ids if item))
+    videos_by_id = {
+        video.video_id: video
+        for video in read_models(project.normalized_dir / "videos.parquet", Video)
+        if video.account_id == account_id
+    }
+    videos = [
+        videos_by_id[video_id] for video_id in requested_video_ids if video_id in videos_by_id
+    ]
+    service = SingleVideoDistillationService(project)
+    cards: list[dict[str, Any]] = []
+    skipped: list[dict[str, str]] = [
+        {
+            "video_id": video_id,
+            "title": video_id,
+            "reason": "本次媒体增强选择的视频不属于该账号或缺少标准化记录",
+        }
+        for video_id in requested_video_ids
+        if video_id not in videos_by_id
+    ]
+    eligible: list[Video] = []
+    for video in videos:
+        if _latest_text_analysis(project, video.video_id) is None:
+            skipped.append(
+                {
+                    "video_id": video.video_id,
+                    "title": video.title or video.video_id,
+                    "reason": "缺少单视频文字盲分析",
+                }
+            )
+        else:
+            eligible.append(video)
+    total = len(eligible)
+    for index, video in enumerate(eligible, start=1):
+        video_id = video.video_id
+        title = video.title or video_id
+        if not video_id:
+            continue
+        progress(
+            0.82 + (0.04 * (index - 1) / max(total, 1)),
+            "video_creative_distillation",
+            f"正在拆解第 {index}/{total} 条视频的选材、表达与拍摄：{title[:32]}",
+        )
+        try:
+            result = service.distill(
+                video_id=video_id,
+                deep_provider=provider,
+                deep_model=model,
+                deep_base_url=base_url,
+                deep_api_key=api_key,
+                strict_model=strict_model,
+            )
+            artifact = result["distillation"]
+            report_path = next(
+                (
+                    str(path)
+                    for path in result.get("outputs") or []
+                    if str(path).endswith("report.md")
+                ),
+                "",
+            )
+            cards.append(
+                {
+                    "video_id": video_id,
+                    "distillation_id": artifact["distillation_id"],
+                    "status": artifact["status"],
+                    "report_path": report_path,
+                }
+            )
+        except (DistillerError, OSError, TypeError, ValueError, KeyError) as exc:
+            if strict_model:
+                raise
+            skipped.append({"video_id": video_id, "title": title, "reason": str(exc)})
+
+    degraded_count = sum(item["status"] == "degraded" for item in cards)
+    return {
+        "ok": True,
+        "account_id": account_id,
+        "status": "complete" if cards and not skipped and degraded_count == 0 else "degraded",
+        "target_video_ids": requested_video_ids,
+        "requested_count": len(requested_video_ids),
+        "eligible_count": total,
+        "completed_count": len(cards) - degraded_count,
+        "degraded_count": degraded_count,
+        "skipped_count": len(skipped),
+        "cards": cards,
+        "outputs": [item["report_path"] for item in cards if item["report_path"]],
+        "skipped": skipped,
+        "document_shape": "one_creative_card_per_video",
+    }
+
+
+def _count_value(value: Any, default: int = 0) -> int:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return default
+
+
+def _summarize_video_distillation(
+    *,
+    target_video_ids: Sequence[str],
+    knowledge_result: dict[str, Any],
+    creative_result: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Summarize real per-video outcomes without upgrading degraded/skipped batches."""
+
+    target_ids = list(dict.fromkeys(item for item in target_video_ids if item))
+    manifest = knowledge_result.get("manifest") or {}
+    documents = manifest.get("documents") or []
+    inferred_knowledge_degraded = sum(
+        item.get("status") == "degraded" for item in documents if isinstance(item, dict)
+    )
+    knowledge_degraded = _count_value(manifest.get("degraded_count"), inferred_knowledge_degraded)
+    knowledge_completed = _count_value(
+        manifest.get("completed_count"), max(len(documents) - knowledge_degraded, 0)
+    )
+    knowledge_skipped = _count_value(manifest.get("skipped_count"))
+    knowledge_requested = _count_value(manifest.get("requested_count"), len(target_ids))
+    knowledge_status = (
+        "complete"
+        if target_ids
+        and manifest.get("status") != "degraded"
+        and knowledge_requested == len(target_ids)
+        and knowledge_completed == len(target_ids)
+        and knowledge_degraded == 0
+        and knowledge_skipped == 0
+        and len(documents) == len(target_ids)
+        else "degraded"
+    )
+    knowledge_summary = {
+        "status": knowledge_status,
+        "requested_count": knowledge_requested,
+        "completed_count": knowledge_completed,
+        "degraded_count": knowledge_degraded,
+        "skipped_count": knowledge_skipped,
+        "document_count": len(documents),
+    }
+    required_statuses = [knowledge_status]
+    result: dict[str, Any] = {
+        "target_video_ids": target_ids,
+        "target_count": len(target_ids),
+        "knowledge": knowledge_summary,
+    }
+    if creative_result is not None:
+        cards = creative_result.get("cards") or []
+        inferred_creative_degraded = sum(
+            item.get("status") == "degraded" for item in cards if isinstance(item, dict)
+        )
+        creative_requested = _count_value(creative_result.get("requested_count"), len(target_ids))
+        creative_degraded = _count_value(
+            creative_result.get("degraded_count"), inferred_creative_degraded
+        )
+        creative_completed = _count_value(
+            creative_result.get("completed_count"), max(len(cards) - creative_degraded, 0)
+        )
+        creative_skipped = _count_value(creative_result.get("skipped_count"))
+        creative_status = (
+            "complete"
+            if target_ids
+            and creative_result.get("status") != "degraded"
+            and creative_requested == len(target_ids)
+            and creative_completed == len(target_ids)
+            and creative_degraded == 0
+            and creative_skipped == 0
+            and len(cards) == len(target_ids)
+            else "degraded"
+        )
+        creative_summary: dict[str, Any] = {
+            "status": creative_status,
+            "requested_count": creative_requested,
+            "completed_count": creative_completed,
+            "degraded_count": creative_degraded,
+            "skipped_count": creative_skipped,
+            "card_count": len(cards),
+        }
+        result["creative"] = creative_summary
+        required_statuses.append(creative_status)
+    result["status"] = (
+        "complete"
+        if target_ids and all(item == "complete" for item in required_statuses)
+        else "degraded"
+    )
+    return result
+
+
+def _video_distillation_completion_message(summary: dict[str, Any], *, full_mode: bool) -> str:
+    if summary.get("status") == "complete":
+        return (
+            "逐视频内容、选材、表达、拍摄与账号规律蒸馏完成"
+            if full_mode
+            else "账号逐视频内容知识提取完成"
+        )
+    knowledge = summary.get("knowledge") or {}
+    knowledge_counts = (
+        f"知识完整 {int(knowledge.get('completed_count') or 0)}、"
+        f"降级 {int(knowledge.get('degraded_count') or 0)}、"
+        f"跳过 {int(knowledge.get('skipped_count') or 0)}"
+    )
+    if not full_mode:
+        return f"逐视频知识提取结束，但存在降级或跳过（{knowledge_counts}）"
+    creative = summary.get("creative") or {}
+    creative_counts = (
+        f"创作卡完整 {int(creative.get('completed_count') or 0)}、"
+        f"降级 {int(creative.get('degraded_count') or 0)}、"
+        f"跳过 {int(creative.get('skipped_count') or 0)}"
+    )
+    return f"账号级归纳已完成；逐视频批次存在降级或跳过（{knowledge_counts}；{creative_counts}）"
 
 
 def _ratio(completed: int, requested: int) -> float | None:
@@ -285,16 +571,18 @@ class AccountDistillWorkflow:
     ) -> dict[str, Any]:
         """Run the bounded local-first workflow and report durable stage progress."""
 
-        knowledge_mode = distillation_mode == "knowledge" or distill_video_knowledge
+        knowledge_mode = distillation_mode == "knowledge"
+        full_mode = distillation_mode == "creative_learning" and distill_video_knowledge
+        video_knowledge_enabled = knowledge_mode or distill_video_knowledge
         effective_mode: Literal["creative_learning", "knowledge"] = (
             "knowledge" if knowledge_mode else "creative_learning"
         )
         progress(0.03, "preflight", "正在检查采集范围与本机能力")
-        if knowledge_mode and media_limit <= 0:
+        if video_knowledge_enabled and media_limit <= 0:
             raise DistillerError(
                 ErrorCode.SCHEMA_INVALID,
                 "Video-content knowledge extraction requires video download and analysis",
-                details={"next": "set media_limit above zero for account knowledge mode"},
+                details={"next": "set media_limit above zero for full or knowledge mode"},
             )
         if media_limit > 0 and request.provider != CollectionProviderKind.MEDIACRAWLER:
             raise DistillerError(
@@ -356,7 +644,11 @@ class AccountDistillWorkflow:
             diagnostics = doctor_report(self.project.root).model_dump(mode="json")
             result["workflow_plan"] = {
                 "mode": (
-                    "account_video_knowledge" if knowledge_mode else "self_service_account_distill"
+                    "account_video_knowledge"
+                    if knowledge_mode
+                    else "full_creative_account_distill"
+                    if full_mode
+                    else "self_service_account_distill"
                 ),
                 "distillation_mode": effective_mode,
                 "media_limit": media_limit,
@@ -373,13 +665,25 @@ class AccountDistillWorkflow:
                 },
                 "knowledge_export": export_knowledge and not knowledge_mode,
                 "video_knowledge": {
-                    "enabled": knowledge_mode,
+                    "enabled": video_knowledge_enabled,
                     "document_shape": "one_markdown_per_video",
                     "provider": video_knowledge_provider,
                     "model": video_knowledge_model,
                     "external_model_calls": (
                         "per_eligible_video"
-                        if knowledge_mode and video_knowledge_provider not in {None, "none"}
+                        if video_knowledge_enabled
+                        and video_knowledge_provider not in {None, "none"}
+                        else 0
+                    ),
+                },
+                "video_creative_distillation": {
+                    "enabled": full_mode,
+                    "document_shape": "one_creative_card_per_video",
+                    "provider": video_knowledge_provider,
+                    "model": video_knowledge_model,
+                    "external_model_calls": (
+                        "per_eligible_video"
+                        if full_mode and video_knowledge_provider not in {None, "none"}
                         else 0
                     ),
                 },
@@ -409,6 +713,22 @@ class AccountDistillWorkflow:
                         "media",
                         "transcribe",
                         "video_analysis",
+                        "video_knowledge",
+                        "video_creative_distillation",
+                        "distill",
+                        "report",
+                        "knowledge_synthesis",
+                        "knowledge_export",
+                    ]
+                    if full_mode
+                    else [
+                        "collect",
+                        "normalize",
+                        "metrics",
+                        "comments",
+                        "media",
+                        "transcribe",
+                        "video_analysis",
                         "distill",
                         "report",
                         "knowledge_synthesis",
@@ -430,6 +750,13 @@ class AccountDistillWorkflow:
             and resume_state.get("collection_profile") == collection_profile.value
             and resume_state.get("analysis_focus", "general") == analysis_focus
             and resume_state.get("distillation_mode", "creative_learning") == effective_mode
+            and bool(
+                resume_state.get(
+                    "video_knowledge_enabled",
+                    effective_mode == "knowledge",
+                )
+            )
+            == video_knowledge_enabled
             and isinstance(resume_state.get("result"), dict)
         ):
             resumed_result = dict(resume_state["result"])
@@ -456,6 +783,7 @@ class AccountDistillWorkflow:
                     "collection_profile": collection_profile.value,
                     "analysis_focus": analysis_focus,
                     "distillation_mode": effective_mode,
+                    "video_knowledge_enabled": video_knowledge_enabled,
                     "account_id": account_id,
                     "result": result,
                 },
@@ -475,6 +803,7 @@ class AccountDistillWorkflow:
             and resume_stage
             in {
                 "media_complete",
+                "video_full_complete",
                 "report_complete",
                 "knowledge_export_complete",
                 "narrative_complete",
@@ -508,6 +837,7 @@ class AccountDistillWorkflow:
                     "collection_profile": collection_profile.value,
                     "analysis_focus": analysis_focus,
                     "distillation_mode": effective_mode,
+                    "video_knowledge_enabled": video_knowledge_enabled,
                     "account_id": account_id,
                     "result": result,
                 },
@@ -516,20 +846,68 @@ class AccountDistillWorkflow:
         elif media_already_complete:
             progress(0.78, "resuming", "已复用检查点中的视频内容分析")
 
-        if knowledge_mode:
+        if video_knowledge_enabled:
+            targets = _select_video_distillation_targets(
+                self.project,
+                account_id=account_id,
+                media_enrichment=result.get("media_enrichment"),
+                limit=media_limit,
+            )
+            result["video_distillation_targets"] = targets
+            target_video_ids = targets["video_ids"]
             progress(
-                0.82,
+                0.80,
                 "video_knowledge",
                 "正在从每条视频内容中提取事实、概念、方法与适用边界",
             )
             result["video_knowledge"] = AccountVideoKnowledgeService(self.project).distill(
                 account_id=account_id,
+                video_ids=target_video_ids,
                 provider=video_knowledge_provider,
                 model=video_knowledge_model,
                 base_url=video_knowledge_base_url,
                 api_key=video_knowledge_api_key,
                 strict_model=strict_video_knowledge,
             )
+            if full_mode:
+                result["video_creative_distillation"] = _distill_account_creative_cards(
+                    self.project,
+                    account_id=account_id,
+                    video_ids=target_video_ids,
+                    provider=video_knowledge_provider,
+                    model=video_knowledge_model,
+                    base_url=video_knowledge_base_url,
+                    api_key=video_knowledge_api_key,
+                    strict_model=strict_video_knowledge,
+                    progress=progress,
+                )
+                result["video_creative_card_index"] = {
+                    "document_shape": "one_creative_card_per_video",
+                    "target_video_ids": target_video_ids,
+                    "cards": result["video_creative_distillation"].get("cards") or [],
+                }
+            result["video_distillation_summary"] = _summarize_video_distillation(
+                target_video_ids=target_video_ids,
+                knowledge_result=result["video_knowledge"],
+                creative_result=result.get("video_creative_distillation") if full_mode else None,
+            )
+            if full_mode:
+                checkpoint(
+                    "video_full_complete",
+                    {
+                        "version": "1.0.0",
+                        "stage": "video_full_complete",
+                        "request": request_payload,
+                        "collection_profile": collection_profile.value,
+                        "analysis_focus": analysis_focus,
+                        "distillation_mode": effective_mode,
+                        "video_knowledge_enabled": video_knowledge_enabled,
+                        "account_id": account_id,
+                        "result": result,
+                    },
+                )
+
+        if knowledge_mode:
             for operational_key in (
                 "report",
                 "comment_analysis",
@@ -566,13 +944,15 @@ class AccountDistillWorkflow:
                     "message": "本次任务没有新增或复用需要清理的原视频。",
                 }
             manifest = (result.get("video_knowledge") or {}).get("manifest") or {}
+            video_summary = result.get("video_distillation_summary") or {}
             result["workflow"] = {
                 "mode": "account_video_knowledge",
                 "distillation_mode": "knowledge",
+                "status": video_summary.get("status") or "degraded",
                 "account_id": account_id,
                 "media_limit": media_limit,
                 "operational_analysis_run": False,
-                "video_knowledge_exported": True,
+                "video_knowledge_exported": bool(manifest.get("documents")),
                 "video_knowledge_document_shape": "one_markdown_per_video",
                 "knowledge_documents": len(manifest.get("documents", [])),
                 "skipped_videos": int(manifest.get("skipped_count") or 0),
@@ -594,18 +974,31 @@ class AccountDistillWorkflow:
                     "collection_profile": collection_profile.value,
                     "analysis_focus": analysis_focus,
                     "distillation_mode": effective_mode,
+                    "video_knowledge_enabled": video_knowledge_enabled,
                     "account_id": account_id,
                     "result": result,
                 },
             )
-            progress(1.0, "completed", "账号逐视频内容知识提取完成")
+            progress(
+                1.0,
+                "completed",
+                _video_distillation_completion_message(video_summary, full_mode=False),
+            )
             return result
 
-        progress(0.80, "distill", "正在从完整视频证据中重建账号模式与反例")
+        progress(
+            0.86 if full_mode else 0.80,
+            "distill",
+            "正在从完整视频证据中重建账号模式与反例",
+        )
         result["distillation"] = AccountDistillationService(self.project).distill(
             account_id=account_id
         )
-        progress(0.84, "report", "正在重建账号画像、报告与分析上下文")
+        progress(
+            0.88 if full_mode else 0.84,
+            "report",
+            "正在重建账号画像、报告与分析上下文",
+        )
         result["report"] = ReportService(self.project).generate_account_health(
             account_id=account_id
         )
@@ -625,6 +1018,8 @@ class AccountDistillWorkflow:
                 "request": request_payload,
                 "collection_profile": collection_profile.value,
                 "analysis_focus": analysis_focus,
+                "distillation_mode": effective_mode,
+                "video_knowledge_enabled": video_knowledge_enabled,
                 "account_id": account_id,
                 "result": result,
             },
@@ -670,6 +1065,8 @@ class AccountDistillWorkflow:
                     "request": request_payload,
                     "collection_profile": collection_profile.value,
                     "analysis_focus": analysis_focus,
+                    "distillation_mode": effective_mode,
+                    "video_knowledge_enabled": video_knowledge_enabled,
                     "account_id": account_id,
                     "result": result,
                 },
@@ -687,6 +1084,8 @@ class AccountDistillWorkflow:
                 "request": request_payload,
                 "collection_profile": collection_profile.value,
                 "analysis_focus": analysis_focus,
+                "distillation_mode": effective_mode,
+                "video_knowledge_enabled": video_knowledge_enabled,
                 "account_id": account_id,
                 "result": result,
             },
@@ -713,6 +1112,8 @@ class AccountDistillWorkflow:
                     "request": request_payload,
                     "collection_profile": collection_profile.value,
                     "analysis_focus": analysis_focus,
+                    "distillation_mode": effective_mode,
+                    "video_knowledge_enabled": video_knowledge_enabled,
                     "account_id": account_id,
                     "result": result,
                 },
@@ -725,9 +1126,14 @@ class AccountDistillWorkflow:
                 "message": "本次任务没有新增或复用需要清理的原视频。",
             }
 
+        video_summary = result.get("video_distillation_summary") or {}
+        full_video_status = video_summary.get("status") if full_mode else None
         result["workflow"] = {
-            "mode": "self_service_account_distill",
-            "distillation_mode": "creative_learning",
+            "mode": "full_creative_account_distill"
+            if full_mode
+            else "self_service_account_distill",
+            "distillation_mode": effective_mode,
+            "status": full_video_status or "complete",
             "account_id": account_id,
             "media_limit": media_limit,
             "analysis_focus": analysis_focus,
@@ -737,13 +1143,26 @@ class AccountDistillWorkflow:
                 else 0
             ),
             "knowledge_status": (
-                "distilled"
+                "full_video_and_account_distilled"
+                if full_mode and full_video_status == "complete"
+                else "account_distilled_with_video_batch_warnings"
+                if full_mode
+                else "distilled"
                 if account_analysis_provider is not None and account_analysis_options is not None
                 else "evidence_ready"
             ),
             "knowledge_exported": export_knowledge,
-            "video_knowledge_exported": False,
-            "video_knowledge_document_shape": None,
+            "video_knowledge_exported": bool(
+                ((result.get("video_knowledge") or {}).get("manifest") or {}).get("documents")
+            )
+            if full_mode
+            else False,
+            "video_knowledge_document_shape": ("one_markdown_per_video" if full_mode else None),
+            "video_creative_cards": len(
+                (result.get("video_creative_distillation") or {}).get("cards") or []
+            ),
+            "video_creative_document_shape": ("one_creative_card_per_video" if full_mode else None),
+            "account_report_includes_video_creative_cards": False,
             "raw_videos_deleted_after_success": True,
         }
         result["workflow_coverage"] = _workflow_coverage(
@@ -757,7 +1176,9 @@ class AccountDistillWorkflow:
             1.0,
             "completed",
             (
-                "账号知识蒸馏完成"
+                _video_distillation_completion_message(video_summary, full_mode=True)
+                if full_mode
+                else "账号知识蒸馏完成"
                 if account_analysis_provider is not None and account_analysis_options is not None
                 else "账号数据与证据分析完成；经营知识蒸馏待运行"
             ),

@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$Version = "1.0.0",
+    [ValidatePattern('^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$')]
+    [string]$Version = "1.1.0",
     [switch]$SkipInstaller
 )
 
@@ -68,8 +69,13 @@ try {
             & $iscc "/DMyAppVersion=$Version" "/DSourceDir=$applicationDir" `
                 "/DOutputDir=$installerOutput" $installerScript
             if ($LASTEXITCODE -ne 0) { throw "Inno Setup build failed" }
+            $expectedInstaller = Join-Path $installerOutput `
+                "VideoAccountDistiller-Setup-$Version-win64.exe"
+            if (-not (Test-Path -LiteralPath $expectedInstaller -PathType Leaf)) {
+                throw "Inno Setup did not produce the exact versioned installer"
+            }
         } else {
-            Write-Warning "Inno Setup 6 was not found; portable EXE/ZIP were built successfully."
+            throw "Inno Setup 6 was not found; use -SkipInstaller only for an explicit portable-only build."
         }
     }
 

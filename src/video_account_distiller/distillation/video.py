@@ -57,7 +57,7 @@ from video_account_distiller.utils.ids import stable_id
 from video_account_distiller.utils.io import atomic_write_json, atomic_write_text, read_json
 from video_account_distiller.utils.lookup import resolve_video
 
-SINGLE_VIDEO_DISTILLATION_VERSION = "1.0.0"
+SINGLE_VIDEO_DISTILLATION_VERSION = "1.1.0"
 
 _CRAFT_COUNT_ATTRIBUTES: tuple[tuple[str, str], ...] = (
     ("shot_scale", "shot_scale"),
@@ -555,16 +555,32 @@ class SingleVideoDistillationService:
         ]
         transcript_ids = {item.segment_id for item in transcript_records}
         valid_shots = {item.shot_id for item in media.shots} if media is not None else set()
+        prompt = render_prompt(
+            "single-video-deep-distillation.md",
+            bundle_json=_build_bundle(self.project, video, analysis, craft, media),
+            schema_json=SingleVideoDeepOutput.model_json_schema(),
+        )
+        attempts = max_attempts or config.models.max_schema_attempts
+        effective_strict = strict_model or not config.models.allow_degraded_analysis
+        provider_name = provider.provider_name if provider is not None else "none"
+        provider_model = provider.model_name if provider is not None else "none"
+        provider_base_url = str(getattr(provider, "base_url", "") or "") or None
+        prompt_hash = sha256_json({"prompt": prompt})
 
         seed = {
             "video_id": video_id,
             "version": SINGLE_VIDEO_DISTILLATION_VERSION,
+            "prompt_version": DEEP_DISTILLATION_PROMPT_VERSION,
+            "prompt_hash": prompt_hash,
             "text_analysis_id": analysis.analysis_id,
             "media_analysis_id": media.analysis_id if media else None,
             "craft_summary": craft.model_dump(mode="json"),
             "fallback": fallback.model_dump(mode="json"),
-            "deep_provider": deep_provider,
-            "deep_model": deep_model,
+            "provider": provider_name,
+            "model": provider_model,
+            "base_url": provider_base_url,
+            "requested_provider": deep_provider,
+            "requested_model": deep_model,
             "provider_input_hash": (
                 provider.input_hash if isinstance(provider, StructuredFileProvider) else None
             ),
@@ -578,14 +594,35 @@ class SingleVideoDistillationService:
             output_dir / "warnings.json",
         ]
         relative = [self.project.relative(path) for path in paths]
-        if paths[0].is_file() and not dry_run:
-            return {
-                "ok": True,
-                "dry_run": False,
-                "already_generated": True,
-                "distillation": read_json(paths[0]),
-                "outputs": relative,
-            }
+        if all(path.is_file() for path in paths) and not dry_run:
+            try:
+                cached = SingleVideoDistillation.model_validate(read_json(paths[0]))
+                cached_evidence = ArtifactEvidenceIndex.model_validate(read_json(paths[2]))
+                cached_warnings = read_json(paths[3])
+                cached_report = paths[1].read_text(encoding="utf-8")
+                if (
+                    cached.distillation_id != distillation_id
+                    or cached.video_id != video_id
+                    or cached.analysis_version != SINGLE_VIDEO_DISTILLATION_VERSION
+                    or cached_evidence.artifact_id != distillation_id
+                    or cached_evidence.run_id != cached.run_id
+                    or not isinstance(cached_warnings, list)
+                    or not all(isinstance(item, str) for item in cached_warnings)
+                    or cached_warnings != cached.warnings
+                    or not cached_report.strip()
+                ):
+                    raise ValueError("incomplete or inconsistent single-video cache")
+            except (OSError, TypeError, ValueError):
+                pass
+            else:
+                if not effective_strict or cached.status == "complete":
+                    return {
+                        "ok": True,
+                        "dry_run": False,
+                        "already_generated": True,
+                        "distillation": cached.model_dump(mode="json"),
+                        "outputs": relative,
+                    }
         input_hashes = sorted(
             {
                 video.raw_hash,
@@ -606,13 +643,6 @@ class SingleVideoDistillationService:
         run_id = manifest.run_id if manifest else stable_id("run_dry_", distillation_id)
         generated_at = datetime.now(UTC)
 
-        prompt = render_prompt(
-            "single-video-deep-distillation.md",
-            bundle_json=_build_bundle(self.project, video, analysis, craft, media),
-            schema_json=SingleVideoDeepOutput.model_json_schema(),
-        )
-        attempts = max_attempts or config.models.max_schema_attempts
-        effective_strict = strict_model or not config.models.allow_degraded_analysis
         deep, deep_trace = _generate_with_retry(
             prompt=prompt,
             response_model=SingleVideoDeepOutput,

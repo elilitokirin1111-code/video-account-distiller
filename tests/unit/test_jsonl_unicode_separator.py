@@ -5,9 +5,12 @@ from datetime import UTC, datetime
 
 from video_account_distiller.models import Comment, Platform
 from video_account_distiller.normalization import NormalizationService
+from video_account_distiller.storage.project import ProjectLayout
 
 
-def test_normalization_accepts_unicode_line_separator_in_comment(project) -> None:
+def test_normalization_accepts_unicode_line_separator_in_comment(
+    project: ProjectLayout,
+) -> None:
     """JSONL records must not be split on U+2028 inside a JSON string."""
 
     comment = Comment(

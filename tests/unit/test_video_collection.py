@@ -7,7 +7,10 @@ import pytest
 
 from video_account_distiller.adapters.collaboration import HttpResponse
 from video_account_distiller.collection import AccountCollectionService, TikHubAccountProvider
-from video_account_distiller.collection.mediacrawler import MediaCrawlerAccountProvider
+from video_account_distiller.collection.mediacrawler import (
+    MediaCrawlerAccountProvider,
+    ProcessResult,
+)
 from video_account_distiller.collection.providers import resolve_video_id_from_url
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.models import CollectionProviderKind
@@ -53,7 +56,7 @@ class FixtureProcessExecutor:
         *,
         cwd: Path,
         timeout_seconds: int,
-    ) -> object:
+    ) -> ProcessResult:
         del cwd, timeout_seconds
         self.commands.append(command)
         output = Path(command[command.index("--output") + 1])
@@ -61,8 +64,6 @@ class FixtureProcessExecutor:
             json.dumps(self.payload, ensure_ascii=False),
             encoding="utf-8",
         )
-        from video_account_distiller.collection.mediacrawler import ProcessResult
-
         return ProcessResult(returncode=0)
 
 

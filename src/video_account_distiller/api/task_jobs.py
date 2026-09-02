@@ -458,7 +458,8 @@ def execute_account_distill(
     """Rebuild and execute a workflow in whichever process claims the task."""
     job = AccountDistillJob.model_validate(payload)
     body = job.body
-    knowledge_mode = body.distillation_mode == "knowledge" or body.distill_video_knowledge
+    knowledge_mode = body.distillation_mode == "knowledge"
+    full_mode = body.distillation_mode == "creative_learning" and body.distill_video_knowledge
     layout = ProjectLayout.open(Path(job.project_path))
     count, comments_per_video = resolve_profile_options(
         profile=body.profile,
@@ -537,6 +538,7 @@ def execute_account_distill(
         whisper_batch_size=body.whisper_batch_size,
         vision_provider=body.vision_provider,
         vision_model=body.vision_model,
+        text_provider=body.text_provider,
         ollama_base_url=body.ollama_base_url,
         cloud_base_url=body.cloud_base_url,
         cloud_api_key=cloud_credential,
@@ -550,7 +552,7 @@ def execute_account_distill(
         account_analysis_options=analysis_options,
         analysis_focus=body.analysis_focus,
         distillation_mode=("knowledge" if knowledge_mode else "creative_learning"),
-        distill_video_knowledge=knowledge_mode,
+        distill_video_knowledge=knowledge_mode or full_mode,
         video_knowledge_provider=body.video_knowledge_provider,
         video_knowledge_model=body.video_knowledge_model,
         video_knowledge_base_url=(

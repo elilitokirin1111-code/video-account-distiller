@@ -66,6 +66,8 @@ def _analysis(title: str = "Account snapshot is present") -> GptAccountAnalysis:
 class EvaluationProvider:
     provider_name = "fake_openai"
     model_name = "gpt-5.6-terra"
+    credential_env = "OPENAI_API_KEY"
+    credential_source = "OPENAI_API_KEY"
 
     def __init__(self, run_index: int, calls: list[int], *, vary: bool = False) -> None:
         self.run_index = run_index

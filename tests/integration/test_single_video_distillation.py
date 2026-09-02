@@ -4,12 +4,17 @@ import json
 from array import array
 from pathlib import Path
 
+import pytest
+from pydantic import BaseModel
+
+import video_account_distiller.distillation.video as video_distillation_module
 from video_account_distiller.distillation.account_knowledge import (
     AccountVideoKnowledgeService,
     _title_document_stem,
 )
 from video_account_distiller.distillation.knowledge import SingleVideoKnowledgeService
 from video_account_distiller.distillation.video import SingleVideoDistillationService
+from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.features import VideoAnalysisService
 from video_account_distiller.media import LocalMediaAnalysisService, SceneDetectionResult
 from video_account_distiller.models import (
@@ -221,6 +226,114 @@ def test_single_video_deep_distillation_degrades_without_model(
     assert validate_project(phase3_project, persist=False).error_count == 0
 
 
+def test_single_video_deep_cache_rebuilds_incomplete_artifact(
+    phase3_project: ProjectLayout,
+) -> None:
+    _analyze_text(phase3_project)
+    service = SingleVideoDistillationService(phase3_project)
+    first = service.distill(video_id="p2-01")
+    report_path = phase3_project.root / first["outputs"][1]
+    report_path.unlink()
+
+    rebuilt = service.distill(video_id="p2-01")
+
+    assert rebuilt["already_generated"] is False
+    assert rebuilt["distillation"]["distillation_id"] == first["distillation"]["distillation_id"]
+    assert report_path.is_file()
+
+
+def test_single_video_deep_strict_mode_rejects_degraded_cache(
+    phase3_project: ProjectLayout,
+) -> None:
+    _analyze_text(phase3_project)
+    service = SingleVideoDistillationService(phase3_project)
+    degraded = service.distill(video_id="p2-01")
+    assert degraded["distillation"]["status"] == "degraded"
+
+    with pytest.raises(DistillerError) as exc_info:
+        service.distill(video_id="p2-01", strict_model=True)
+
+    assert exc_info.value.code == ErrorCode.MODEL_UNAVAILABLE
+
+
+def test_single_video_deep_cache_keys_provider_endpoint_and_prompt_version(
+    phase3_project: ProjectLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _analyze_text(phase3_project)
+
+    class _FixtureCloudProvider:
+        provider_name = "cloud"
+
+        def __init__(
+            self,
+            *,
+            model: str,
+            base_url: str,
+            timeout_seconds: float,
+            api_key: str | None,
+        ) -> None:
+            del timeout_seconds, api_key
+            self.model_name = model
+            self.base_url = base_url.rstrip("/")
+
+        def generate_structured(
+            self,
+            prompt: str,
+            response_model: type[BaseModel],
+            *,
+            temperature: float = 0.0,
+        ) -> BaseModel:
+            del prompt, temperature
+            return response_model.model_validate(_deep_candidate())
+
+    monkeypatch.setattr(
+        video_distillation_module,
+        "CloudChatTextProvider",
+        _FixtureCloudProvider,
+    )
+    service = SingleVideoDistillationService(phase3_project)
+    endpoint_a = service.distill(
+        video_id="p2-01",
+        deep_provider="cloud",
+        deep_model="fixture-deep",
+        deep_base_url="https://endpoint-a.example/v1",
+    )
+    endpoint_b = service.distill(
+        video_id="p2-01",
+        deep_provider="cloud",
+        deep_model="fixture-deep",
+        deep_base_url="https://endpoint-b.example/v1",
+    )
+    endpoint_b_cached = service.distill(
+        video_id="p2-01",
+        deep_provider="cloud",
+        deep_model="fixture-deep",
+        deep_base_url="https://endpoint-b.example/v1",
+    )
+
+    assert (
+        endpoint_a["distillation"]["distillation_id"]
+        != endpoint_b["distillation"]["distillation_id"]
+    )
+    assert endpoint_b_cached["already_generated"] is True
+    monkeypatch.setattr(
+        video_distillation_module,
+        "DEEP_DISTILLATION_PROMPT_VERSION",
+        "single-video-deep-distillation-test-v2",
+    )
+    prompt_v2 = service.distill(
+        video_id="p2-01",
+        deep_provider="cloud",
+        deep_model="fixture-deep",
+        deep_base_url="https://endpoint-b.example/v1",
+    )
+    assert (
+        prompt_v2["distillation"]["distillation_id"]
+        != endpoint_b["distillation"]["distillation_id"]
+    )
+
+
 def test_single_video_knowledge_mode_uses_isolated_artifact_paths(
     phase3_project: ProjectLayout,
 ) -> None:
@@ -257,6 +370,16 @@ def test_account_video_knowledge_creates_one_import_document_per_eligible_video(
     assert preview["eligible_count"] == 1
     assert len(preview["skipped"]) == len(account_videos) - 1
     assert preview["plan"]["document_shape"] == "one_markdown_per_video"
+
+    selected_preview = service.distill(
+        account_id=account_id,
+        video_ids=[target.video_id],
+        provider="none",
+        dry_run=True,
+    )
+    assert selected_preview["requested_count"] == 1
+    assert selected_preview["eligible_count"] == 1
+    assert selected_preview["skipped"] == []
 
     result = service.distill(account_id=account_id, provider="none")
     manifest = AccountVideoKnowledgeManifest.model_validate(result["manifest"])

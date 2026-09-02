@@ -48,7 +48,7 @@ def test_health_openapi_and_missing_task_contract(tmp_path: Path) -> None:
         assert health.status_code == 200
         assert _json(health) == {
             "status": "ok",
-            "version": "1.0.0",
+            "version": "1.1.0",
             "features": {"account_video_knowledge": "1"},
         }
 
@@ -989,7 +989,7 @@ class _BailianContractExecutor(_OpenAIContractExecutor):
             }
         )
         if method == "GET":
-            response = {
+            response: dict[str, Any] = {
                 "object": "list",
                 "data": [
                     {"id": "qwen3.7-plus", "object": "model"},

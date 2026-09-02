@@ -1,15 +1,20 @@
 # Release notes
 
-- Added Alibaba Cloud Model Studio (Bailian) as a selectable account-level deep-analysis provider,
-  including Web-based online credential validation, operating-system keyring storage, approved
-  endpoint validation, JSON-mode schema checks, CNY cost previews, and provider-specific audit
-  metadata.
-
 Keep future changes under **Unreleased** while developing. Move them into a dated version section
 when releasing; retain prior sections so downstream users can understand migrations and behavior
 changes.
 
 ## Unreleased
+
+No changes are assigned after the staged `1.1.0` candidate yet.
+
+## 1.1.0 — 2026-09-02 (staged; not published)
+
+The source version and release asset contract are staged for `1.1.0`, but no tag or GitHub Release
+has been published. Promotion remains blocked until a real 7～14 day public-beta campaign targeting
+`1.1.0` produces the required frozen evidence bundle and the complete cross-platform artifact
+audit passes. Existing core, analysis, schema, rubric, and rule versions are intentionally not
+renumbered by this package release.
 
 ### Changed
 
@@ -18,6 +23,15 @@ changes.
   unchecked optional task.
 
 ### Added
+
+- A fail-closed Windows in-place updater: stable GitHub Release discovery, exact installer asset
+  matching, size and SHA-256 verification, streamed `.part` staging, atomic promotion, and silent
+  same-AppId installation into the running EXE directory after active tasks finish.
+
+- Alibaba Cloud Model Studio (Bailian) as a selectable account-level deep-analysis provider,
+  including Web-based online credential validation, operating-system keyring storage, approved
+  endpoint validation, JSON-mode schema checks, CNY cost previews, and provider-specific audit
+  metadata.
 
 - Native `qwen3.7-plus` cloud video understanding with adaptive FPS, mixed keyframe evidence
   anchors, bounded Base64 upload, and keyframe-only fallback; the desktop adds a one-click
@@ -136,8 +150,8 @@ changes.
   `TIKHUB_DOUYIN_POSTS_MODE=app-v3`; there is no automatic paid fallback.
 - The first real MediaCrawler Edge acceptance passed on 2026-07-23 with 10 videos, 10 metric
   snapshots, and 30 comments accepted, zero row rejections, and zero project validation findings.
-  Package and Skill remain `1.0.0` until an explicit release/tag decision; existing core and
-  Phase 2～7 artifact schemas are unchanged.
+  That acceptance ran against package `1.0.0`; package and Skill are now staged at `1.1.0`, while
+  existing core and Phase 2～7 artifact schemas remain unchanged.
 - The conservative no-model video fallback now classifies only explicit Chinese hotel keywords at
   confidence no greater than `0.45`. Account positioning also reports measured orientation, median
   shot duration, audio activity, and any schema-backed visual annotations, while preserving

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -14,6 +15,7 @@ from video_account_distiller.features.providers import (
     _normalize_https_base_url,
 )
 from video_account_distiller.insights.gpt_analysis import (
+    AnalysisProviderKind,
     BailianModel,
     DeepSeekModel,
     GptAnalysisOptions,
@@ -209,7 +211,9 @@ class _RecordingVisionExecutor:
         return self.response
 
 
-def test_qwen37_cloud_provider_sends_native_video_with_keyframe_anchors(tmp_path) -> None:
+def test_qwen37_cloud_provider_sends_native_video_with_keyframe_anchors(
+    tmp_path: Path,
+) -> None:
     assert QWEN_NATIVE_VIDEO_MAX_BYTES == 256 * 1024 * 1024
 
     video = tmp_path / "source.mp4"
@@ -327,13 +331,13 @@ def test_cloud_vision_provider_rejects_plain_http_remote() -> None:
 
 def test_gpt_analysis_options_accept_qwen_models_for_bailian() -> None:
     options = GptAnalysisOptions(
-        provider="bailian",
+        provider=AnalysisProviderKind.BAILIAN,
         model=BailianModel.QWEN_MAX,
     )
     assert options.model == "qwen-max"
 
     chat = GptAnalysisOptions(
-        provider="deepseek",
+        provider=AnalysisProviderKind.DEEPSEEK,
         model=DeepSeekModel.CHAT,
     )
     assert chat.model == "deepseek-chat"

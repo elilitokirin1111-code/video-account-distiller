@@ -516,17 +516,19 @@ def test_weknora_video_knowledge_does_not_delete_creative_document(
             "",
         )
 
+    def _delete(url: str, *args: Any, **kwargs: Any) -> _Response:
+        del args, kwargs
+        deleted.append(url)
+        return _Response(200, {"success": True}, "")
+
+    def _post(*args: Any, **kwargs: Any) -> _Response:
+        del args
+        uploads.append(kwargs)
+        return _Response(201, {"success": True}, "")
+
     monkeypatch.setattr(requests, "get", _get)
-    monkeypatch.setattr(
-        requests,
-        "delete",
-        lambda url, *args, **kwargs: deleted.append(url) or _Response(200, {"success": True}, ""),
-    )
-    monkeypatch.setattr(
-        requests,
-        "post",
-        lambda *args, **kwargs: uploads.append(kwargs) or _Response(201, {"success": True}, ""),
-    )
+    monkeypatch.setattr(requests, "delete", _delete)
+    monkeypatch.setattr(requests, "post", _post)
 
     result = WeKnoraSyncService(project).sync_video_knowledge(
         video_id="vid_knowledge",
@@ -626,17 +628,19 @@ def test_weknora_account_video_knowledge_syncs_manifest_documents_individually(
             "",
         )
 
+    def _delete(url: str, *args: Any, **kwargs: Any) -> _Response:
+        del args, kwargs
+        deleted.append(url)
+        return _Response(200, {"success": True}, "")
+
+    def _post(*args: Any, **kwargs: Any) -> _Response:
+        del args
+        uploads.append(kwargs)
+        return _Response(201, {"success": True}, "")
+
     monkeypatch.setattr(requests, "get", _get)
-    monkeypatch.setattr(
-        requests,
-        "delete",
-        lambda url, *args, **kwargs: deleted.append(url) or _Response(200, {"success": True}, ""),
-    )
-    monkeypatch.setattr(
-        requests,
-        "post",
-        lambda *args, **kwargs: uploads.append(kwargs) or _Response(201, {"success": True}, ""),
-    )
+    monkeypatch.setattr(requests, "delete", _delete)
+    monkeypatch.setattr(requests, "post", _post)
 
     result = WeKnoraSyncService(project).sync_account_video_knowledge(
         account_id="acc_test",

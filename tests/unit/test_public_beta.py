@@ -24,6 +24,7 @@ from video_account_distiller.release.public_beta import (
 )
 from video_account_distiller.storage.project import ProjectLayout
 from video_account_distiller.utils.io import atomic_write_json, read_json
+from video_account_distiller.version import PACKAGE_VERSION
 
 pytestmark = pytest.mark.enable_socket
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -134,7 +135,7 @@ def test_public_beta_requires_real_duration_coverage_and_zero_severe_incidents(
     second_result = service.bundle("release-pilot", output=second_bundle)
     assert first_result["bundle_sha256"] == second_result["bundle_sha256"]
     assert first_bundle.read_bytes() == second_bundle.read_bytes()
-    bundled = verify_public_beta_evidence(first_bundle, expected_version="1.0.0")
+    bundled = verify_public_beta_evidence(first_bundle, expected_version=PACKAGE_VERSION)
     assert bundled.ok is True
     assert bundled.source_kind == "bundle"
     assert bundled.observation_count == 7
@@ -151,7 +152,7 @@ def test_public_beta_requires_real_duration_coverage_and_zero_severe_incidents(
 
     artifacts = tmp_path / "artifacts"
     artifacts.mkdir()
-    checksummed_bundle = artifacts / "video-account-distiller-public-beta-1.0.0.zip"
+    checksummed_bundle = artifacts / (f"video-account-distiller-public-beta-{PACKAGE_VERSION}.zip")
     shutil.copyfile(first_bundle, checksummed_bundle)
     write_checksum_manifest(artifacts)
     covered_audit = audit_release_candidate(

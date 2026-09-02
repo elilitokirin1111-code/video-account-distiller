@@ -480,7 +480,7 @@ uninstall this Skill.
 
 ## Current boundary
 
-Package `1.0.0` stabilizes the completed Phase 0–8 workflow. The default public collection is a
+Package `1.1.0` stabilizes the completed Phase 0–8 workflow. The default public collection is a
 bounded TikHub 20-video metadata pass with comments disabled and explicit paid-call confirmation.
 `comprehensive` remains safety-bounded and its comments remain sampled top-level evidence.
 MediaCrawler is an optional pinned source for declared personal non-commercial research; preserve

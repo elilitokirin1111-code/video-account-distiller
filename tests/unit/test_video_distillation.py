@@ -22,6 +22,7 @@ from video_account_distiller.models import (
     MediaAnalysis,
     MediaMetadata,
     MediaVisionAnnotation,
+    Platform,
     ShotSegment,
     ShotVisualAnnotation,
     SingleVideoAnalysis,
@@ -246,7 +247,7 @@ def test_knowledge_fallback_preserves_attribution_and_source_intervals() -> None
         text="视频说有三个常见问题",
         source="fixture",
         record_id="tr_1",
-        source_platform="douyin",
+        source_platform=Platform.DOUYIN,
         source_type="fixture",
         source_record_id="src_1",
         raw_hash="a" * 64,
@@ -288,7 +289,7 @@ def test_knowledge_fallback_keeps_all_transcript_segments_and_contextualizes_num
             ),
             source="fixture",
             record_id=f"tr_{index}",
-            source_platform="douyin",
+            source_platform=Platform.DOUYIN,
             source_type="fixture",
             source_record_id=f"src_{index}",
             raw_hash="a" * 64,
@@ -394,5 +395,6 @@ def test_pacing_and_opening_helpers_agree_with_craft_summary() -> None:
     media = _media_analysis()
     summary = build_craft_summary(media)
     assert summary.pacing_tags == _pacing_tags(summary.average_shot_duration_ms)
+    assert media.vision is not None
     first_annotation = media.vision.shot_annotations[0]
     assert summary.opening_techniques == _opening_technique_tags(first_annotation)

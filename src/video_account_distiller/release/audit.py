@@ -27,6 +27,8 @@ REQUIRED_RELEASE_FILES = (
     "docs/release-notes.md",
     "release-evidence/README.md",
     ".github/workflows/release.yml",
+    "packaging/windows/VideoAccountDistiller.iss",
+    "scripts/build_windows_desktop.ps1",
     "tools/release_acceptance.py",
     "src/video_account_distiller/version.py",
     "skills/video-account-distiller/SKILL.md",
@@ -44,6 +46,7 @@ def _release_artifacts(directory: Path) -> list[Path]:
             path.name.endswith(".whl")
             or path.name.endswith(".tar.gz")
             or path.name.endswith(".zip")
+            or path.name.endswith(".exe")
         )
     )
 
@@ -170,6 +173,33 @@ def _audit_sdist(
         )
 
 
+def _audit_windows_installer(
+    installer: Path,
+    issues: list[ReleaseAuditIssue],
+) -> None:
+    try:
+        with installer.open("rb") as stream:
+            executable_magic = stream.read(2)
+        if executable_magic != b"MZ":
+            issues.append(
+                ReleaseAuditIssue(
+                    severity="error",
+                    code="invalid_windows_installer",
+                    message="Windows installer does not have a Windows executable header",
+                    path=str(installer),
+                )
+            )
+    except OSError as exc:
+        issues.append(
+            ReleaseAuditIssue(
+                severity="error",
+                code="invalid_windows_installer",
+                message=f"Windows installer could not be read: {exc}",
+                path=str(installer),
+            )
+        )
+
+
 def _checksum_entries(path: Path) -> dict[str, str]:
     entries: dict[str, str] = {}
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -277,6 +307,12 @@ def audit_release_candidate(
                 if package_version
                 and path.name == f"video-account-distiller-skill-{package_version}.zip"
             ]
+            windows_installer_matches = [
+                path
+                for path in artifacts
+                if package_version
+                and path.name == f"VideoAccountDistiller-Setup-{package_version}-win64.exe"
+            ]
             if len(wheel_matches) != 1:
                 issues.append(
                     ReleaseAuditIssue(
@@ -310,6 +346,17 @@ def audit_release_candidate(
                 )
             else:
                 _audit_skill_archive(skill_matches[0], issues)
+            if len(windows_installer_matches) != 1:
+                issues.append(
+                    ReleaseAuditIssue(
+                        severity="error",
+                        code="release_windows_installer_missing",
+                        message=("Exactly one version-matched Windows win64 installer is required"),
+                        path=str(resolved_artifact_dir),
+                    )
+                )
+            else:
+                _audit_windows_installer(windows_installer_matches[0], issues)
 
             checksum_path = resolved_artifact_dir / "SHA256SUMS.txt"
             if checksum_path.is_file():

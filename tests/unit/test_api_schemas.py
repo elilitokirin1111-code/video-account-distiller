@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, Literal, cast
+
 import pytest
 from pydantic import ValidationError
 
@@ -17,7 +19,7 @@ from video_account_distiller.insights import AnalysisProviderKind, DeepSeekModel
     ["ollama", "llamacpp", "cloud", None],
 )
 def test_account_distill_accepts_current_vision_providers(
-    vision_provider: str | None,
+    vision_provider: Literal["ollama", "llamacpp", "cloud"] | None,
 ) -> None:
     params = AccountDistillWorkflowParams(
         url="https://www.douyin.com/user/demo",
@@ -30,7 +32,7 @@ def test_account_distill_rejects_unknown_vision_provider() -> None:
     with pytest.raises(ValidationError):
         AccountDistillWorkflowParams(
             url="https://www.douyin.com/user/demo",
-            vision_provider="sdxl",
+            vision_provider=cast(Any, "sdxl"),
         )
 
 
@@ -45,17 +47,34 @@ def test_account_distill_accepts_video_content_knowledge_mode() -> None:
     assert params.video_knowledge_provider == "llamacpp"
 
 
+def test_account_distill_accepts_complete_creative_mode() -> None:
+    params = AccountDistillWorkflowParams(
+        url="https://www.douyin.com/user/demo",
+        distillation_mode="creative_learning",
+        distill_video_knowledge=True,
+        video_knowledge_provider="cloud",
+        video_knowledge_model="deepseek-v4-flash",
+    )
+
+    assert params.distillation_mode == "creative_learning"
+    assert params.distill_video_knowledge is True
+    assert params.video_knowledge_model == "deepseek-v4-flash"
+
+
 def test_account_distill_accepts_secret_free_deepseek_knowledge_synthesis() -> None:
     params = AccountDistillWorkflowParams(
         url="https://www.douyin.com/user/demo",
-        knowledge_analysis={
-            "provider": "deepseek",
-            "model": "deepseek-v4-flash",
-            "template": "content_strategy",
-            "reasoning_effort": "high",
-            "confirm_cloud_upload": True,
-            "confirm_cost": True,
-        },
+        knowledge_analysis=cast(
+            Any,
+            {
+                "provider": "deepseek",
+                "model": "deepseek-v4-flash",
+                "template": "content_strategy",
+                "reasoning_effort": "high",
+                "confirm_cloud_upload": True,
+                "confirm_cost": True,
+            },
+        ),
     )
 
     assert params.knowledge_analysis is not None
