@@ -14,6 +14,8 @@ changes.
 ### Changed
 
 - Raised the `qwen3.7-plus` native-video Base64 client limit from 64 MiB to 256 MiB.
+- Windows installation now always creates the desktop shortcut instead of leaving it behind an
+  unchecked optional task.
 
 ### Added
 

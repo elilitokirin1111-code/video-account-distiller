@@ -30,15 +30,12 @@ CloseApplications=yes
 RestartApplications=no
 LicenseFile=..\..\LICENSE
 
-[Tasks]
-Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加快捷方式："; Flags: unchecked
-
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\视频账号蒸馏器"; Filename: "{app}\VideoAccountDistiller.exe"
-Name: "{autodesktop}\视频账号蒸馏器"; Filename: "{app}\VideoAccountDistiller.exe"; Tasks: desktopicon
+Name: "{autodesktop}\视频账号蒸馏器"; Filename: "{app}\VideoAccountDistiller.exe"; WorkingDir: "{app}"
 
 [Run]
 Filename: "{app}\VideoAccountDistiller.exe"; Description: "启动视频账号蒸馏器"; Flags: nowait postinstall skipifsilent
