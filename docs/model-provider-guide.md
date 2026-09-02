@@ -64,7 +64,7 @@ Cloud visual providers require an explicit `vision_provider=cloud` selection and
 the operating-system keyring. `QwenNativeVideoProvider` sends a local video to Model Studio as a
 Base64 data URL when `qwen3.7-plus` is selected, samples at 2 FPS for clips up to three minutes,
 and sends the mixed opening/ending, scene-change, and uniform keyframes in the same request as
-evidence anchors. Files over 64 MiB, unsupported containers, unavailable sources, or rejected native
+evidence anchors. Files over 256 MiB, unsupported containers, unavailable sources, or rejected native
 requests fall back to keyframe-only cloud analysis and record the fallback in `unknowns`. Qwen's
 video path is visual-only; Whisper remains the speech/audio evidence source.
 

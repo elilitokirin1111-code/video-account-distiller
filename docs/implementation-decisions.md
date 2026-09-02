@@ -1022,7 +1022,7 @@ requirements from later phases.
   through Alibaba Model Studio's OpenAI-compatible `video_url` input and include the mixed
   opening/ending, scene-midpoint, and uniform-coverage keyframes as immutable evidence anchors.
   Use 2 FPS for clips up to three minutes, 1 FPS up to ten minutes, and 0.5 FPS beyond that. Keep a
-  64 MiB Base64 client limit and fall back to keyframe-only analysis with an explicit unknown marker.
+  256 MiB Base64 client limit and fall back to keyframe-only analysis with an explicit unknown marker.
   The desktop's recommended one-key route uses Bailian `qwen3.7-plus` for visual chronology and
   Bailian-hosted `deepseek-v4-flash` for schema-validated knowledge extraction.
 - **Reason:** Eight sparse keyframes can miss fast transitions, brief captions, gestures, and event

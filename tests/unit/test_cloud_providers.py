@@ -19,6 +19,7 @@ from video_account_distiller.insights.gpt_analysis import (
     GptAnalysisOptions,
 )
 from video_account_distiller.media.providers import (
+    QWEN_NATIVE_VIDEO_MAX_BYTES,
     CloudVisionProvider,
     DeepSeekVisionProvider,
     QwenNativeVideoProvider,
@@ -209,6 +210,8 @@ class _RecordingVisionExecutor:
 
 
 def test_qwen37_cloud_provider_sends_native_video_with_keyframe_anchors(tmp_path) -> None:
+    assert QWEN_NATIVE_VIDEO_MAX_BYTES == 256 * 1024 * 1024
+
     video = tmp_path / "source.mp4"
     video.write_bytes(b"short-video")
     frames: list[VisionInputKeyframe] = []

@@ -11,6 +11,10 @@ changes.
 
 ## Unreleased
 
+### Changed
+
+- Raised the `qwen3.7-plus` native-video Base64 client limit from 64 MiB to 256 MiB.
+
 ### Added
 
 - Native `qwen3.7-plus` cloud video understanding with adaptive FPS, mixed keyframe evidence
