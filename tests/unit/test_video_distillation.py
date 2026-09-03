@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -11,6 +13,7 @@ from video_account_distiller.distillation.knowledge import (
 )
 from video_account_distiller.distillation.video import (
     _fallback_deep_output,
+    _normalize_evaluation,
     _validate_deep_output,
     build_craft_summary,
 )
@@ -230,12 +233,70 @@ def test_fallback_deep_output_organizes_observables_deterministically() -> None:
     assert output.craft.shot_scale_profile == "全景×1、特写×1、近景×1"
     assert output.craft.pacing == "中等节奏剪辑"
     assert output.copy_checklist.craft
+    assert output.executive_summary.detailed_summary
+    assert len(output.structure_breakdown) == 2
+    assert output.structure_breakdown[0].role == "hook"
+    assert output.strengths
+    assert output.weaknesses
+    assert output.priority_improvements[0].priority == 1
+    assert output.evaluation.score_basis == "provisional_rule_score"
+    assert output.evaluation.overall_score is not None
+    assert len(output.evaluation.dimensions) == 10
+    assert sum(item.weight for item in output.evaluation.dimensions) == 100
     assert any("确定性降级" in item for item in output.unknowns)
 
     no_media = _fallback_deep_output(_text_analysis(), None, build_craft_summary(None))
     assert no_media.expression.subtitle_style == "未见字幕/艺术字标注"
     assert no_media.craft.shot_scale_profile == "未见标注"
     assert any("缺少本地媒体分析" in item for item in no_media.unknowns)
+
+    low_confidence = _text_analysis().model_copy(update={"status": "degraded"})
+    insufficient = _fallback_deep_output(low_confidence, None, build_craft_summary(None))
+    assert insufficient.evaluation.overall_score is None
+    assert insufficient.evaluation.rating == "证据不足"
+    assert insufficient.evaluation.score_confidence == "insufficient"
+
+
+def test_score_normalization_replaces_weights_and_recomputes_total() -> None:
+    output = _fallback_deep_output(
+        _text_analysis(), _media_analysis(), build_craft_summary(_media_analysis())
+    )
+    evaluation = output.evaluation.model_copy(deep=True)
+    evaluation.dimensions[0].weight = 99
+    evaluation.overall_score = 100
+
+    normalized = _normalize_evaluation(evaluation, score_basis="model_assessment")
+
+    assert normalized.dimensions[0].weight == 10
+    assert sum(item.weight for item in normalized.dimensions) == 100
+    assert normalized.overall_score != 100
+    assert normalized.score_basis == "model_assessment"
+
+
+def test_fallback_caps_long_evidence_lists_in_every_nested_v2_field() -> None:
+    analysis = _text_analysis().model_copy(deep=True)
+    long_ids = [f"segment_{index}" for index in range(35)]
+    semantics = analysis.blind_analysis.semantics
+    semantics.primary_pillar_evidence_segment_ids = long_ids
+    semantics.hook.evidence_segment_ids = long_ids
+    semantics.cta.evidence_segment_ids = long_ids
+    for structure_item in semantics.structure_segments:
+        structure_item.evidence_segment_ids = long_ids
+    for fact_item in analysis.blind_analysis.facts.facts:
+        fact_item.evidence_segment_ids = long_ids
+
+    output = _fallback_deep_output(analysis, None, build_craft_summary(None))
+
+    nested_items: list[Any] = [
+        *output.structure_breakdown,
+        *output.strengths,
+        *output.weaknesses,
+        *output.priority_improvements,
+        *output.evaluation.dimensions,
+    ]
+    assert any(len(item.evidence_segment_ids) == 20 for item in nested_items)
+    assert all(len(item.evidence_segment_ids) <= 20 for item in nested_items)
+    assert len(output.evidence_segment_ids) == len(long_ids)
 
 
 def test_knowledge_fallback_preserves_attribution_and_source_intervals() -> None:
@@ -324,70 +385,43 @@ def test_knowledge_quality_rejects_thin_long_transcript_output() -> None:
 def test_deep_output_citation_filter_drops_fabricated_ids() -> None:
     media = _media_analysis()
     output = _fallback_deep_output(_text_analysis(), media, build_craft_summary(media))
-    assert output.evidence_segment_ids == []
-    assert output.evidence_shot_ids == []
+    assert output.evidence_segment_ids == ["1", "2"]
+    assert output.evidence_shot_ids == ["shot_1", "shot_2"]
     _validate_deep_output(output, {"1", "2"}, {"shot_1", "shot_2"})
-    assert output.evidence_segment_ids == []
-    assert output.evidence_shot_ids == []
+    assert output.evidence_segment_ids == ["1", "2"]
+    assert output.evidence_shot_ids == ["shot_1", "shot_2"]
 
-    fabricated = SingleVideoDeepOutput.model_validate(
-        {
-            "topic": {
-                "topic_statement": "s",
-                "topic_angle": "a",
-                "target_audience": [],
-                "information_increment": "i",
-                "memory_point": "m",
-                "topic_formula": "f",
-            },
-            "expression": {
-                "opening_form": "o",
-                "subtitle_style": "s",
-                "packaging_features": [],
-                "audio_expression": "a",
-                "editing_style": "e",
-            },
-            "craft": {
-                "shot_scale_profile": "s",
-                "camera_profile": "c",
-                "composition_profile": "c",
-                "lighting_profile": "l",
-                "opening_technique": "o",
-                "pacing": "p",
-            },
-            "copy_checklist": {
-                "topic": [],
-                "structure": [],
-                "craft": [],
-                "expression": [],
-                "avoid": [],
-            },
-            "unknowns": [],
-            "evidence_segment_ids": ["1", "fake"],
-            "evidence_shot_ids": ["shot_1", "nope"],
-        }
-    )
+    payload = output.model_dump(mode="json")
+    payload["evidence_segment_ids"] = ["1", "fake"]
+    payload["evidence_shot_ids"] = ["shot_1", "nope"]
+    payload["structure_breakdown"][0]["evidence_segment_ids"] = ["1", "fake"]
+    payload["strengths"][0]["evidence_shot_ids"] = ["shot_1", "nope"]
+    payload["evaluation"]["dimensions"][0]["evidence_segment_ids"] = ["2", "fake"]
+    fabricated = SingleVideoDeepOutput.model_validate(payload)
     _validate_deep_output(fabricated, {"1", "2"}, {"shot_1", "shot_2"})
     assert fabricated.evidence_segment_ids == ["1"]
     assert fabricated.evidence_shot_ids == ["shot_1"]
+    assert fabricated.structure_breakdown[0].evidence_segment_ids == ["1"]
+    assert fabricated.strengths[0].evidence_shot_ids == ["shot_1"]
+    assert fabricated.evaluation.dimensions[0].evidence_segment_ids == ["2"]
 
 
 def test_structured_file_provider_serves_deep_distillation_candidates(tmp_path: Path) -> None:
     path = tmp_path / "deep.json"
+    candidate = _fallback_deep_output(
+        _text_analysis(), _media_analysis(), build_craft_summary(_media_analysis())
+    ).model_dump(mode="json")
     path.write_text(
-        '{"model_name": "fixture", "single_video_deep_distillation": [{'
-        '"topic": {"topic_statement": "s", "topic_angle": "a", "target_audience": [], '
-        '"information_increment": "i", "memory_point": "m", "topic_formula": "f"}, '
-        '"expression": {"opening_form": "o", "subtitle_style": "s", "packaging_features": [], '
-        '"audio_expression": "a", "editing_style": "e"}, '
-        '"craft": {"shot_scale_profile": "s", "camera_profile": "c", "composition_profile": "c", '
-        '"lighting_profile": "l", "opening_technique": "o", "pacing": "p"}, '
-        '"copy_checklist": {}, "unknowns": []}]}',
+        json.dumps(
+            {"model_name": "fixture", "single_video_deep_distillation": [candidate]},
+            ensure_ascii=False,
+        ),
         encoding="utf-8",
     )
     provider = StructuredFileProvider(path)
     result = provider.generate_structured("", SingleVideoDeepOutput)
-    assert result.topic.topic_statement == "s"
+    assert result.topic.topic_statement == candidate["topic"]["topic_statement"]
+    assert result.executive_summary.detailed_summary
     assert provider.input_hash is not None
 
 

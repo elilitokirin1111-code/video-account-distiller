@@ -7,13 +7,18 @@ from typing import Any
 from fastapi import APIRouter, Request
 
 from video_account_distiller.api.deps import resolve_project
-from video_account_distiller.api.schemas import AccountDistillWorkflowParams
+from video_account_distiller.api.schemas import (
+    AccountDistillWorkflowParams,
+    materialize_account_distill_cloud_routing,
+    resolve_account_distill_cloud_credential_provider,
+)
 from video_account_distiller.api.task_jobs import AccountDistillJob
 from video_account_distiller.api.tasks import (
     TaskData,
     TaskStore,
     enqueue_persistent_task,
 )
+from video_account_distiller.config import load_config
 from video_account_distiller.errors import DistillerError, ErrorCode
 
 router = APIRouter()
@@ -29,6 +34,10 @@ def _enqueue_account_distill(
     retried_from: str | None = None,
 ) -> dict[str, Any]:
     layout = resolve_project(project_path)
+    body = materialize_account_distill_cloud_routing(
+        body,
+        fallback_base_url=load_config(layout.config_path).models.cloud_base_url,
+    )
     job = AccountDistillJob(
         project_path=str(layout.root),
         body=body,
@@ -68,6 +77,7 @@ _RETRY_OVERRIDE_FIELDS = frozenset(
         "vision_provider",
         "vision_model",
         "cloud_base_url",
+        "cloud_text_base_url",
         "cloud_credential_provider",
         "cloud_text_model",
         "cloud_vision_model",
@@ -81,19 +91,6 @@ _RETRY_OVERRIDE_FIELDS = frozenset(
         "export_knowledge",
     }
 )
-
-
-def _cloud_credential_provider(body: AccountDistillWorkflowParams) -> str:
-    if body.cloud_credential_provider:
-        return body.cloud_credential_provider
-    if body.knowledge_analysis is not None:
-        return body.knowledge_analysis.provider.value
-    base_url = (body.cloud_base_url or "").lower()
-    if "dashscope" in base_url or "aliyuncs" in base_url:
-        return "bailian"
-    if "deepseek" in base_url:
-        return "deepseek"
-    return "openai"
 
 
 def retry_account_distill_task(
@@ -158,13 +155,20 @@ async def account_distill_workflow(
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """Submit one complete homepage-to-knowledge workflow."""
+    layout = resolve_project(project_path)
+    body = materialize_account_distill_cloud_routing(
+        body,
+        fallback_base_url=load_config(layout.config_path).models.cloud_base_url,
+    )
     # Backward-compatible migration for older Web/API callers that still send
     # a credential in the request body. Persist it in the OS keyring and remove
     # it before creating the durable task, so task payload/checkpoint JSON stays
     # secret-free. New desktop clients only send cloud_credential_provider.
-    if body.cloud_api_key:
-        provider = _cloud_credential_provider(body)
-        request.app.state.cloud_credentials.set(provider, body.cloud_api_key)
+    if body.cloud_api_key is not None:
+        credential = body.cloud_api_key.get_secret_value().strip()
+        provider = resolve_account_distill_cloud_credential_provider(body)
+        if credential:
+            request.app.state.cloud_credentials.set(provider, credential)
         body = body.model_copy(
             update={
                 "cloud_api_key": None,

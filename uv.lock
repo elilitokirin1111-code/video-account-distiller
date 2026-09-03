@@ -2156,7 +2156,7 @@ wheels = [
 
 [[package]]
 name = "video-account-distiller"
-version = "1.1.0"
+version = "1.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "duckdb" },

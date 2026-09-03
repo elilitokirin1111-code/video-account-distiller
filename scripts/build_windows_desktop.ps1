@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [ValidatePattern('^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$')]
-    [string]$Version = "1.1.0",
+    [string]$Version = "1.1.1",
     [switch]$SkipInstaller
 )
 
@@ -17,7 +17,7 @@ $installerScript = Join-Path $repository "packaging\windows\VideoAccountDistille
 
 Push-Location $repository
 try {
-    uv sync --extra desktop
+    uv sync --locked --extra desktop
     if ($LASTEXITCODE -ne 0) { throw "uv sync failed" }
 
     uv run python tools/build_desktop_icon.py $iconSource $iconOutput

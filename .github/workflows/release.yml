@@ -23,7 +23,7 @@ jobs:
         with:
           enable-cache: true
           cache-suffix: release-linux
-      - run: uv sync --locked
+      - run: uv sync --locked --extra desktop
       - name: Require an exact stable tag and matching package version
         shell: bash
         run: |

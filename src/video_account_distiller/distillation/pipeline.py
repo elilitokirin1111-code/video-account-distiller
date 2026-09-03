@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter, defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -39,6 +40,7 @@ from video_account_distiller.models import (
     Pattern,
     PatternScope,
     SingleVideoAnalysis,
+    SingleVideoDistillation,
     TransferMatrixItem,
 )
 from video_account_distiller.sampling.dataset import (
@@ -52,7 +54,7 @@ from video_account_distiller.utils.hashing import sha256_json
 from video_account_distiller.utils.ids import stable_id
 from video_account_distiller.utils.io import atomic_write_json, atomic_write_text, read_json
 
-DISTILLATION_VERSION = "1.4.0"
+DISTILLATION_VERSION = "1.5.1"
 COMPARISON_VERSION = "1.1.0"
 Classification = Literal[
     "fact", "semantic_annotation", "statistical_association", "hypothesis", "warning"
@@ -63,6 +65,40 @@ UNKNOWN_LABELS = frozenset({"", "unknown", "unclassified", "未知", "未识别"
 def _is_unknown_label(value: object) -> bool:
     raw = getattr(value, "value", value)
     return str(raw or "").strip().casefold() in UNKNOWN_LABELS
+
+
+def _is_usable_content_type_proxy(value: object) -> bool:
+    """Reject crawler codes that cannot support a human-readable content strategy."""
+
+    raw = str(getattr(value, "value", value) or "").strip()
+    if _is_unknown_label(raw) or len(raw) < 2:
+        return False
+    compact = re.sub(r"[\s._/-]+", "", raw)
+    return bool(compact) and not compact.isdigit()
+
+
+def _pattern_priority(pattern: Pattern) -> tuple[int, float, int, int, str]:
+    """Rank evidence maturity before labels so reports surface useful findings first."""
+
+    return (
+        pattern.maturity_level,
+        pattern.confidence,
+        pattern.support_count,
+        pattern.counterexample_count,
+        pattern.pattern_id,
+    )
+
+
+def _actionable_pattern(pattern: Pattern) -> bool:
+    """Only counterexample-tested, unconfounded associations may drive recommendations."""
+
+    return (
+        pattern.maturity_level >= 1
+        and pattern.confidence >= 0.5
+        and pattern.support_count >= 1
+        and pattern.counterexample_count >= 1
+        and not pattern.confounders
+    )
 
 
 def _media_features(
@@ -294,13 +330,15 @@ def _resolve_pattern_performance(dataset: AccountDataset) -> _PatternPerformance
 
 
 def _public_account_stage(dataset: AccountDataset) -> str:
+    """Describe visible account scale without inferring operational maturity."""
+
     followers = dataset.account.follower_count_current or 0
     published = dataset.account.video_count_current or len(dataset.records)
     if followers >= 100_000 or published >= 100:
-        return "公开规模代理：成熟账号"
+        return "公开粉丝量/发布量规模代理较高，无法据此判断运营成熟度"
     if followers >= 10_000 or published >= 30:
-        return "公开规模代理：增长期账号"
-    return "公开规模代理：起步期账号"
+        return "公开粉丝量/发布量规模代理中等，无法据此判断运营成熟度"
+    return "公开粉丝量/发布量规模代理有限，无法据此判断运营成熟度"
 
 
 class _EvidenceCollector:
@@ -348,6 +386,58 @@ def _latest_video_analyses(
     return selected
 
 
+def _latest_video_creative_reports(
+    project: ProjectLayout,
+    dataset: AccountDataset,
+) -> list[dict[str, Any]]:
+    """Index the latest readable per-video creative report for account-level navigation."""
+
+    titles = {record.video.video_id: record.video.title for record in dataset.records}
+    reports: list[dict[str, Any]] = []
+    for video_id in sorted(titles):
+        selected: tuple[SingleVideoDistillation, Path] | None = None
+        for path in sorted(
+            (project.root / "analyses" / "videos" / video_id).glob("svd_*/distillation.json")
+        ):
+            try:
+                candidate = SingleVideoDistillation.model_validate(read_json(path))
+            except (OSError, ValueError):
+                continue
+            if candidate.account_id != dataset.account.account_id:
+                continue
+            if selected is None or (candidate.generated_at, candidate.distillation_id) > (
+                selected[0].generated_at,
+                selected[0].distillation_id,
+            ):
+                selected = (candidate, path)
+        if selected is None:
+            continue
+        value, json_path = selected
+        report_path = json_path.parent / "report.md"
+        evaluation = value.evaluation
+        reports.append(
+            {
+                "video_id": video_id,
+                "title": titles.get(video_id) or video_id,
+                "distillation_id": value.distillation_id,
+                "status": value.status,
+                "summary": (
+                    value.executive_summary.one_sentence
+                    if value.executive_summary is not None
+                    else value.topic.topic_statement
+                ),
+                "overall_score": evaluation.overall_score if evaluation is not None else None,
+                "rating": evaluation.rating if evaluation is not None else "未评估",
+                "score_confidence": (
+                    evaluation.score_confidence if evaluation is not None else "insufficient"
+                ),
+                "report_path": project.relative(report_path) if report_path.is_file() else None,
+                "json_path": project.relative(json_path),
+            }
+        )
+    return reports
+
+
 def _latest_comment_analysis(
     project: ProjectLayout, account_id: str
 ) -> tuple[CommentAnalysis | None, ArtifactEvidenceIndex | None]:
@@ -385,7 +475,7 @@ def _build_clusters(
             grouped[("semantic_pillar", semantic_pillar)].append(record)
         else:
             proxy = (record.video.content_type or "unknown").strip() or "unknown"
-            if not _is_unknown_label(proxy):
+            if _is_usable_content_type_proxy(proxy):
                 grouped[("content_type_proxy", proxy)].append(record)
 
     clusters: list[ContentCluster] = []
@@ -688,7 +778,18 @@ def _build_patterns(
         )
         is not None
     ]
-    return sorted(patterns, key=lambda item: (item.pattern_type, item.name, item.pattern_id))
+    return sorted(
+        patterns,
+        key=lambda item: (
+            -_pattern_priority(item)[0],
+            -_pattern_priority(item)[1],
+            -_pattern_priority(item)[2],
+            -_pattern_priority(item)[3],
+            item.pattern_type,
+            item.name,
+            item.pattern_id,
+        ),
+    )
 
 
 def _render(template_name: str, **context: Any) -> str:
@@ -711,6 +812,7 @@ class AccountDistillationService:
         dataset = load_account_dataset(self.project, account_id)
         video_ids = {record.video.video_id for record in dataset.records}
         video_analyses = _latest_video_analyses(self.project, video_ids)
+        video_creative_reports = _latest_video_creative_reports(self.project, dataset)
         media_features = _media_features(self.project, video_ids)
         craft_profile = build_craft_profile(media_features)
         production_signals = _production_signals(media_features)
@@ -727,6 +829,9 @@ class AccountDistillationService:
             "version": DISTILLATION_VERSION,
             "input_hashes": dataset.input_hashes,
             "video_analyses": sorted(item.analysis_id for item in video_analyses.values()),
+            "video_creative_distillations": sorted(
+                item["distillation_id"] for item in video_creative_reports
+            ),
             "media_analyses": sorted(item.analysis_id for item in media_features),
             "craft_profile": craft_profile.model_dump(mode="json"),
             "comment_analysis": comment_analysis.analysis_id if comment_analysis else None,
@@ -767,6 +872,7 @@ class AccountDistillationService:
                 "dry_run": False,
                 "already_generated": True,
                 "distillation": read_json(paths[0]),
+                "video_creative_reports": video_creative_reports,
                 "outputs": relative,
             }
         input_hashes = sorted(
@@ -859,6 +965,38 @@ class AccountDistillationService:
                 for signal in analysis.blind_analysis.semantics.persona_signals
             }
         )
+        analyzed_video_count = len(video_analyses)
+        complete_video_count = sum(
+            analysis.status == "complete" for analysis in video_analyses.values()
+        )
+        degraded_video_count = analyzed_video_count - complete_video_count
+        semantic_confidences = [
+            analysis.blind_analysis.semantics.confidence for analysis in video_analyses.values()
+        ]
+        semantic_confidence_mean = (
+            sum(semantic_confidences) / len(semantic_confidences) if semantic_confidences else 0.0
+        )
+        semantic_coverage = analyzed_video_count / len(dataset.records) if dataset.records else 0.0
+        complete_semantic_coverage = (
+            complete_video_count / len(dataset.records) if dataset.records else 0.0
+        )
+        media_coverage = len(media_features) / len(dataset.records) if dataset.records else 0.0
+        positioning_confidence: Literal["low", "medium", "high"] = "low"
+        if (
+            len(dataset.records) >= 30
+            and semantic_coverage >= 0.8
+            and complete_semantic_coverage >= 0.7
+            and semantic_confidence_mean >= 0.75
+            and media_coverage >= 0.5
+        ):
+            positioning_confidence = "high"
+        elif (
+            len(dataset.records) >= 15
+            and semantic_coverage >= 0.6
+            and complete_semantic_coverage >= 0.4
+            and semantic_confidence_mean >= 0.6
+        ):
+            positioning_confidence = "medium"
         ranked_focus = [
             cluster.name
             for cluster in sorted(clusters, key=lambda item: (-item.video_count, item.name))[:3]
@@ -871,29 +1009,25 @@ class AccountDistillationService:
                 :5
             ]
         ]
+        if focus and video_analyses:
+            positioning_observation = (
+                f"在 {complete_video_count}/{len(dataset.records)} 条完整语义分析、"
+                f"{degraded_video_count} 条降级分析的视频中，"
+                f"已观察到的内容方向包括：{'、'.join(focus)}。"
+            )
+        elif focus:
+            positioning_observation = (
+                f"基于标准化内容类型代理，账号内容主要集中在：{'、'.join(focus)}。"
+            )
+        else:
+            positioning_observation = "当前语义证据不足以形成可观察的内容定位。"
         positioning = AccountPositioning(
-            statement=(
-                (
-                    f"在 {len(video_analyses)}/{len(dataset.records)} 条已完成语义分析的视频中，"
-                    f"已观察到的内容方向包括：{'、'.join(focus)}；"
-                    f"账号处于{public_account_stage.removeprefix('公开规模代理：')}。"
-                )
-                if focus and video_analyses
-                else f"基于标准化内容类型代理，账号内容主要集中在：{'、'.join(focus)}。"
-                if focus
-                else "当前语义证据不足以形成可观察的内容定位。"
-            ),
+            statement=f"{positioning_observation} {public_account_stage}。",
             observed_content_focus=focus,
             audience_need_clusters=need_names,
             persona_signals=persona_signals,
             visual_and_audio_identity=identity_signals,
-            confidence=(
-                "high"
-                if len(dataset.records) >= 30 and len(video_analyses) >= 10
-                else "medium"
-                if len(dataset.records) >= 15
-                else "low"
-            ),
+            confidence=positioning_confidence,
             evidence_ids=[
                 account_evidence,
                 *media_evidence,
@@ -913,14 +1047,24 @@ class AccountDistillationService:
                 "公开内容未提供完整商业转化承接路径",
             ],
         )
-        strengths = [pattern.name for pattern in patterns if pattern.pattern_type != "failure"][:5]
-        weaknesses = [pattern.name for pattern in patterns if pattern.pattern_type == "failure"][:5]
+        strategy_evidence_ready = (
+            complete_semantic_coverage >= 0.4 and semantic_confidence_mean >= 0.6
+        )
+        actionable_patterns = (
+            [pattern for pattern in patterns if _actionable_pattern(pattern)]
+            if strategy_evidence_ready
+            else []
+        )
+        strengths = [
+            pattern.name for pattern in actionable_patterns if pattern.pattern_type != "failure"
+        ][:5]
+        weaknesses = [
+            pattern.name for pattern in actionable_patterns if pattern.pattern_type == "failure"
+        ][:5]
         copyable = [
             pattern.name
-            for pattern in patterns
-            if pattern.pattern_type != "failure"
-            and pattern.replicability in {"high", "medium"}
-            and not pattern.confounders
+            for pattern in actionable_patterns
+            if pattern.pattern_type != "failure" and pattern.replicability in {"high", "medium"}
         ][:5]
         noncopyable = [
             "投流和 Robust 异常样本不能作为内容效果模板",
@@ -937,14 +1081,19 @@ class AccountDistillationService:
         )[:5]
         actions.extend(f"围绕“{name}”设计同支柱对照内容" for name in strengths[:3])
         if not actions:
-            actions.append("补充评论和更多单视频语义分析后再确定选题优先级")
+            actions.append("先修复降级分析并补齐评论证据，再确定选题优先级")
         experiments = [
             (
                 f"在同一内容支柱内，对“{pattern.feature_conditions['feature_value']}”做 A/B 对照，"
                 "目标指标使用账号内 performance_score；至少保留 1 个反例。"
             )
-            for pattern in patterns[:3]
+            for pattern in actionable_patterns[:3]
         ]
+        if not experiments:
+            experiments.append(
+                "当前没有达到可执行门槛的 Pattern；先重跑降级视频，再从同一内容支柱中"
+                "选择一个变量做 A/B 对照。"
+            )
         warnings: list[str] = []
         if len(dataset.records) < 30:
             warnings.append("small_video_sample_no_strong_account_rule")
@@ -959,6 +1108,18 @@ class AccountDistillationService:
             for analysis in video_analyses.values()
         ):
             warnings.append("semantic_unknown_values_excluded_from_strategy")
+        if any(
+            not _is_unknown_label(record.video.content_type)
+            and not _is_usable_content_type_proxy(record.video.content_type)
+            for record in dataset.records
+        ):
+            warnings.append("unusable_content_type_proxy_excluded_from_strategy")
+        if degraded_video_count:
+            warnings.append("degraded_semantic_analyses_reduce_account_confidence")
+        if semantic_confidence_mean < 0.6:
+            warnings.append("semantic_confidence_mean_below_operational_threshold")
+        if patterns and not strategy_evidence_ready:
+            warnings.append("actionable_patterns_withheld_due_to_low_semantic_quality")
         if len(comment_clusters) != len(all_comment_clusters):
             warnings.append("comment_unknown_clusters_excluded_from_strategy")
         if len(media_features) < min(3, len(dataset.records)):
@@ -990,10 +1151,24 @@ class AccountDistillationService:
                 "platform": dataset.account.platform.value,
                 "video_count": len(dataset.records),
                 "comment_count": comment_analysis.comment_count if comment_analysis else 0,
-                "analyzed_video_count": len(video_analyses),
+                "analyzed_video_count": analyzed_video_count,
+                "complete_video_analysis_count": complete_video_count,
+                "degraded_video_analysis_count": degraded_video_count,
+                "semantic_analysis_coverage": round(semantic_coverage, 4),
+                "complete_semantic_coverage": round(complete_semantic_coverage, 4),
+                "semantic_confidence_mean": round(semantic_confidence_mean, 4),
                 "analyzed_media_count": len(media_features),
+                "media_analysis_coverage": round(media_coverage, 4),
+                "video_creative_report_count": len(video_creative_reports),
+                "complete_video_creative_report_count": sum(
+                    item["status"] == "complete" for item in video_creative_reports
+                ),
+                "degraded_video_creative_report_count": sum(
+                    item["status"] == "degraded" for item in video_creative_reports
+                ),
                 "content_cluster_count": len(clusters),
                 "pattern_count": len(patterns),
+                "actionable_pattern_count": len(actionable_patterns),
                 "pattern_performance_basis": pattern_performance.basis,
                 "pattern_performance_coverage": len(pattern_performance.bands),
                 "public_account_stage": public_account_stage,
@@ -1026,6 +1201,7 @@ class AccountDistillationService:
             "dry_run": dry_run,
             "already_generated": False,
             "distillation": distillation.model_dump(mode="json"),
+            "video_creative_reports": video_creative_reports,
             "outputs": relative,
         }
         if dry_run:
@@ -1039,6 +1215,7 @@ class AccountDistillationService:
                 "account-distillation.md.j2",
                 distillation=distillation.model_dump(mode="python"),
                 craft_labels=CRAFT_CATEGORY_LABELS,
+                video_creative_reports=video_creative_reports,
             ),
         )
         atomic_write_json(paths[2], evidence.model_dump(mode="json"))

@@ -54,6 +54,19 @@ class _Session:
         self.closed = True
 
 
+class _PagedSession:
+    def __init__(self, responses: list[_Response]) -> None:
+        self.responses = responses
+        self.calls: list[dict[str, Any]] = []
+
+    def request(self, method: str, url: str, **kwargs: Any) -> _Response:
+        self.calls.append({"method": method, "url": url, **kwargs})
+        return self.responses.pop(0)
+
+    def close(self) -> None:
+        return None
+
+
 @pytest.mark.skipif(os.name != "nt", reason="Windows error mode is Windows-specific")
 def test_desktop_error_mode_preserves_existing_flags_and_adds_fail_critical_errors(
     monkeypatch: pytest.MonkeyPatch,
@@ -109,6 +122,73 @@ def test_desktop_api_client_encodes_project_path_and_surfaces_stable_errors(
         DesktopApiClient("http://local", session=failure).health()  # type: ignore[arg-type]
     assert raised.value.code == "E_TEST"
     assert raised.value.details == {"retryable": True}
+
+
+def test_desktop_api_client_lists_latest_project_accounts_across_pages(
+    tmp_path: Path,
+) -> None:
+    session = _PagedSession(
+        [
+            _Response(
+                {
+                    "ok": True,
+                    "data": {
+                        "total": 4,
+                        "rows": [
+                            {
+                                "account_id": "acc_repeat",
+                                "display_name": "旧名称",
+                                "snapshot_at": "2026-08-01T08:00:00+00:00",
+                            },
+                            {
+                                "account_id": "acc_recent",
+                                "display_name": "最近账号",
+                                "snapshot_at": "2026-09-03T09:00:00+00:00",
+                            },
+                        ],
+                    },
+                }
+            ),
+            _Response(
+                {
+                    "ok": True,
+                    "data": {
+                        "total": 4,
+                        "rows": [
+                            {
+                                "account_id": " acc_repeat ",
+                                "display_name": "新名称",
+                                "snapshot_at": "2026-09-02T08:00:00Z",
+                            },
+                            {
+                                "display_name": "缺少账号 ID",
+                                "snapshot_at": "2026-09-03T10:00:00+00:00",
+                            },
+                        ],
+                    },
+                }
+            ),
+        ]
+    )
+    client = DesktopApiClient("http://127.0.0.1:8123", session=session)  # type: ignore[arg-type]
+
+    accounts = client.list_project_accounts(tmp_path / "project folder", page_size=2)
+
+    assert [item["account_id"] for item in accounts] == ["acc_recent", "acc_repeat"]
+    assert accounts[1]["display_name"] == "新名称"
+    assert len(session.calls) == 2
+    assert session.calls[0]["params"] == {"table": "accounts", "limit": 2, "offset": 0}
+    assert session.calls[1]["params"] == {"table": "accounts", "limit": 2, "offset": 2}
+    assert "%20" in session.calls[0]["url"]
+
+
+def test_desktop_api_client_bounds_account_page_size(tmp_path: Path) -> None:
+    session = _PagedSession([_Response({"ok": True, "data": {"total": 0, "rows": []}})])
+    client = DesktopApiClient("http://127.0.0.1:8123", session=session)  # type: ignore[arg-type]
+
+    assert client.list_project_accounts(tmp_path, page_size=10_000) == []
+
+    assert session.calls[0]["params"] == {"table": "accounts", "limit": 500, "offset": 0}
 
 
 def test_desktop_settings_store_serializes_no_secret_fields(tmp_path: Path) -> None:

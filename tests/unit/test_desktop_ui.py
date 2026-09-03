@@ -8,6 +8,8 @@ import time
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
@@ -26,7 +28,8 @@ class _Supervisor:
 
 
 class _Client:
-    pass
+    def list_project_accounts(self, _project: Path) -> list[dict[str, str]]:
+        return []
 
 
 class _Secrets:
@@ -55,6 +58,9 @@ def test_native_window_builds_secret_free_knowledge_workflow_payload(tmp_path: P
             vision_model="qwen3.7-plus",
             cloud_credential_provider="bailian",
             cloud_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            cloud_text_base_url=(
+                "https://workspace-demo.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+            ),
             cloud_text_model="deepseek-v4-flash",
             cloud_vision_model="qwen3.7-plus",
             video_knowledge_provider="cloud",
@@ -74,6 +80,7 @@ def test_native_window_builds_secret_free_knowledge_workflow_payload(tmp_path: P
     assert payload["video_knowledge_provider"] == "cloud"
     assert payload["video_knowledge_model"] == "deepseek-v4-flash"
     assert payload["cloud_credential_provider"] == "bailian"
+    assert payload["cloud_text_base_url"].endswith("/compatible-mode/v1")
     assert "cloud_api_key" not in payload
     assert "weknora" not in payload
     assert window.update_version.text().startswith("当前版本 ")
@@ -139,6 +146,217 @@ def test_task_progress_and_wait_feedback_reflect_live_work() -> None:
     panel._timer.stop()
     panel.close()
     footer.close()
+    app.processEvents()
+
+
+def test_weknora_account_selector_shows_friendly_names_and_preserves_ids(
+    tmp_path: Path,
+) -> None:
+    from PySide6.QtWidgets import QApplication, QComboBox
+
+    from video_account_distiller.application import DesktopSettings, DesktopSettingsStore
+    from video_account_distiller_desktop.window import DistillerMainWindow
+
+    app = QApplication.instance() or QApplication([])
+    window = DistillerMainWindow(
+        supervisor=cast(Any, _Supervisor()),
+        client=cast(Any, _Client()),
+        settings_store=DesktopSettingsStore(tmp_path / "settings.json"),
+        secret_store=cast(Any, _Secrets()),
+        settings=DesktopSettings(),
+    )
+    window.task_timer.stop()
+
+    window._populate_sync_accounts(
+        [
+            {
+                "account_id": "acc_second",
+                "display_name": "第二家酒店",
+                "handle": "hotel_two",
+                "platform": "xiaohongshu",
+            },
+            {
+                "account_id": "acc_first",
+                "display_name": "小宁饱饱🐰",
+                "handle": "LEN040223",
+                "platform": "douyin",
+            },
+        ]
+    )
+
+    assert isinstance(window.sync_account_id, QComboBox)
+    assert window.sync_account_id.isEditable() is True
+    assert window.sync_account_id.currentIndex() == -1
+    assert window.sync_account_id.itemText(0) == "小宁饱饱🐰 · @LEN040223 · 抖音"
+    assert window.sync_account_id.itemData(0) == "acc_first"
+    assert window.sync_account_id.itemText(1) == "第二家酒店 · @hotel_two · 小红书"
+    assert window.sync_account_id.itemData(1) == "acc_second"
+
+    window.sync_account_id.setCurrentIndex(1)
+    assert window._selected_sync_account_id() == "acc_second"
+    assert window.sync_account_id_value.text() == "acc_second"
+
+    window._populate_sync_accounts(
+        [
+            {
+                "account_id": "acc_second",
+                "display_name": "第二家酒店",
+                "handle": "hotel_two",
+                "platform": "xiaohongshu",
+            },
+            {
+                "account_id": "acc_first",
+                "display_name": "小宁饱饱🐰",
+                "handle": "LEN040223",
+                "platform": "douyin",
+            },
+        ]
+    )
+    assert window.sync_account_id.currentData() == "acc_second"
+
+    window.copy_sync_account_id()
+    assert QApplication.clipboard().text() == "acc_second"
+    window.close()
+    app.processEvents()
+
+
+def test_weknora_account_selector_autoselects_single_account_and_validates_manual_id(
+    tmp_path: Path,
+) -> None:
+    from PySide6.QtWidgets import QApplication
+
+    from video_account_distiller.application import DesktopSettings, DesktopSettingsStore
+    from video_account_distiller_desktop.window import DistillerMainWindow
+
+    app = QApplication.instance() or QApplication([])
+    window = DistillerMainWindow(
+        supervisor=cast(Any, _Supervisor()),
+        client=cast(Any, _Client()),
+        settings_store=DesktopSettingsStore(tmp_path / "settings.json"),
+        secret_store=cast(Any, _Secrets()),
+        settings=DesktopSettings(),
+    )
+    window.task_timer.stop()
+
+    window._populate_sync_accounts(
+        [
+            {
+                "account_id": "acc_only",
+                "display_name": "唯一账号",
+                "handle": "only_one",
+                "platform": "douyin",
+            }
+        ]
+    )
+    assert window.sync_account_id.currentData() == "acc_only"
+    assert window.sync_account_id_value.text() == "acc_only"
+
+    window._clear_sync_accounts()
+    window.sync_account_id.setEditText("acc_manual_123")
+    assert window._selected_sync_account_id() == "acc_manual_123"
+    assert window.sync_account_id_value.text() == "acc_manual_123"
+
+    window.sync_account_id.setEditText("平台昵称不是账号ID")
+    with pytest.raises(ValueError, match="只接受 acc_ 开头"):
+        window._selected_sync_account_id()
+    window.close()
+    app.processEvents()
+
+
+def test_weknora_sync_uses_selected_account_item_data(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from PySide6.QtWidgets import QApplication
+
+    from video_account_distiller.application import DesktopSettings, DesktopSettingsStore
+    from video_account_distiller_desktop.window import DistillerMainWindow
+
+    class RecordingClient(_Client):
+        def __init__(self) -> None:
+            self.sync_kwargs: dict[str, Any] | None = None
+
+        def sync_account_weknora(self, project: Path, **kwargs: Any) -> dict[str, Any]:
+            self.sync_kwargs = {"project": project, **kwargs}
+            return {"ok": True}
+
+    app = QApplication.instance() or QApplication([])
+    client = RecordingClient()
+    window = DistillerMainWindow(
+        supervisor=cast(Any, _Supervisor()),
+        client=cast(Any, client),
+        settings_store=DesktopSettingsStore(tmp_path / "settings.json"),
+        secret_store=cast(Any, _Secrets()),
+        settings=DesktopSettings(),
+    )
+    window.task_timer.stop()
+    window._populate_sync_accounts(
+        [
+            {
+                "account_id": "acc_real_id",
+                "display_name": "用户看到的名称",
+                "handle": "friendly_handle",
+                "platform": "douyin",
+            }
+        ]
+    )
+    window.weknora_kb.addItem("运营知识库", "kb-1")
+    monkeypatch.setattr(window, "_project", lambda **_kwargs: tmp_path)
+    monkeypatch.setattr(window, "_weknora_secret", lambda: "secret")
+
+    def run_now(
+        call: Any,
+        on_success: Any,
+        **_kwargs: Any,
+    ) -> None:
+        on_success(call())
+
+    monkeypatch.setattr(window, "_run", run_now)
+    window.sync_weknora()
+
+    assert client.sync_kwargs is not None
+    assert client.sync_kwargs["account_id"] == "acc_real_id"
+    assert client.sync_kwargs["kb_id"] == "kb-1"
+    assert client.sync_kwargs["project"] == tmp_path
+    window.close()
+    app.processEvents()
+
+
+def test_selecting_knowledge_bundle_updates_weknora_account_selector(
+    tmp_path: Path,
+) -> None:
+    from PySide6.QtWidgets import QApplication
+
+    from video_account_distiller.application import DesktopSettings, DesktopSettingsStore
+    from video_account_distiller_desktop.window import DistillerMainWindow
+
+    app = QApplication.instance() or QApplication([])
+    window = DistillerMainWindow(
+        supervisor=cast(Any, _Supervisor()),
+        client=cast(Any, _Client()),
+        settings_store=DesktopSettingsStore(tmp_path / "settings.json"),
+        secret_store=cast(Any, _Secrets()),
+        settings=DesktopSettings(),
+    )
+    window.task_timer.stop()
+    window._populate_sync_accounts(
+        [
+            {
+                "account_id": "acc_bundle",
+                "display_name": "知识包账号",
+                "handle": "bundle",
+                "platform": "douyin",
+            }
+        ]
+    )
+    window._bundle_rows = [{"account_id": "acc_bundle"}]
+    window.bundles_table.setRowCount(1)
+    window.bundles_table.selectRow(0)
+    app.processEvents()
+
+    assert window.sync_account_id.currentData() == "acc_bundle"
+    assert window.sync_account_id_value.text() == "acc_bundle"
+    window.close()
     app.processEvents()
 
 

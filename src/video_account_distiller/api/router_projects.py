@@ -244,7 +244,7 @@ async def update_cloud_preset(
     store = _credential_store(request)
     incoming_key = body.cloud_api_key
     if incoming_key is not None:
-        credential = incoming_key.strip()
+        credential = incoming_key.get_secret_value().strip()
         if credential:
             store.set(provider, credential)
         else:

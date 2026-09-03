@@ -6,7 +6,29 @@ changes.
 
 ## Unreleased
 
-No changes are assigned after the staged `1.1.0` candidate yet.
+No changes are assigned after the staged `1.1.1` candidate yet.
+
+## 1.1.1 — 2026-09-03 (staged; not published)
+
+This patch candidate completes the desktop workflow for selecting project accounts and reviewing
+or synchronizing evidence-gated creative reports. Package and Skill versions move together to
+`1.1.1`; existing project data is not rewritten automatically.
+
+### Added
+
+- A project-backed WeKnora account picker that shows account name, handle, and platform while
+  retaining the canonical `acc_*` ID for refresh, copy, selection, and synchronization.
+- Per-video creative report v2 with an executive summary, full structure breakdown, dimension
+  scores, strengths, weaknesses, prioritized improvements, and account-level rollups.
+- Explicit low-evidence gating so missing transcript, visual, audio, or performance evidence stays
+  unknown or unscored instead of becoming a fabricated judgment.
+
+### Changed
+
+- Qwen native-video analysis and DeepSeek V4 Flash text distillation now support their distinct
+  Bailian endpoints, including the workspace-specific MaaS endpoint required by DeepSeek V4.
+- WeKnora creative-learning sync now includes each available per-video creative report and reports
+  total and degraded document counts.
 
 ## 1.1.0 — 2026-09-02 (staged; not published)
 

@@ -265,7 +265,7 @@ class AccountDistillation(StrictModel):
     account_id: str
     generated_at: datetime
     run_id: str
-    data_scope: dict[str, int | str | None]
+    data_scope: dict[str, int | float | str | None]
     positioning: AccountPositioning
     content_clusters: list[ContentCluster]
     comment_need_clusters: list[CommentNeedCluster]

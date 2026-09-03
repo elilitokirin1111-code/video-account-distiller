@@ -1,4 +1,4 @@
-"""Single-video deep distillation contracts: topic selection, expression, craft, copy checklist.
+"""Single-video deep distillation contracts and evidence-backed creative report.
 
 The deep distillation is an optional third stage on top of the blind text
 analysis (Phase 3) and local media analysis (Phase 6). It merges both into one
@@ -33,6 +33,27 @@ KnowledgeItemType = Literal[
     "recommendation",
 ]
 KnowledgeAttribution = Literal["video_statement", "creator_opinion", "model_inference"]
+CreativeScoreDimensionKey = Literal[
+    "topic",
+    "hook",
+    "content_value",
+    "structure",
+    "expression",
+    "visual_craft",
+    "pacing",
+    "audio_packaging",
+    "emotion",
+    "conversion",
+]
+CreativeScoreBasis = Literal["model_assessment", "provisional_rule_score"]
+CreativeScoreConfidence = Literal["high", "medium", "low", "insufficient"]
+CreativeRating = Literal[
+    "优先复刻候选",
+    "值得借鉴",
+    "改写后复用",
+    "不建议直接复刻",
+    "证据不足",
+]
 
 
 class SingleVideoCraftSummary(StrictModel):
@@ -100,14 +121,100 @@ class CopyChecklist(StrictModel):
     avoid: list[str] = Field(default_factory=list)
 
 
+class VideoExecutiveSummary(StrictModel):
+    """A complete, reader-facing account of what this one video communicates."""
+
+    one_sentence: str = Field(min_length=1, max_length=300)
+    detailed_summary: str = Field(min_length=1, max_length=4_000)
+    core_message: str = Field(min_length=1, max_length=1_000)
+    content_goal: str = Field(min_length=1, max_length=300)
+    target_viewer: list[str] = Field(default_factory=list, max_length=10)
+    viewer_takeaways: list[str] = Field(default_factory=list, max_length=10)
+
+
+class CreativeStructureBeat(StrictModel):
+    """One timestamped beat in the video's complete creative structure."""
+
+    sequence: int = Field(ge=1)
+    role: str = Field(min_length=1, max_length=60)
+    start_ms: int | None = Field(default=None, ge=0)
+    end_ms: int | None = Field(default=None, ge=0)
+    content_summary: str = Field(min_length=1, max_length=1_000)
+    creative_purpose: str = Field(min_length=1, max_length=600)
+    expression: str = Field(min_length=1, max_length=600)
+    visual: str = Field(min_length=1, max_length=600)
+    audio: str = Field(min_length=1, max_length=600)
+    pacing: str = Field(min_length=1, max_length=400)
+    emotion: str = Field(min_length=1, max_length=300)
+    transition: str = Field(min_length=1, max_length=400)
+    evidence_segment_ids: list[str] = Field(default_factory=list, max_length=20)
+    evidence_shot_ids: list[str] = Field(default_factory=list, max_length=30)
+
+    @model_validator(mode="after")
+    def validate_interval(self) -> CreativeStructureBeat:
+        if self.start_ms is not None and self.end_ms is not None and self.end_ms < self.start_ms:
+            raise ValueError("creative structure end_ms must be greater than or equal to start_ms")
+        return self
+
+
+class CreativeFinding(StrictModel):
+    """An evidence-backed strength or weakness and its practical significance."""
+
+    finding: str = Field(min_length=1, max_length=400)
+    why_it_matters: str = Field(min_length=1, max_length=800)
+    evidence_segment_ids: list[str] = Field(default_factory=list, max_length=20)
+    evidence_shot_ids: list[str] = Field(default_factory=list, max_length=30)
+
+
+class PriorityImprovement(StrictModel):
+    """One ranked, actionable improvement for the next creative iteration."""
+
+    priority: int = Field(ge=1, le=10)
+    problem: str = Field(min_length=1, max_length=500)
+    action: str = Field(min_length=1, max_length=1_000)
+    expected_effect: str = Field(min_length=1, max_length=500)
+    evidence_segment_ids: list[str] = Field(default_factory=list, max_length=20)
+    evidence_shot_ids: list[str] = Field(default_factory=list, max_length=30)
+
+
+class CreativeScoreDimension(StrictModel):
+    """A normalized 0-10 assessment for one fixed creative dimension."""
+
+    dimension: CreativeScoreDimensionKey
+    score: float | None = Field(default=None, ge=0, le=10)
+    weight: int = Field(ge=0, le=100)
+    rationale: str = Field(min_length=1, max_length=1_000)
+    evidence_segment_ids: list[str] = Field(default_factory=list, max_length=20)
+    evidence_shot_ids: list[str] = Field(default_factory=list, max_length=30)
+
+
+class VideoCreativeEvaluation(StrictModel):
+    """Normalized overall judgment; an absent score always means insufficient evidence."""
+
+    score_basis: CreativeScoreBasis
+    overall_score: float | None = Field(default=None, ge=0, le=100)
+    rating: CreativeRating
+    score_confidence: CreativeScoreConfidence
+    evidence_coverage: float = Field(ge=0, le=1)
+    verdict: str = Field(min_length=1, max_length=1_500)
+    replicability: Literal["high", "medium", "low", "unknown"]
+    dimensions: list[CreativeScoreDimension] = Field(default_factory=list, max_length=10)
+
+
 class SingleVideoDeepOutput(StrictModel):
     """Schema-validated model response for one deep single-video distillation."""
 
     schema_version: str = DISTILLATION_SCHEMA_VERSION
+    executive_summary: VideoExecutiveSummary
+    structure_breakdown: list[CreativeStructureBeat] = Field(min_length=1, max_length=30)
     topic: TopicDistillation
     expression: ExpressionDistillation
     craft: CraftDistillation
     copy_checklist: CopyChecklist
+    strengths: list[CreativeFinding] = Field(min_length=1, max_length=10)
+    weaknesses: list[CreativeFinding] = Field(min_length=1, max_length=10)
+    priority_improvements: list[PriorityImprovement] = Field(min_length=1, max_length=10)
+    evaluation: VideoCreativeEvaluation
     unknowns: list[str] = Field(default_factory=list)
     evidence_segment_ids: list[str] = Field(default_factory=list)
     evidence_shot_ids: list[str] = Field(default_factory=list)
@@ -127,12 +234,20 @@ class SingleVideoDistillation(StrictModel):
     text_analysis_id: str | None = None
     media_analysis_id: str | None = None
     craft_summary: SingleVideoCraftSummary
+    executive_summary: VideoExecutiveSummary | None = None
+    structure_breakdown: list[CreativeStructureBeat] = Field(default_factory=list)
     topic: TopicDistillation
     expression: ExpressionDistillation
     craft: CraftDistillation
     copy_checklist: CopyChecklist
+    strengths: list[CreativeFinding] = Field(default_factory=list)
+    weaknesses: list[CreativeFinding] = Field(default_factory=list)
+    priority_improvements: list[PriorityImprovement] = Field(default_factory=list)
+    evaluation: VideoCreativeEvaluation | None = None
     deep_trace: ModelTaskTrace | None = None
     unknowns: list[str] = Field(default_factory=list)
+    evidence_segment_ids: list[str] = Field(default_factory=list)
+    evidence_shot_ids: list[str] = Field(default_factory=list)
     evidence_index_path: str
     warnings_path: str
     warnings: list[str] = Field(default_factory=list)

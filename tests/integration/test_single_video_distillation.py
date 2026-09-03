@@ -105,6 +105,51 @@ class FixtureVisionProvider:
 
 def _deep_candidate() -> dict[str, object]:
     return {
+        "executive_summary": {
+            "one_sentence": "用客诉场景切入，拆解酒店前台的三步处理法。",
+            "detailed_summary": (
+                "视频先提出酒店前台常见的客诉难题，再依次说明确认诉求、给出方案和"
+                "跟进结果三个步骤，最后提醒从业者把流程落实到服务话术。"
+            ),
+            "core_message": "客诉处理要先理解问题，再给方案并闭环跟进。",
+            "content_goal": "教育酒店一线人员掌握客诉处理流程",
+            "target_viewer": ["酒店前台", "店长"],
+            "viewer_takeaways": ["三步客诉处理法", "服务话术需要形成闭环"],
+        },
+        "structure_breakdown": [
+            {
+                "sequence": 1,
+                "role": "hook",
+                "start_ms": 0,
+                "end_ms": 2000,
+                "content_summary": "提出客诉处理难题",
+                "creative_purpose": "快速点名一线工作痛点",
+                "expression": "口播提问",
+                "visual": "特写、大字标题",
+                "audio": "口播；BGM 未见可靠输入",
+                "pacing": "开场快速进入主题",
+                "emotion": "紧张感",
+                "transition": "转入三步处理流程",
+                "evidence_segment_ids": [],
+                "evidence_shot_ids": [],
+            },
+            {
+                "sequence": 2,
+                "role": "development",
+                "start_ms": 2000,
+                "end_ms": 9000,
+                "content_summary": "依次说明确认、方案与跟进",
+                "creative_purpose": "交付可执行的方法",
+                "expression": "清单式讲解",
+                "visual": "全景与固定机位",
+                "audio": "口播；BGM 未见可靠输入",
+                "pacing": "按步骤推进",
+                "emotion": "信任感",
+                "transition": "用执行提醒收束",
+                "evidence_segment_ids": [],
+                "evidence_shot_ids": [],
+            },
+        ],
         "topic": {
             "topic_statement": "一条关于酒店客诉处理的深度拆解",
             "topic_angle": "痛点切入：先讲客诉场景",
@@ -137,6 +182,63 @@ def _deep_candidate() -> dict[str, object]:
             "craft": ["手持跟拍"],
             "expression": ["大字标题"],
             "avoid": ["避免空泛说教"],
+        },
+        "strengths": [
+            {
+                "finding": "痛点明确且方法可执行",
+                "why_it_matters": "受众能快速判断内容与自己的工作是否相关。",
+                "evidence_segment_ids": [],
+                "evidence_shot_ids": [],
+            }
+        ],
+        "weaknesses": [
+            {
+                "finding": "结果证明不足",
+                "why_it_matters": "现有输入没有案例结果，方法可信度仍需验证。",
+                "evidence_segment_ids": [],
+                "evidence_shot_ids": [],
+            }
+        ],
+        "priority_improvements": [
+            {
+                "priority": 1,
+                "problem": "缺少案例结果",
+                "action": "下一版加入一个客诉处理前后对比案例。",
+                "expected_effect": "增强方法的可理解性，实际表现需上线验证。",
+                "evidence_segment_ids": [],
+                "evidence_shot_ids": [],
+            }
+        ],
+        "evaluation": {
+            "score_basis": "model_assessment",
+            "overall_score": 99,
+            "rating": "优先复刻候选",
+            "score_confidence": "high",
+            "evidence_coverage": 1,
+            "verdict": "结构清晰且易于执行，但案例证明需要增强。",
+            "replicability": "high",
+            "dimensions": [
+                {
+                    "dimension": dimension,
+                    "score": score,
+                    "weight": 1,
+                    "rationale": "fixture evidence",
+                    "evidence_segment_ids": [],
+                    "evidence_shot_ids": [],
+                }
+                for dimension, score in [
+                    ("topic", 8.0),
+                    ("hook", 7.0),
+                    ("content_value", 8.0),
+                    ("structure", 8.0),
+                    ("expression", 7.0),
+                    ("visual_craft", 7.0),
+                    ("pacing", 7.0),
+                    ("audio_packaging", 6.0),
+                    ("emotion", 6.0),
+                    ("conversion", 5.0),
+                ]
+            ],
         },
         "unknowns": [],
         "evidence_segment_ids": [],
@@ -186,13 +288,27 @@ def test_single_video_deep_distillation_full_chain_with_model(
     assert distillation.craft_summary.analyzed_shots == 3
     assert "特写" in distillation.craft_summary.shot_scale
     assert distillation.craft_summary.opening_techniques == ["开场大字标题", "手持开场", "特写开场"]
+    assert distillation.analysis_version == "2.0.0"
+    assert distillation.executive_summary is not None
+    assert "三个步骤" in distillation.executive_summary.detailed_summary
+    assert len(distillation.structure_breakdown) == 2
     assert distillation.topic.topic_statement == "一条关于酒店客诉处理的深度拆解"
     assert distillation.copy_checklist.topic == ["客诉场景切入", "流程拆解"]
+    assert distillation.strengths[0].finding == "痛点明确且方法可执行"
+    assert distillation.priority_improvements[0].priority == 1
+    assert distillation.evaluation is not None
+    assert distillation.evaluation.score_basis == "model_assessment"
+    assert distillation.evaluation.overall_score != 99
+    assert sum(item.weight for item in distillation.evaluation.dimensions) == 100
     assert not any(warning.startswith("deep_model") for warning in distillation.warnings)
     assert all(path for path in result["outputs"])
     assert all((phase3_project.root / path).is_file() for path in result["outputs"])
 
     report = (phase3_project.root / result["outputs"][1]).read_text(encoding="utf-8")
+    assert "## 执行摘要" in report
+    assert "## 综合评判" in report
+    assert "## 完整创作结构拆解" in report
+    assert "## 优势、短板与优先改进" in report
     assert "## 选材（为什么值得做）" in report
     assert "## 表现形式（怎么讲）" in report
     assert "## 拍摄手法（怎么拍）" in report
@@ -221,6 +337,10 @@ def test_single_video_deep_distillation_degrades_without_model(
     assert "deep_model_unavailable_deterministic_fallback" in distillation.warnings
     assert distillation.topic.topic_statement
     assert distillation.copy_checklist.topic
+    assert distillation.executive_summary is not None
+    assert distillation.structure_breakdown
+    assert distillation.evaluation is not None
+    assert distillation.evaluation.score_basis == "provisional_rule_score"
     assert distillation.media_analysis_id is None
     assert any("缺少本地媒体分析" in item for item in distillation.unknowns)
     assert validate_project(phase3_project, persist=False).error_count == 0

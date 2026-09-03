@@ -245,6 +245,46 @@ def test_weknora_sync_replaces_only_distiller_owned_account_documents(
     assert len(uploaded) == 1
 
 
+def test_weknora_account_operational_sync_includes_every_latest_creative_report(
+    project: ProjectLayout, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_svd_fixture(project, "vid_creative")
+    uploads: list[dict[str, Any]] = []
+
+    def _get(url: str, *args: Any, **kwargs: Any) -> _Response:
+        if url.endswith("/knowledge-bases"):
+            return _Response(200, {"data": [{"id": "kb-1", "name": "target"}]}, "")
+        return _Response(200, {"data": [], "total": 0}, "")
+
+    def _post(url: str, *args: Any, **kwargs: Any) -> _Response:
+        uploads.append(kwargs)
+        return _Response(201, {"success": True}, "")
+
+    monkeypatch.setattr("video_account_distiller.knowledge.weknora.ObsidianVaultExporter", _Export)
+    monkeypatch.setattr(requests, "get", _get)
+    monkeypatch.setattr(requests, "post", _post)
+
+    result = WeKnoraSyncService(project).sync_account(
+        account_id="acc_test",
+        base_url="http://localhost:8080",
+        api_key="sk-test",
+        kb_id="kb-1",
+    )
+
+    assert result["ok"] is True
+    assert result["creative_reports"] == 1
+    assert result["degraded_creative_reports"] == 1
+    assert len(uploads) == 2
+    creative = next(
+        item
+        for item in uploads
+        if item["data"]["fileName"].endswith("/vid_creative-creative-report.md")
+    )
+    metadata = json.loads(creative["data"]["metadata"])
+    assert metadata["video_id"] == "vid_creative"
+    assert metadata["document_type"] == "creative_learning"
+
+
 def test_weknora_requires_an_existing_visible_knowledge_base(
     project: ProjectLayout, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -9,8 +9,11 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pydantic import SecretStr
 
 from video_account_distiller.api.schemas import TaskRetryRequest
 from video_account_distiller.api.task_jobs import TASK_HANDLERS
@@ -24,6 +27,36 @@ from video_account_distiller.errors import DistillerError
 from video_account_distiller.insights import KeyringCloudCredentialStore
 from video_account_distiller.logging import configure_logging
 from video_account_distiller.version import PACKAGE_VERSION
+
+_SENSITIVE_VALIDATION_KEYS = (
+    "apikey",
+    "authorization",
+    "credential",
+    "password",
+    "secret",
+    "token",
+)
+
+
+def _redact_validation_input(value: Any, *, field_name: str = "") -> Any:
+    """Make FastAPI validation diagnostics safe to return to API clients."""
+
+    normalized_name = "".join(
+        character for character in field_name.casefold() if character.isalnum()
+    )
+    if any(token in normalized_name for token in _SENSITIVE_VALIDATION_KEYS):
+        return "**********"
+    if isinstance(value, SecretStr):
+        return "**********"
+    if isinstance(value, dict):
+        return {
+            key: _redact_validation_input(item, field_name=str(key)) for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_validation_input(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact_validation_input(item) for item in value)
+    return value
 
 
 def create_app(
@@ -72,6 +105,20 @@ def create_app(
         return JSONResponse(
             status_code=http_exc.status_code,
             content={"ok": False, "error": exc.as_dict()["error"]},
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def _handle_request_validation_error(
+        request: Request,
+        exc: RequestValidationError,
+    ) -> JSONResponse:
+        # Starlette's default 422 response includes Pydantic's ``input`` value.
+        # A legacy client may still submit ``cloud_api_key`` in that input, so
+        # recursively mask credential-shaped fields before serializing it.
+        errors = [_redact_validation_input(error) for error in exc.errors()]
+        return JSONResponse(
+            status_code=422,
+            content=jsonable_encoder({"detail": errors}),
         )
 
     # Register routers (lazy import to avoid circular dependencies)

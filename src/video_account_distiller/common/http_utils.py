@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
@@ -18,6 +19,28 @@ from video_account_distiller.errors import DistillerError, ErrorCode
 if TYPE_CHECKING:
     from video_account_distiller.adapters.collaboration import HttpExecutor, HttpResponse
     from video_account_distiller.models.collaboration import RetryPolicy
+
+
+_NAMED_SECRET_PATTERN = re.compile(
+    r"""(?ix)
+    (["']?(?:authorization|api[_ -]?key|access[_ -]?token|token|secret)["']?
+    \s*[:=]\s*["']?)
+    (?:bearer\s+)?
+    ([^"'\s,;&}\]]{4,})
+    """,
+)
+_BEARER_SECRET_PATTERN = re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+/=-]{4,}")
+
+
+def _redact_sensitive_text(value: str, *, secrets: tuple[str, ...] = ()) -> str:
+    """Remove known credentials and common credential fields from diagnostics."""
+
+    redacted = value
+    for secret in secrets:
+        if len(secret) >= 4:
+            redacted = redacted.replace(secret, "[REDACTED]")
+    redacted = _NAMED_SECRET_PATTERN.sub(r"\1[REDACTED]", redacted)
+    return _BEARER_SECRET_PATTERN.sub(r"\1[REDACTED]", redacted)
 
 
 def read_env_credential(env_var: str, label: str | None = None) -> str:
@@ -139,7 +162,20 @@ def request_json(
             body_preview = ""
             if response.body:
                 try:
-                    body_preview = response.body.decode("utf-8", errors="replace")[:500]
+                    sensitive_values = [token]
+                    if extra_headers:
+                        sensitive_values.extend(
+                            value
+                            for name, value in extra_headers.items()
+                            if any(
+                                marker in name.casefold()
+                                for marker in ("authorization", "api-key", "api_key", "token")
+                            )
+                        )
+                    body_preview = _redact_sensitive_text(
+                        response.body.decode("utf-8", errors="replace")[:500],
+                        secrets=tuple(sensitive_values),
+                    )
                 except Exception:
                     body_preview = ""
             raise DistillerError(

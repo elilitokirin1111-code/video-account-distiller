@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any, Literal, cast
 
 import pytest
@@ -10,6 +11,8 @@ from pydantic import ValidationError
 from video_account_distiller.api.schemas import (
     AccountDistillWorkflowParams,
     AccountMediaReparseParams,
+    materialize_account_distill_cloud_routing,
+    resolve_account_distill_cloud_credential_provider,
 )
 from video_account_distiller.insights import AnalysisProviderKind, DeepSeekModel, ReasoningEffort
 
@@ -59,6 +62,149 @@ def test_account_distill_accepts_complete_creative_mode() -> None:
     assert params.distillation_mode == "creative_learning"
     assert params.distill_video_knowledge is True
     assert params.video_knowledge_model == "deepseek-v4-flash"
+
+
+def test_bailian_deepseek_v4_requires_workspace_specific_text_endpoint() -> None:
+    with pytest.raises(ValidationError, match="工作空间专属 MaaS"):
+        AccountDistillWorkflowParams(
+            url="https://www.douyin.com/user/demo",
+            cloud_credential_provider="bailian",
+            cloud_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            cloud_text_model="deepseek-v4-flash",
+            video_knowledge_provider="cloud",
+            video_knowledge_model="deepseek-v4-flash",
+        )
+
+    params = AccountDistillWorkflowParams(
+        url="https://www.douyin.com/user/demo",
+        cloud_credential_provider="bailian",
+        cloud_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        cloud_text_base_url=(
+            "https://workspace-demo.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+        ),
+        cloud_text_model="deepseek-v4-flash",
+        video_knowledge_provider="cloud",
+        video_knowledge_model="deepseek-v4-flash",
+    )
+
+    assert params.cloud_text_base_url is not None
+    assert ".maas.aliyuncs.com/" in params.cloud_text_base_url
+
+
+def test_bailian_qwen_text_model_can_use_generic_dashscope_endpoint() -> None:
+    params = AccountDistillWorkflowParams(
+        url="https://www.douyin.com/user/demo",
+        cloud_credential_provider="bailian",
+        cloud_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        cloud_text_model="qwen3.7-plus",
+        video_knowledge_model="qwen3.7-plus",
+    )
+
+    assert params.cloud_text_model == "qwen3.7-plus"
+
+
+def test_cloud_provider_inference_considers_text_endpoint() -> None:
+    params = AccountDistillWorkflowParams(
+        url="https://www.douyin.com/user/demo",
+        vision_provider=None,
+        text_provider="cloud",
+        cloud_text_base_url="https://api.deepseek.com/v1",
+        cloud_text_model="deepseek-chat",
+    )
+
+    assert resolve_account_distill_cloud_credential_provider(params) == "deepseek"
+
+
+def test_cloud_routing_materializes_provider_safe_default_before_key_lookup() -> None:
+    params = AccountDistillWorkflowParams(
+        url="https://www.douyin.com/user/demo",
+        vision_provider="cloud",
+        cloud_credential_provider="bailian",
+        cloud_vision_model="qwen-vl-max-latest",
+    )
+
+    routed = materialize_account_distill_cloud_routing(params)
+
+    assert routed.cloud_credential_provider == "bailian"
+    assert routed.cloud_base_url == "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+
+def test_cloud_routing_rejects_mismatched_project_preset_before_key_lookup() -> None:
+    params = AccountDistillWorkflowParams(
+        url="https://www.douyin.com/user/demo",
+        vision_provider="cloud",
+        cloud_credential_provider="bailian",
+        cloud_vision_model="qwen-vl-max-latest",
+    )
+
+    with pytest.raises(ValidationError, match="域名不一致"):
+        materialize_account_distill_cloud_routing(
+            params,
+            fallback_base_url="https://api.deepseek.com/v1",
+        )
+
+
+def test_cloud_routes_reject_cross_provider_endpoints() -> None:
+    with pytest.raises(ValidationError, match="属于不同服务商"):
+        AccountDistillWorkflowParams(
+            url="https://www.douyin.com/user/demo",
+            vision_provider="cloud",
+            text_provider="cloud",
+            cloud_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            cloud_text_base_url="https://api.deepseek.com/v1",
+            cloud_vision_model="qwen-vl-max-latest",
+            cloud_text_model="deepseek-chat",
+        )
+
+
+@pytest.mark.parametrize(
+    ("provider", "cloud_base_url", "cloud_text_base_url"),
+    [
+        ("deepseek", "https://dashscope.aliyuncs.com/compatible-mode/v1", None),
+        ("openai", None, "https://api.deepseek.com/v1"),
+        (
+            "deepseek",
+            "https://api.deepseek.com/v1",
+            "https://workspace-demo.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+        ),
+    ],
+)
+def test_explicit_cloud_provider_must_match_both_known_endpoint_domains(
+    provider: Literal["openai", "bailian", "deepseek"],
+    cloud_base_url: str | None,
+    cloud_text_base_url: str | None,
+) -> None:
+    with pytest.raises(ValidationError, match="域名不一致|属于不同服务商"):
+        AccountDistillWorkflowParams(
+            url="https://www.douyin.com/user/demo",
+            cloud_credential_provider=provider,
+            cloud_base_url=cloud_base_url,
+            cloud_text_base_url=cloud_text_base_url,
+        )
+
+
+def test_legacy_cloud_api_key_is_masked_in_repr_and_validation_errors() -> None:
+    secret = "sk-schema-plaintext-never-echo"
+    params = AccountDistillWorkflowParams(
+        url="https://www.douyin.com/user/demo",
+        cloud_credential_provider="deepseek",
+        cloud_text_base_url="https://api.deepseek.com/v1",
+        cloud_api_key=cast(Any, secret),
+    )
+
+    assert params.cloud_api_key is not None
+    assert params.cloud_api_key.get_secret_value() == secret
+    assert secret not in repr(params)
+
+    with pytest.raises(ValidationError) as exc_info:
+        AccountDistillWorkflowParams(
+            url="https://www.douyin.com/user/demo",
+            cloud_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            cloud_text_base_url="https://api.deepseek.com/v1",
+            cloud_api_key=cast(Any, secret),
+        )
+    rendered_errors = json.dumps(exc_info.value.errors(), ensure_ascii=False, default=str)
+    assert secret not in rendered_errors
 
 
 def test_account_distill_accepts_secret_free_deepseek_knowledge_synthesis() -> None:

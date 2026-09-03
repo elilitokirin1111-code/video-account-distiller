@@ -14,7 +14,7 @@ from video_account_distiller.errors import DistillerError, ErrorCode
 FACT_PROMPT_VERSION = "video-fact-extraction-v1"
 SEMANTIC_PROMPT_VERSION = "video-semantic-labeling-v1"
 COMMENT_INTENT_PROMPT_VERSION = "comment-intent-v1"
-DEEP_DISTILLATION_PROMPT_VERSION = "single-video-deep-distillation-v1"
+DEEP_DISTILLATION_PROMPT_VERSION = "single-video-deep-distillation-v2"
 KNOWLEDGE_EXTRACTION_PROMPT_VERSION = "single-video-knowledge-extraction-v1"
 
 

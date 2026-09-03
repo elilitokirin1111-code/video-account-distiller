@@ -42,6 +42,7 @@ class DesktopSettings(BaseModel):
     ollama_base_url: str = "http://127.0.0.1:11434"
     cloud_credential_provider: str = "bailian"
     cloud_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    cloud_text_base_url: str = ""
     cloud_text_model: str = "qwen-plus"
     cloud_vision_model: str = "qwen-vl-max"
     video_knowledge_provider: str = "ollama"

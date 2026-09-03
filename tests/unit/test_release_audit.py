@@ -11,7 +11,7 @@ from video_account_distiller.release import (
 )
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-RELEASE_VERSION = "1.1.0"
+RELEASE_VERSION = "1.1.1"
 WINDOWS_INSTALLER_NAME = f"VideoAccountDistiller-Setup-{RELEASE_VERSION}-win64.exe"
 
 

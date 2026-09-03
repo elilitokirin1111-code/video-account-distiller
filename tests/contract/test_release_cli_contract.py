@@ -18,7 +18,7 @@ def test_root_version_is_available_after_install() -> None:
     result = runner.invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.stdout.strip() == "1.1.0"
+    assert result.stdout.strip() == "1.1.1"
 
 
 def test_package_and_skill_release_versions_are_aligned() -> None:
@@ -62,7 +62,7 @@ def test_doctor_emits_machine_readable_read_only_report(project: ProjectLayout) 
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
     assert payload["ok"] is True
-    assert payload["package_version"] == "1.1.0"
+    assert payload["package_version"] == "1.1.1"
     assert payload["project"]["validation_ok"] is True
     assert before == after
 

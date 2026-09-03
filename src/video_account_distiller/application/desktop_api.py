@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -28,6 +29,23 @@ class DesktopApiError(RuntimeError):
 
 def _project_path(value: Path | str) -> str:
     return quote(str(Path(value).expanduser().resolve()), safe="")
+
+
+def _account_snapshot_timestamp(value: object) -> float:
+    """Return a comparable timestamp while tolerating legacy account rows."""
+
+    if not isinstance(value, str) or not value.strip():
+        return float("-inf")
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return float("-inf")
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    try:
+        return parsed.timestamp()
+    except (OSError, OverflowError, ValueError):
+        return float("-inf")
 
 
 class DesktopApiClient:
@@ -111,6 +129,65 @@ class DesktopApiClient:
 
     def project_status(self, path: Path | str) -> dict[str, Any]:
         return self._request("GET", f"/api/projects/{_project_path(path)}/status")
+
+    def list_project_accounts(
+        self,
+        project_path: Path | str,
+        *,
+        page_size: int = 500,
+    ) -> list[dict[str, Any]]:
+        """List the latest normalized row for every account in a project."""
+
+        bounded_page_size = min(max(page_size, 1), 500)
+        offset = 0
+        rows: list[dict[str, Any]] = []
+        while True:
+            payload = self._request(
+                "GET",
+                f"/api/projects/{_project_path(project_path)}/data",
+                params={
+                    "table": "accounts",
+                    "limit": bounded_page_size,
+                    "offset": offset,
+                },
+                timeout_seconds=10,
+            )
+            data = payload.get("data")
+            if not isinstance(data, dict):
+                break
+            raw_rows = data.get("rows")
+            if not isinstance(raw_rows, list) or not raw_rows:
+                break
+            rows.extend(item for item in raw_rows if isinstance(item, dict))
+            offset += len(raw_rows)
+            try:
+                total = max(int(data.get("total") or 0), 0)
+            except (TypeError, ValueError):
+                total = 0
+            if (total and offset >= total) or len(raw_rows) < bounded_page_size:
+                break
+
+        latest_by_id: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            account_id = str(row.get("account_id") or "").strip()
+            if not account_id:
+                continue
+            candidate = dict(row)
+            candidate["account_id"] = account_id
+            current = latest_by_id.get(account_id)
+            if current is None or _account_snapshot_timestamp(
+                candidate.get("snapshot_at")
+            ) >= _account_snapshot_timestamp(current.get("snapshot_at")):
+                latest_by_id[account_id] = candidate
+
+        return sorted(
+            latest_by_id.values(),
+            key=lambda item: (
+                _account_snapshot_timestamp(item.get("snapshot_at")),
+                str(item.get("account_id") or ""),
+            ),
+            reverse=True,
+        )
 
     def submit_account_distill(
         self,

@@ -38,6 +38,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QCheckBox,
     QComboBox,
     QFileDialog,
@@ -612,6 +613,8 @@ class DistillerMainWindow(QMainWindow):
         self.pool = QThreadPool.globalInstance()
         self._tasks_busy = False
         self._service_busy = False
+        self._sync_accounts_busy = False
+        self._known_completed_task_ids: set[str] = set()
         self._bundle_rows: list[dict[str, str]] = []
         self._last_tasks: list[dict[str, Any]] = []
         self._page_animation: QPropertyAnimation | None = None
@@ -1081,6 +1084,7 @@ class DistillerMainWindow(QMainWindow):
         self.bundles_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.bundles_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.bundles_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.bundles_table.itemSelectionChanged.connect(self._sync_account_from_selected_bundle)
         self.bundles_table.doubleClicked.connect(self.open_selected_bundle)
         self.bundles_table.horizontalHeader().setSectionResizeMode(
             6, QHeaderView.ResizeMode.Stretch
@@ -1120,12 +1124,40 @@ class DistillerMainWindow(QMainWindow):
         layout.addLayout(connection_actions)
         sync = QGroupBox("同步账号结果")
         sync_form = QFormLayout(sync)
-        self.sync_account_id = QLineEdit()
-        self.sync_account_id.setPlaceholderText("acc_...")
+        account_row = QWidget()
+        account_layout = QHBoxLayout(account_row)
+        account_layout.setContentsMargins(0, 0, 0, 0)
+        account_layout.setSpacing(8)
+        self.sync_account_id = QComboBox()
+        self.sync_account_id.setEditable(True)
+        self.sync_account_id.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.sync_account_id.setMinimumContentsLength(28)
+        account_editor = self.sync_account_id.lineEdit()
+        assert account_editor is not None
+        account_editor.setPlaceholderText("选择项目账号，或手动输入 acc_... 完整 ID")
+        refresh_accounts = _button("刷新账号")
+        refresh_accounts.clicked.connect(lambda: self.refresh_sync_accounts(show_error=True))
+        account_layout.addWidget(self.sync_account_id, 1)
+        account_layout.addWidget(refresh_accounts)
+
+        account_id_row = QWidget()
+        account_id_layout = QHBoxLayout(account_id_row)
+        account_id_layout.setContentsMargins(0, 0, 0, 0)
+        account_id_layout.setSpacing(8)
+        self.sync_account_id_value = QLineEdit()
+        self.sync_account_id_value.setReadOnly(True)
+        self.sync_account_id_value.setPlaceholderText("选择账号后显示完整账号 ID")
+        copy_account_id = _button("复制 ID")
+        copy_account_id.clicked.connect(self.copy_sync_account_id)
+        account_id_layout.addWidget(self.sync_account_id_value, 1)
+        account_id_layout.addWidget(copy_account_id)
+        self.sync_account_id.currentIndexChanged.connect(self._update_sync_account_id_display)
+        self.sync_account_id.editTextChanged.connect(self._update_sync_account_id_display)
         self.sync_mode = QComboBox()
         self.sync_mode.addItem("逐视频纯知识文档", "knowledge")
         self.sync_mode.addItem("账号运营知识", "creative_learning")
-        sync_form.addRow("账号 ID", self.sync_account_id)
+        sync_form.addRow("项目账号", account_row)
+        sync_form.addRow("完整账号 ID", account_id_row)
         sync_form.addRow("文档类型", self.sync_mode)
         layout.addWidget(sync)
         sync_button = _button("同步到所选知识库", primary=True)
@@ -1158,6 +1190,10 @@ class DistillerMainWindow(QMainWindow):
         self.cloud_provider.addItem("OpenAI", "openai")
         self.cloud_provider.addItem("DeepSeek", "deepseek")
         self.cloud_url = QLineEdit()
+        self.cloud_text_url = QLineEdit()
+        self.cloud_text_url.setPlaceholderText(
+            "百炼 DeepSeek V4：填写工作空间专属 MaaS compatible-mode/v1 地址"
+        )
         self.cloud_text_model = QLineEdit()
         self.cloud_vision_model = QLineEdit()
         self.cloud_key = QLineEdit()
@@ -1165,7 +1201,8 @@ class DistillerMainWindow(QMainWindow):
         self.cloud_key.setPlaceholderText("仅在保存时读取；不会写入设置文件")
         form.addRow("Ollama 地址", self.ollama_url)
         form.addRow("云端凭据类型", self.cloud_provider)
-        form.addRow("云端兼容端点", self.cloud_url)
+        form.addRow("视频服务地址", self.cloud_url)
+        form.addRow("文本/蒸馏服务地址", self.cloud_text_url)
         form.addRow("文本模型", self.cloud_text_model)
         form.addRow("视觉模型", self.cloud_vision_model)
         form.addRow("云模型 API Key", self.cloud_key)
@@ -1375,6 +1412,8 @@ class DistillerMainWindow(QMainWindow):
             self.refresh_tasks()
         elif index == 3:
             self.refresh_bundles()
+        elif index == 4:
+            self.refresh_sync_accounts()
         elif index == 0:
             self.refresh_services()
 
@@ -1678,7 +1717,9 @@ class DistillerMainWindow(QMainWindow):
             self.project_edit.setText(directory)
             self.settings.project_path = directory
             self.save_settings(silent=True)
+            self._clear_sync_accounts()
             self.refresh_bundles()
+            self.refresh_sync_accounts()
 
     def initialize_project(self) -> None:
         try:
@@ -1691,6 +1732,7 @@ class DistillerMainWindow(QMainWindow):
             self.footer.setText("项目已就绪")
             self.settings.project_path = str(path)
             self.save_settings(silent=True)
+            self.refresh_sync_accounts()
             QMessageBox.information(
                 self,
                 "项目已就绪",
@@ -1747,6 +1789,7 @@ class DistillerMainWindow(QMainWindow):
             "ollama_base_url": self.ollama_url.text().strip() or "http://127.0.0.1:11434",
             "cloud_credential_provider": str(self.cloud_provider.currentData()),
             "cloud_base_url": self.cloud_url.text().strip() or None,
+            "cloud_text_base_url": self.cloud_text_url.text().strip() or None,
             "cloud_text_model": self.cloud_text_model.text().strip() or None,
             "cloud_vision_model": self.cloud_vision_model.text().strip() or None,
             "distill_video_knowledge": True,
@@ -1756,6 +1799,20 @@ class DistillerMainWindow(QMainWindow):
         }
         if self.media_limit.value() <= 0:
             raise ValueError("完整或纯知识蒸馏需要把“下载/转写数量”设置为大于 0。")
+        deep_models = {
+            str(payload.get("cloud_text_model") or "").casefold(),
+            str(payload.get("video_knowledge_model") or "").casefold(),
+        }
+        if (
+            payload["cloud_credential_provider"] == "bailian"
+            and any(model.startswith("deepseek-v4-") for model in deep_models)
+            and ".maas.aliyuncs.com/compatible-mode/v1"
+            not in str(payload.get("cloud_text_base_url") or "").casefold()
+        ):
+            raise ValueError(
+                "DeepSeek V4 在百炼上不能使用通用 DashScope 地址。请到设置填写“文本/蒸馏服务地址”"
+                "（工作空间专属 MaaS compatible-mode/v1 地址）；Qwen 视频仍使用上方视频服务地址。"
+            )
         return payload
 
     def submit_workflow(self, *, dry_run: bool) -> None:
@@ -1854,8 +1911,17 @@ class DistillerMainWindow(QMainWindow):
                         if color:
                             item.setForeground(QColor(color))
                     self.tasks_table.setItem(row, column, item)
+            completed_task_ids = {
+                str(task.get("task_id"))
+                for task in self._last_tasks
+                if task.get("status") == "completed" and task.get("task_id")
+            }
+            newly_completed = completed_task_ids - self._known_completed_task_ids
+            self._known_completed_task_ids = completed_task_ids
             if any(task.get("status") == "completed" for task in tasks[:3]):
                 self.refresh_bundles()
+            if newly_completed:
+                self.refresh_sync_accounts()
 
         def failed(exc: Exception) -> None:
             self._tasks_busy = False
@@ -2047,11 +2113,157 @@ class DistillerMainWindow(QMainWindow):
                 self.bundles_table.setItem(row, column, QTableWidgetItem(str(value)))
         self.footer.setText(f"发现 {len(bundles)} 个知识包")
 
+    @staticmethod
+    def _sync_account_label(account: dict[str, Any]) -> str:
+        account_id = str(account.get("account_id") or "").strip()
+        display_name = str(account.get("display_name") or "").strip()
+        handle = str(account.get("handle") or "").strip().lstrip("@")
+        platform_value = account.get("platform")
+        if isinstance(platform_value, dict):
+            platform_value = platform_value.get("value")
+        platform = str(platform_value or "").strip()
+        platform_name = {
+            "douyin": "抖音",
+            "xiaohongshu": "小红书",
+            "bilibili": "B站",
+            "kuaishou": "快手",
+            "weixin_channels": "视频号",
+        }.get(platform, platform)
+        parts = [display_name or (f"@{handle}" if handle else account_id)]
+        if handle and f"@{handle}" not in parts:
+            parts.append(f"@{handle}")
+        if platform_name:
+            parts.append(platform_name)
+        return " · ".join(part for part in parts if part)
+
+    def _current_sync_account_id(self) -> str:
+        selected = str(self.sync_account_id.currentData() or "").strip()
+        if selected:
+            return selected
+        typed = self.sync_account_id.currentText().strip()
+        suffix = typed.removeprefix("acc_")
+        if (
+            typed.startswith("acc_")
+            and suffix
+            and all(character.isalnum() or character in {"_", "-"} for character in suffix)
+        ):
+            return typed
+        return ""
+
+    def _selected_sync_account_id(self) -> str:
+        account_id = self._current_sync_account_id()
+        if not account_id:
+            raise ValueError("请选择项目账号；如需手动输入，只接受 acc_ 开头的完整账号 ID。")
+        return account_id
+
+    def _update_sync_account_id_display(self, *_value: object) -> None:
+        self.sync_account_id_value.setText(self._current_sync_account_id())
+
+    def _clear_sync_accounts(self) -> None:
+        self.sync_account_id.blockSignals(True)
+        self.sync_account_id.clear()
+        self.sync_account_id.setCurrentIndex(-1)
+        self.sync_account_id.setEditText("")
+        self.sync_account_id.blockSignals(False)
+        self.sync_account_id_value.clear()
+
+    def _populate_sync_accounts(self, value: object) -> None:
+        previous = self._current_sync_account_id()
+        if isinstance(value, dict):
+            raw_accounts = value.get("accounts") or value.get("rows") or []
+        else:
+            raw_accounts = value if isinstance(value, list) else []
+        accounts = [
+            account
+            for account in raw_accounts
+            if isinstance(account, dict) and str(account.get("account_id") or "").startswith("acc_")
+        ]
+        accounts.sort(
+            key=lambda account: (
+                str(account.get("display_name") or "").casefold(),
+                str(account.get("handle") or "").casefold(),
+                str(account.get("account_id") or ""),
+            )
+        )
+
+        self.sync_account_id.blockSignals(True)
+        self.sync_account_id.clear()
+        for account in accounts:
+            account_id = str(account["account_id"])
+            self.sync_account_id.addItem(self._sync_account_label(account), account_id)
+            index = self.sync_account_id.count() - 1
+            self.sync_account_id.setItemData(
+                index,
+                account_id,
+                Qt.ItemDataRole.ToolTipRole,
+            )
+        selected_index = self.sync_account_id.findData(previous) if previous else -1
+        if selected_index < 0 and len(accounts) == 1:
+            selected_index = 0
+        self.sync_account_id.setCurrentIndex(selected_index)
+        if selected_index < 0:
+            self.sync_account_id.setEditText(previous if previous.startswith("acc_") else "")
+        self.sync_account_id.blockSignals(False)
+        self._update_sync_account_id_display()
+
+    def refresh_sync_accounts(self, *, show_error: bool = False) -> None:
+        if self._sync_accounts_busy:
+            return
+        try:
+            project = self._project()
+        except Exception as exc:  # noqa: BLE001
+            if show_error:
+                self._show_error(exc)
+            return
+        self._sync_accounts_busy = True
+
+        def done(value: object) -> None:
+            self._sync_accounts_busy = False
+            self._populate_sync_accounts(value)
+
+        def failed(exc: Exception) -> None:
+            self._sync_accounts_busy = False
+            if show_error:
+                self._show_error(exc)
+
+        self._run(
+            lambda: self.client.list_project_accounts(project),
+            done,
+            message="正在读取项目账号…",
+            on_failure=failed,
+            show_busy=show_error,
+        )
+
+    def _set_sync_account_id(self, account_id: str) -> None:
+        account_id = account_id.strip()
+        if not account_id:
+            return
+        index = self.sync_account_id.findData(account_id)
+        self.sync_account_id.setCurrentIndex(index)
+        if index < 0:
+            self.sync_account_id.setEditText(account_id)
+        self._update_sync_account_id_display()
+
+    def _sync_account_from_selected_bundle(self) -> None:
+        row = self.bundles_table.currentRow()
+        if row < 0 or row >= len(self._bundle_rows):
+            return
+        self._set_sync_account_id(str(self._bundle_rows[row].get("account_id") or ""))
+
     def _selected_bundle(self) -> dict[str, str]:
         row = self.bundles_table.currentRow()
         if row < 0 or row >= len(self._bundle_rows):
             raise ValueError("请先选择一个知识结果。")
         return self._bundle_rows[row]
+
+    def copy_sync_account_id(self) -> None:
+        try:
+            account_id = self._selected_sync_account_id()
+        except Exception as exc:  # noqa: BLE001
+            self._show_error(exc)
+            return
+        QApplication.clipboard().setText(account_id)
+        self.footer.setText("账号 ID 已复制")
 
     def open_selected_bundle(self) -> None:
         try:
@@ -2140,10 +2352,10 @@ class DistillerMainWindow(QMainWindow):
         try:
             project = self._project()
             key = self._weknora_secret()
-            account_id = self.sync_account_id.text().strip()
+            account_id = self._selected_sync_account_id()
             kb_id = str(self.weknora_kb.currentData() or "")
-            if not account_id or not kb_id:
-                raise ValueError("请填写账号 ID 并选择目标知识库。")
+            if not kb_id:
+                raise ValueError("请选择目标知识库。")
             base_url = self.weknora_url.text().strip()
             mode = str(self.sync_mode.currentData())
         except Exception as exc:  # noqa: BLE001
@@ -2202,7 +2414,7 @@ class DistillerMainWindow(QMainWindow):
         self._select_data(self.knowledge_provider, "cloud")
         self.knowledge_model.setText("deepseek-v4-flash")
         self.save_settings(silent=True)
-        self.footer.setText("已应用：Qwen 3.7 Plus 原视频理解 + DeepSeek V4 Flash 深度蒸馏")
+        self.footer.setText("已应用组合；请再填写百炼 DeepSeek 工作空间专属的文本/蒸馏 MaaS 地址")
 
     def _capture_settings_from_ui(self) -> None:
         self.settings.project_path = self.project_edit.text().strip() or None
@@ -2220,6 +2432,7 @@ class DistillerMainWindow(QMainWindow):
         self.settings.ollama_base_url = self.ollama_url.text().strip() or "http://127.0.0.1:11434"
         self.settings.cloud_credential_provider = str(self.cloud_provider.currentData())
         self.settings.cloud_base_url = self.cloud_url.text().strip()
+        self.settings.cloud_text_base_url = self.cloud_text_url.text().strip()
         self.settings.cloud_text_model = self.cloud_text_model.text().strip()
         self.settings.cloud_vision_model = self.cloud_vision_model.text().strip()
         self.settings.video_knowledge_provider = str(self.knowledge_provider.currentData())
@@ -2257,6 +2470,7 @@ class DistillerMainWindow(QMainWindow):
         self.ollama_url.setText(self.settings.ollama_base_url)
         self._select_data(self.cloud_provider, self.settings.cloud_credential_provider)
         self.cloud_url.setText(self.settings.cloud_base_url)
+        self.cloud_text_url.setText(self.settings.cloud_text_base_url)
         self.cloud_text_model.setText(self.settings.cloud_text_model)
         self.cloud_vision_model.setText(self.settings.cloud_vision_model)
         self.weknora_url.setText(self.settings.weknora_base_url)

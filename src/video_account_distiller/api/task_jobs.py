@@ -22,6 +22,8 @@ from video_account_distiller.api.schemas import (
     SampleParams,
     ScoreParams,
     VideoAnalysisParams,
+    materialize_account_distill_cloud_routing,
+    resolve_account_distill_cloud_credential_provider,
 )
 from video_account_distiller.api.tasks import (
     TaskData,
@@ -461,6 +463,10 @@ def execute_account_distill(
     knowledge_mode = body.distillation_mode == "knowledge"
     full_mode = body.distillation_mode == "creative_learning" and body.distill_video_knowledge
     layout = ProjectLayout.open(Path(job.project_path))
+    body = materialize_account_distill_cloud_routing(
+        body,
+        fallback_base_url=load_config(layout.config_path).models.cloud_base_url,
+    )
     count, comments_per_video = resolve_profile_options(
         profile=body.profile,
         count=body.count,
@@ -489,18 +495,10 @@ def execute_account_distill(
             update={"analysis_focus": body.analysis_focus}
         )
     analysis_provider = None
-    credential_provider = body.cloud_credential_provider
-    if credential_provider is None and body.knowledge_analysis is not None:
-        credential_provider = body.knowledge_analysis.provider.value
-    if credential_provider is None:
-        base_url = (body.cloud_base_url or "").lower()
-        if "dashscope" in base_url or "aliyuncs" in base_url:
-            credential_provider = "bailian"
-        elif "deepseek" in base_url:
-            credential_provider = "deepseek"
-        else:
-            credential_provider = "openai"
-    cloud_credential = body.cloud_api_key
+    credential_provider = resolve_account_distill_cloud_credential_provider(body)
+    cloud_credential = (
+        body.cloud_api_key.get_secret_value() if body.cloud_api_key is not None else None
+    )
     cloud_requested = (
         body.text_provider == "cloud"
         or body.vision_provider == "cloud"
@@ -521,7 +519,7 @@ def execute_account_distill(
             analysis_options,
             credential=resolved.value if resolved is not None else None,
             credential_source=resolved.source if resolved is not None else None,
-            base_url=body.cloud_base_url,
+            base_url=body.cloud_text_base_url or body.cloud_base_url,
         )
     media_limit = body.media_limit
     if media_limit is None:
@@ -541,6 +539,7 @@ def execute_account_distill(
         text_provider=body.text_provider,
         ollama_base_url=body.ollama_base_url,
         cloud_base_url=body.cloud_base_url,
+        cloud_text_base_url=body.cloud_text_base_url,
         cloud_api_key=cloud_credential,
         cloud_text_model=body.cloud_text_model,
         cloud_vision_model=body.cloud_vision_model,
@@ -556,7 +555,9 @@ def execute_account_distill(
         video_knowledge_provider=body.video_knowledge_provider,
         video_knowledge_model=body.video_knowledge_model,
         video_knowledge_base_url=(
-            body.cloud_base_url if body.video_knowledge_provider == "cloud" else None
+            (body.cloud_text_base_url or body.cloud_base_url)
+            if body.video_knowledge_provider == "cloud"
+            else None
         ),
         video_knowledge_api_key=(
             cloud_credential if body.video_knowledge_provider == "cloud" else None

@@ -546,6 +546,7 @@ class AccountDistillWorkflow:
         text_provider: str | None = None,
         ollama_base_url: str = "http://127.0.0.1:11434",
         cloud_base_url: str | None = None,
+        cloud_text_base_url: str | None = None,
         cloud_api_key: str | None = None,
         cloud_text_model: str | None = None,
         cloud_vision_model: str | None = None,
@@ -618,7 +619,10 @@ class AccountDistillWorkflow:
             local_text = CloudChatTextProvider(
                 model=cloud_text_model or config.models.cloud_text_model or vision_model or "local",
                 base_url=(
-                    cloud_base_url or config.models.cloud_base_url or "https://api.deepseek.com"
+                    cloud_text_base_url
+                    or cloud_base_url
+                    or config.models.cloud_base_url
+                    or "https://api.deepseek.com"
                 ),
                 timeout_seconds=vision_timeout_seconds,
                 api_key=cloud_api_key or config.models.cloud_api_key,

@@ -5,7 +5,7 @@
 
 ## 安装与启动
 
-- 安装版：运行 `VideoAccountDistiller-Setup-1.1.0-win64.exe`，从开始菜单启动。
+- 安装版：运行 `VideoAccountDistiller-Setup-1.1.1-win64.exe`，从开始菜单启动。
 - 便携版：解压完整 ZIP 后运行 `VideoAccountDistiller.exe`，不要只复制单个 EXE。
 - 源码版：双击仓库根目录的 `启动蒸馏应用.cmd`。
 

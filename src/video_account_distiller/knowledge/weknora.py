@@ -260,6 +260,16 @@ class WeKnoraSyncService:
         api = _api_url(base_url)
         replaced: list[str] = []
         errors: list[str] = []
+        creative_documents: list[tuple[SingleVideoDistillation, Path]] = []
+        for video_root in sorted((self.project.root / "analyses" / "videos").glob("*")):
+            if not video_root.is_dir():
+                continue
+            selected = self._latest_video_distillation(video_root.name)
+            if selected is None or selected[0].account_id != account_id:
+                continue
+            report_path = selected[1].parent / "report.md"
+            if report_path.is_file():
+                creative_documents.append((selected[0], report_path))
 
         existing: list[dict[str, Any]] = []
         page = 1
@@ -357,6 +367,30 @@ class WeKnoraSyncService:
                     uploaded,
                     errors,
                 )
+            if not errors:
+                for distillation, report_path in creative_documents:
+                    relative_name = (
+                        f"accounts/{account_id}/videos/{distillation.video_id}/"
+                        f"{distillation.video_id}-creative-report.md"
+                    )
+                    _upload_markdown(
+                        api,
+                        headers,
+                        selected_kb_id,
+                        report_path,
+                        relative_name,
+                        account_id,
+                        uploaded,
+                        errors,
+                        upload_name=f"{distillation.video_id}-creative-report.md",
+                        metadata_extra={
+                            "video_id": distillation.video_id,
+                            "distillation_id": distillation.distillation_id,
+                            "document_type": "creative_learning",
+                            "distillation_mode": "creative_learning",
+                            "status": distillation.status,
+                        },
+                    )
 
         error_code: str | None = None
         message: str | None = None
@@ -376,6 +410,10 @@ class WeKnoraSyncService:
             "kb_name": kb_name,
             "replaced": replaced,
             "uploaded": uploaded,
+            "creative_reports": len(creative_documents),
+            "degraded_creative_reports": sum(
+                item.status == "degraded" for item, _path in creative_documents
+            ),
             "errors": errors,
             "error_code": error_code,
             "message": message,

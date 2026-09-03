@@ -73,7 +73,7 @@ def test_release_audit_cli_is_machine_readable() -> None:
     assert result.exit_code == 0, result.output
     payload = json.loads(result.stdout)
     assert payload["ok"] is True
-    assert payload["package_version"] == "1.1.0"
+    assert payload["package_version"] == "1.1.1"
 
 
 def test_release_audit_cli_can_require_public_beta_evidence() -> None:

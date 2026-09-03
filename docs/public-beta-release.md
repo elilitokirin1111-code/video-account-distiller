@@ -18,7 +18,7 @@ distiller release migrate preview --project C:\path\to\project --json
 ```powershell
 distiller release migrate apply `
   --project C:\path\to\project `
-  --backup D:\distiller-backups\project-before-1.1.0.zip `
+  --backup D:\distiller-backups\project-before-1.1.1.zip `
   --confirm-migration `
   --json
 ```
@@ -36,8 +36,8 @@ SHA-256。当前版本只支持显式的 `0.0.0 -> 0.1.0` 状态迁移；未来�
 ```powershell
 distiller release beta init `
   --evidence D:\distiller-release-evidence `
-  --campaign v1-1-0-pilot `
-  --target-version 1.1.0 `
+  --campaign v1-1-1-pilot `
+  --target-version 1.1.1 `
   --min-days 7 `
   --min-machine-profiles 2 `
   --min-account-labels 3 `
@@ -55,7 +55,7 @@ distiller release beta init `
 ```powershell
 distiller release beta observe `
   --evidence D:\distiller-release-evidence `
-  --campaign v1-1-0-pilot `
+  --campaign v1-1-1-pilot `
   --project C:\path\to\project `
   --machine-label windows-office-a `
   --account-label account-a `
@@ -84,7 +84,7 @@ distiller release beta observe `
 ```powershell
 distiller release beta incident `
   --evidence D:\distiller-release-evidence `
-  --campaign v1-1-0-pilot `
+  --campaign v1-1-1-pilot `
   --severity high `
   --summary "worker recovery exceeded the operating limit" `
   --json
@@ -98,7 +98,7 @@ distiller release beta incident `
 ```powershell
 distiller release beta status `
   --evidence D:\distiller-release-evidence `
-  --campaign v1-1-0-pilot `
+  --campaign v1-1-1-pilot `
   --json
 ```
 
@@ -113,7 +113,7 @@ distiller release beta status `
 ```powershell
 distiller release beta freeze `
   --evidence D:\distiller-release-evidence `
-  --campaign v1-1-0-pilot `
+  --campaign v1-1-1-pilot `
   --confirm-freeze `
   --json
 ```
@@ -127,13 +127,13 @@ SHA-256。冻结后不能追加观察或事故；重复冻结只读取同一记�
 ```powershell
 distiller release beta verify `
   --evidence D:\distiller-release-evidence `
-  --campaign v1-1-0-pilot `
+  --campaign v1-1-1-pilot `
   --json
 
 distiller release beta bundle `
   --evidence D:\distiller-release-evidence `
-  --campaign v1-1-0-pilot `
-  --output release-evidence\video-account-distiller-public-beta-1.1.0.zip `
+  --campaign v1-1-1-pilot `
+  --output release-evidence\video-account-distiller-public-beta-1.1.1.zip `
   --json
 ```
 
@@ -157,14 +157,14 @@ ZIP，且 ZIP 内清单记录每个文件的 SHA-256。不要手工编辑或重�
 
 ```powershell
 Copy-Item `
-  release-evidence\video-account-distiller-public-beta-1.1.0.zip `
-  dist\video-account-distiller-public-beta-1.1.0.zip
+  release-evidence\video-account-distiller-public-beta-1.1.1.zip `
+  dist\video-account-distiller-public-beta-1.1.1.zip
 distiller release checksums --artifacts dist --json
 
 distiller release audit `
   --repository . `
   --artifacts dist `
-  --public-beta-evidence dist\video-account-distiller-public-beta-1.1.0.zip `
+  --public-beta-evidence dist\video-account-distiller-public-beta-1.1.1.zip `
   --require-public-beta-freeze `
   --json
 ```

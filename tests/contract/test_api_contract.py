@@ -48,7 +48,7 @@ def test_health_openapi_and_missing_task_contract(tmp_path: Path) -> None:
         assert health.status_code == 200
         assert _json(health) == {
             "status": "ok",
-            "version": "1.1.0",
+            "version": "1.1.1",
             "features": {"account_video_knowledge": "1"},
         }
 
@@ -783,6 +783,29 @@ def test_account_workflow_migrates_request_secret_out_of_durable_task(
     assert task["task_metadata"]["body"]["cloud_api_key"] is None
     assert secret not in json.dumps(task, ensure_ascii=False)
     for database_file in tmp_path.glob("secret-free-workflow.sqlite3*"):
+        assert secret.encode("utf-8") not in database_file.read_bytes()
+
+
+def test_account_workflow_422_never_echoes_legacy_cloud_api_key(tmp_path: Path) -> None:
+    task_db = tmp_path / "validation-secret-free.sqlite3"
+    app = create_app(task_db)
+    secret = "sk-invalid-workflow-must-stay-secret"
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/projects/not-a-project/workflows/account-distill",
+            json={
+                "url": "https://v.douyin.com/demo/",
+                "cloud_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "cloud_text_base_url": "https://api.deepseek.com/v1",
+                "cloud_api_key": secret,
+            },
+        )
+
+    assert response.status_code == 422
+    assert secret not in response.text
+    assert "**********" in response.text
+    for database_file in tmp_path.glob("validation-secret-free.sqlite3*"):
         assert secret.encode("utf-8") not in database_file.read_bytes()
 
 
