@@ -938,7 +938,7 @@ def _select_sources(
         retry_sources: list[ProviderVideoSource] = []
         for source in sources:
             entry = latest.get(source.video_id)
-            if _retry_recommended(entry[1] if entry is not None else None):
+            if _retry_recommended(project, entry[1] if entry is not None else None):
                 retry_sources.append(source)
         return retry_sources[:limit]
     ordered = sorted(
@@ -968,17 +968,25 @@ def _latest_enrichment_items(
     return latest
 
 
-def _retry_recommended(item: VideoMediaEnrichment | None) -> bool:
+def _retry_recommended(project: ProjectLayout, item: VideoMediaEnrichment | None) -> bool:
     if item is None:
         return False
     if RETAINED_NON_VIDEO_POST in item.warnings:
         return False
-    return (
+    direct_retry = (
         item.status in {"failed", "degraded"}
         or item.transcription.status == "failed"
         or item.vision_status == "degraded"
         or item.text_analysis_status == "degraded"
     )
+    if direct_retry or item.media_analysis_path is None:
+        return direct_retry
+    analysis_path = project.root / item.media_analysis_path
+    try:
+        analysis = MediaAnalysis.model_validate(read_json(analysis_path))
+    except (OSError, ValidationError, ValueError):
+        return True
+    return analysis.status == "degraded"
 
 
 def _existing_transcripts(project: ProjectLayout) -> dict[str, list[TranscriptSegment]]:
@@ -1083,7 +1091,7 @@ class AccountMediaEnrichmentService:
                     "text_analysis_status": (
                         item.text_analysis_status if item is not None else None
                     ),
-                    "retry_recommended": _retry_recommended(item),
+                    "retry_recommended": _retry_recommended(self.project, item),
                     "warnings": item.warnings if item is not None else [],
                 }
             )
@@ -1242,6 +1250,7 @@ class AccountMediaEnrichmentService:
                             )
                             if (
                                 not refresh_media
+                                and stored_analysis.status == "complete"
                                 and stored_analysis.analysis_version == MEDIA_ANALYSIS_VERSION
                                 and vision_is_current
                             ):
@@ -1426,11 +1435,23 @@ class AccountMediaEnrichmentService:
                         continue
                     assert media_result is not None
                     media_analysis = MediaAnalysis.model_validate(media_result["analysis"])
+                    if media_analysis.status == "degraded":
+                        item_warnings = list(
+                            dict.fromkeys(
+                                [
+                                    *item_warnings,
+                                    "media_analysis_degraded",
+                                    *media_analysis.warnings,
+                                ]
+                            )
+                        )
                     items.append(
                         VideoMediaEnrichment(
                             video_id=source.video_id,
                             platform_video_id=source.platform_video_id,
-                            status="complete",
+                            status=(
+                                "degraded" if media_analysis.status == "degraded" else "complete"
+                            ),
                             source_host=source_host,
                             media_hash=media_analysis.metadata.media_hash,
                             media_analysis_id=media_analysis.analysis_id,

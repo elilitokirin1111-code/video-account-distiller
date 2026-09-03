@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import ctypes
 import json
+import os
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -25,6 +27,7 @@ from video_account_distiller.models import (
 )
 from video_account_distiller.storage import ProjectLayout
 from video_account_distiller.utils.io import atomic_write_json, atomic_write_text
+from video_account_distiller_desktop.main import _configure_windows_error_mode
 
 
 class _Response:
@@ -49,6 +52,30 @@ class _Session:
 
     def close(self) -> None:
         self.closed = True
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows error mode is Windows-specific")
+def test_desktop_error_mode_preserves_existing_flags_and_adds_fail_critical_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Kernel32:
+        def __init__(self) -> None:
+            self.modes: list[int] = []
+
+        @staticmethod
+        def GetErrorMode() -> int:
+            return 0x0040
+
+        def SetErrorMode(self, mode: int) -> int:
+            self.modes.append(mode)
+            return 0x0040
+
+    kernel32 = _Kernel32()
+    monkeypatch.setattr(ctypes.windll, "kernel32", kernel32)
+
+    _configure_windows_error_mode()
+
+    assert kernel32.modes == [0x0041]
 
 
 def test_desktop_api_client_encodes_project_path_and_surfaces_stable_errors(

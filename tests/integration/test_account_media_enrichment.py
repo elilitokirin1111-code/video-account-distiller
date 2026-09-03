@@ -11,6 +11,7 @@ from video_account_distiller.media import (
     AccountMediaEnrichmentService,
     DownloadedMedia,
     DownloadedMediaCleanupService,
+    MediaBackendFailure,
     SceneDetectionResult,
     TranscribedMedia,
 )
@@ -196,6 +197,50 @@ class FixtureMediaBackend:
     ) -> bytes:
         del source, sample_rate, max_seconds
         return array("h", [1200] * 72_000).tobytes()
+
+
+class DegradedFixtureMediaBackend(FixtureMediaBackend):
+    def __init__(self) -> None:
+        self.extract_calls = 0
+
+    def extract_frame(
+        self,
+        source: Path,
+        *,
+        timestamp_ms: int,
+        width: int,
+        output: Path,
+    ) -> None:
+        self.extract_calls += 1
+        if self.extract_calls == 1:
+            raise MediaBackendFailure("fixture Windows status 0xC0000142")
+        super().extract_frame(
+            source,
+            timestamp_ms=timestamp_ms,
+            width=width,
+            output=output,
+        )
+
+
+class CountingFixtureMediaBackend(FixtureMediaBackend):
+    def __init__(self) -> None:
+        self.extract_calls = 0
+
+    def extract_frame(
+        self,
+        source: Path,
+        *,
+        timestamp_ms: int,
+        width: int,
+        output: Path,
+    ) -> None:
+        self.extract_calls += 1
+        super().extract_frame(
+            source,
+            timestamp_ms=timestamp_ms,
+            width=width,
+            output=output,
+        )
 
 
 def _write_provider_batch(
@@ -572,3 +617,51 @@ def test_account_media_reparse_selects_degraded_or_explicit_videos(
     )
     assert reparsed.selection_policy == "media_reparse_failed_or_degraded"
     assert reparsed.videos[0].platform_video_id == "p2-01"
+
+
+def test_degraded_media_is_visible_to_reparse_and_not_reused(
+    phase2_project: ProjectLayout,
+) -> None:
+    _write_provider_batch(phase2_project)
+    account_id = stable_id("acc_", "douyin", "phase2-hotel")
+    degraded_backend = DegradedFixtureMediaBackend()
+    service = AccountMediaEnrichmentService(
+        phase2_project,
+        downloader=FixtureDownloader(),
+        transcriber=FixtureTranscriber(),
+        media_backend=degraded_backend,
+    )
+
+    first_result = service.enrich(account_id=account_id, limit=1)
+    first = AccountMediaEnrichment.model_validate(first_result["enrichment"])
+
+    assert first.videos[0].status == "degraded"
+    assert "media_analysis_degraded" in first.videos[0].warnings
+    assert any(
+        warning.startswith("keyframe_extraction_failed:") for warning in first.videos[0].warnings
+    )
+    assert service.reparse_candidates(account_id=account_id)["retry_recommended_count"] == 1
+
+    legacy_path = phase2_project.root / first_result["outputs"][0]
+    legacy_payload = read_json(legacy_path)
+    legacy_payload["videos"][0]["status"] = "complete"
+    legacy_payload["videos"][0]["text_analysis_status"] = "complete"
+    legacy_payload["completed_count"] = 1
+    legacy_payload["degraded_count"] = 0
+    atomic_write_json(legacy_path, legacy_payload)
+    assert service.reparse_candidates(account_id=account_id)["retry_recommended_count"] == 1
+
+    replacement_backend = CountingFixtureMediaBackend()
+    replacement_service = AccountMediaEnrichmentService(
+        phase2_project,
+        downloader=FixtureDownloader(),
+        transcriber=FixtureTranscriber(),
+        media_backend=replacement_backend,
+    )
+    replacement = AccountMediaEnrichment.model_validate(
+        replacement_service.enrich(account_id=account_id, limit=1)["enrichment"]
+    )
+
+    assert replacement_backend.extract_calls > 0
+    assert "existing_media_analysis_reused" not in replacement.videos[0].warnings
+    assert replacement.videos[0].status == "complete"

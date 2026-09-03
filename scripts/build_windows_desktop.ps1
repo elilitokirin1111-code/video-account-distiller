@@ -57,7 +57,8 @@ try {
         -or $smoke.page_count -ne 6 `
         -or $smoke.progress_stage_count -ne 6 `
         -or -not $smoke.animated_wait_feedback `
-        -or -not $smoke.mediacrawler_runtime_complete
+        -or -not $smoke.mediacrawler_runtime_complete `
+        -or ($smoke.ffmpeg_available -and -not $smoke.ffmpeg_external_process_ready)
     ) {
         throw "Packaged desktop smoke result did not satisfy the acceptance contract"
     }

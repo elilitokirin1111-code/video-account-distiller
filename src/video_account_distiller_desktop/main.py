@@ -25,7 +25,25 @@ from video_account_distiller.collection.mediacrawler import (
     MEDIACRAWLER_REQUIRED_FILES,
     default_mediacrawler_home,
 )
+from video_account_distiller.config import MediaSection
+from video_account_distiller.media import FFmpegMediaBackend
 from video_account_distiller_desktop.window import DistillerMainWindow
+
+
+def _configure_windows_error_mode() -> None:
+    """Keep recoverable child-process loader failures inside the task UI."""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        current_mode = int(kernel32.GetErrorMode())
+        # Microsoft recommends SEM_FAILCRITICALERRORS for unattended GUI apps.
+        # Keep WER enabled so a native application crash still leaves diagnostics.
+        kernel32.SetErrorMode(current_mode | 0x0001)
+    except (AttributeError, OSError):
+        pass
 
 
 def _arguments(argv: list[str]) -> argparse.Namespace:
@@ -85,6 +103,7 @@ def _run_smoke_test(output_path: Path) -> None:
                 for relative in MEDIACRAWLER_REQUIRED_FILES
                 if not (mediacrawler_home / relative).is_file()
             ]
+            media_backend = FFmpegMediaBackend(MediaSection())
             payload = {
                 "ok": True,
                 "native_qt_window": True,
@@ -93,6 +112,9 @@ def _run_smoke_test(output_path: Path) -> None:
                 "animated_wait_feedback": animated_wait_feedback,
                 "mediacrawler_runtime_complete": not mediacrawler_missing,
                 "mediacrawler_runtime_missing": mediacrawler_missing,
+                "ffmpeg_available": media_backend.available,
+                "ffmpeg_external_process_ready": media_backend.version is not None,
+                "ffmpeg_version": media_backend.version,
                 "health": client.health(),
                 "project_initialized": initialized.get("ok") is True,
                 "project_valid": validation.get("ok") is True,
@@ -121,6 +143,7 @@ def _run_smoke_test(output_path: Path) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
+    _configure_windows_error_mode()
     arguments = _arguments(list(sys.argv[1:] if argv is None else argv))
     if arguments.smoke_test_output is not None:
         _run_smoke_test(arguments.smoke_test_output)
