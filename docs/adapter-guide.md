@@ -100,3 +100,38 @@ Identical completed pushes reuse a content-addressed Sync receipt to avoid dupli
 See `authorized-collaboration-adapters.md` for connector Schemas, commands, batch manifests,
 snapshot scheduling, team policy, and the complete compliance boundary. Authentication bypass,
 CAPTCHA handling, stealth automation, scraping, or platform-control evasion remains prohibited.
+
+## Phase 8 account collection adapters
+
+`AccountCollectionProvider` is the only live account-ingestion boundary. Every implementation must
+return the same strict account/video/metric/comment batch and raw-page companions; downstream
+services must never parse provider-specific payloads.
+
+`TikHubAccountProvider` is the default fixed-host paid API adapter. It keeps credentials in the
+environment, uses injectable HTTP, defaults to a bounded scope, and requires dry-run cost review
+plus explicit confirmation.
+
+`MediaCrawlerAccountProvider` is the optional personal non-commercial research adapter. It runs the
+pinned `third_party/MediaCrawler` source in its own locked `uv` environment and communicates through
+a JSON sidecar file. The controlled bridge uses a visible dedicated Chrome profile and manual
+authentication. Do not replace it with MediaCrawler's proxy, stealth, automatic-login,
+slider/CAPTCHA, or risk-control-evasion workflows.
+
+Both adapters preserve complete raw responses before calling the normal `ImportService`. Add or
+change source aliases only in the collection mapping layer, keep unknown public fields as `null`,
+and cover every new payload shape with offline contract Fixtures.
+
+## Retained account media adapter
+
+`AccountMediaEnrichmentService` is an opt-in bridge from a completed MediaCrawler batch into the
+existing Phase 3 and Phase 6 services. It is not a new crawler and accepts no arbitrary URL:
+candidate bytes must come from the retained `aweme/detail` page for a normalized video belonging
+to the selected account. `HttpMediaDownloader` validates HTTPS request and redirect hosts against
+the Douyin/CDN allowlist, enforces a byte limit, and returns only host/size/path metadata.
+
+`LocalTranscriber` and `MediaDownloader` are injectable protocols. Automated tests use fixture
+implementations and remain socket-disabled. The production `WhisperCliTranscriber` invokes a local
+executable without a shell and converts only its JSON segments. Alternative implementations must
+keep signed URLs out of artifacts/logs, preserve transcript/media hashes, keep cloud upload
+disabled by default, and retain stable `E_MEDIA_DOWNLOAD_FAILED`,
+`E_TRANSCRIPTION_UNAVAILABLE`, and `E_TRANSCRIPTION_FAILED` behavior.

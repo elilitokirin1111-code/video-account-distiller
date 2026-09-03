@@ -8,6 +8,7 @@ from typing import Any
 from video_account_distiller.models import (
     Account,
     AccountSnapshot,
+    AudienceProfileSegment,
     Comment,
     DataQualityIssue,
     MetricSnapshot,
@@ -26,6 +27,7 @@ MODEL_BY_ENTITY: dict[str, type[TraceFields]] = {
     "metrics": MetricSnapshot,
     "comments": Comment,
     "transcripts": TranscriptSegment,
+    "audience_profiles": AudienceProfileSegment,
 }
 OUTPUT_BY_ENTITY = {
     "accounts": "accounts.parquet",
@@ -33,6 +35,7 @@ OUTPUT_BY_ENTITY = {
     "metrics": "metric_snapshots.parquet",
     "comments": "comments.parquet",
     "transcripts": "transcripts.parquet",
+    "audience_profiles": "audience_profiles.parquet",
 }
 
 
@@ -109,7 +112,8 @@ class NormalizationService:
         for entity, model_type in MODEL_BY_ENTITY.items():
             loaded: list[TraceFields] = []
             for path in sorted((self.project.root / "staging" / entity).glob("*.jsonl")):
-                for line in path.read_text(encoding="utf-8").splitlines():
+                for line in path.read_text(encoding="utf-8").split("\n"):
+                    line = line.rstrip("\r")
                     if line.strip():
                         loaded.append(model_type.model_validate_json(line))
             deduplicated, conflicts = _deduplicate(loaded)

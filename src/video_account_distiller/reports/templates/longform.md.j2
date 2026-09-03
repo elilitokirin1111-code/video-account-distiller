@@ -1,0 +1,175 @@
+# 《账号深度学习长文：从数据到经营决策》
+
+> 账号 ID：`{{ account_id }}` ｜ 生成时间：{{ generated_at[:16].replace('T', ' ') }}
+>
+> 这不是指标清单，也不是“爆款元素大全”。报告只做四件事：确认事实、提出解释、主动寻找反证、把判断转成下一步决策。所有高低表现均为账号当前样本内的相对比较，不代表平台因果规律。
+
+## 一、先给结论：现在最应该做什么
+
+当前样本覆盖 **{{ rows | length }} 条视频**、**{{ comment_count }} 条评论**，其中 **{{ metric_coverage.get('performance_score', 0) }} 条**具备表现分。{% if stat_flat.get('follower_count_current') is not none %}账号快照记录粉丝 **{{ '{:,}'.format(stat_flat.get('follower_count_current') | int) }}**。{% endif %}这些数据足以判断账号内部“什么明显更强”，但还不足以回答“为什么平台给了更多流量”或“哪种内容真正带来转粉”。
+
+本轮最重要的经营结论不是继续增加题材，而是把已经出现的高表现拆成可验证的结构。{{ account_method }} 但其中只有明确语义和重复数据可以进入实验；未知标签、缺失字段和单条爆款一律不能升级成策略。
+
+{% if judgments %}
+接下来 30 天只抓三件事：第一，用配对实验判断高表现究竟来自开头、证据结构还是题材；第二，把评论中的未完成任务转成回应型内容；第三，补齐播放、留存和第二次快照，让“高互动”能够被进一步判断为“高效率”或“真实增长”。
+{% else %}
+当前证据还不足以形成可靠经营判断。此时最有价值的动作不是写更肯定的结论，而是补齐可比样本、播放与留存数据，并完成明确的内容语义分析。
+{% endif %}
+
+## 二、先判断哪些数据真的能支持决策
+
+深度分析的第一步不是解释数字，而是区分“能回答什么”和“不能回答什么”。
+
+| 信号 | 当前状态 | 可以怎样使用 |
+|---|---|---|
+{% for item in signal_quality %}| {{ item.signal }} | **{{ item.status }}** | {{ item.reason }} |
+{% endfor %}
+
+这张表决定了本报告的表达边界：点赞、评论与表现分可以用于账号内对照，却不能替代播放率、完播率和转粉率；内容标签可以提供实验方向，却不能证明某个题材天然有效；评论能显示主动表达者的任务，却不能代表全部观众。
+
+## 三、核心判断：事实 → 解释假设 → 反证 → 决策
+
+{% for item in judgments %}
+### 判断 {{ loop.index }}：{{ item.title }}
+
+**结论。** {{ item.verdict }}
+
+**事实。** {% for fact in item.facts %}{{ fact }}{% if not loop.last %} {% endif %}{% endfor %}
+
+**最可能的解释假设。** {{ item.mechanism }}
+
+**竞争解释。** {% for alternative in item.alternatives %}{{ loop.index }}）{{ alternative }}{% if not loop.last %} {% endif %}{% endfor %}
+
+**怎样反证。** {{ item.falsifier }}
+
+**因此做出的决策。** {{ item.decision }}
+
+**看什么指标。** {{ item.indicator }}
+
+**停止条件。** {{ item.stop_condition }}
+
+> 当前判断置信度：{{ item.confidence }}。置信度描述证据完整度，不描述建议的重要性。
+
+{% endfor %}
+{% if not judgments %}
+目前没有足够的 Top/Bottom、时长或评论数据来形成上述判断链。下一轮应先完成指标导入和视频分析，再生成本报告；系统不会用通用运营常识冒充账号结论。
+{% endif %}
+
+## 四、高低表现之间，真正需要拆的是什么
+
+Top 5 与 Bottom 5 的价值不在于给作品排队，而在于建立反事实问题：如果低表现作品保持题材不变，只替换高表现作品的某一个结构，它是否会变强？
+
+| 对照项 | Top 5 中位数 | Bottom 5 中位数 | 当前能说明什么 |
+|---|---:|---:|---|
+{% for row in median_table %}| {{ row[0] }} | {{ row[2] }} | {{ row[3] }} | 只能说明账号内差异，不能单独证明原因 |
+{% endfor %}
+| 时长 | {{ top_bottom_duration.top_duration | round(0) | int if top_bottom_duration.top_duration is not none else '暂缺' }} 秒 | {{ top_bottom_duration.bottom_duration | round(0) | int if top_bottom_duration.bottom_duration is not none else '暂缺' }} 秒 | 用于提出容量假设，必须结合留存验证 |
+
+{% if hook_analysis.top %}
+明确识别到的高表现开头包括 {% for item in hook_analysis.top %}“{{ item.name }}”（{{ item.count }} 条）{% if not loop.last %}、{% endif %}{% endfor %}。这只构成一个入口假设：该开头可能更快建立了“这件事与我有关”或“继续看会得到什么”。要判断它是否真正有效，必须在同主题中替换开头，而不是把不同主题的视频直接比较。
+{% else %}
+当前语义分析尚未识别出稳定的钩子差异，因此本报告不会把“未知”包装成开头策略。下一轮应人工记录每条视频前 3 秒的第一画面、第一句话、冲突出现时间和价值承诺。
+{% endif %}
+
+{% if pillar_analysis.top %}
+高表现组中明确出现的内容方向包括 {% for item in pillar_analysis.top %}“{{ item.name }}”（{{ item.count }} 条）{% if not loop.last %}、{% endif %}{% endfor %}。正确用法是从这些方向挑选相似用户问题，再测试不同证据和结构；错误用法是得出“只要做这个题材就会成功”。
+{% endif %}
+
+这里尤其要防止三个误判：把绝对互动高误判为互动效率高；把高表现视频更长或更短误判为秒数配方；把题材和开头同时变化的结果归因给其中一个变量。真正的深度来自排除竞争解释，而不是给每个数字配一段听起来合理的话。
+
+## 五、这个账号真正向用户交付什么
+
+{% if positioning.get('statement') %}
+蒸馏定位为：**{{ positioning.get('statement') }}**。这句话仍需被翻译成用户任务：用户点开之前处在什么困境，看完之后获得了什么新的判断、情绪或行动能力。只有能够稳定完成这个转变，定位才不是简介文案，而是内容生产的取舍标准。
+{% else %}
+当前数据还不能稳定回答账号向用户交付什么，因此不应仓促发明一句定位。先观察高表现作品共同解决的用户问题，以及评论者看完后继续追问什么。
+{% endif %}
+
+{% if positioning.get('persona_signals') %}
+现有人设信号是 **{{ positioning.get('persona_signals') | map('zh') | join('、') }}**。人设的经营作用不是“让博主更鲜明”，而是降低用户判断成本：用户知道这个账号会以怎样的视角筛选信息、提供何种证据、保持何种情绪温度。若一个选题无法通过这套判断方式被重新解释，它即使热门，也未必能积累账号资产。
+{% endif %}
+
+{% if positioning.get('visual_and_audio_identity') %}
+视听信号包括：{{ positioning.get('visual_and_audio_identity') | join('；') }}。应把它们分成固定资产和实验变量：人物、基础视觉与稳定语气用于识别；第一画面、证据顺序、叙事容量和结尾动作才进入实验。否则每条内容同时变化太多，发布后无法知道究竟什么起作用。
+{% endif %}
+
+{% if clusters %}
+当前识别到 {{ clusters | length }} 个内容方向。{% for cluster in clusters %}{% if cluster.name | lower != 'unknown' %}“{{ cluster.name | zh }}”包含 {{ cluster.video_count }} 条，表现分中位数 {{ cluster.median_performance_score | round(2) if cluster.median_performance_score is not none else '暂缺' }}，高表现率 {{ (cluster.high_performance_rate * 100) | round(0) | int if cluster.high_performance_rate is not none else '暂缺' }}%；{% endif %}{% endfor %}这些方向只有在同时拥有多个样本、反例和明确用户任务时，才应成为内容支柱。
+{% else %}
+现有产物尚未形成可用的内容聚类。这不代表账号没有结构，只说明当前语义证据不足。不要用人工想象填补缺口；下一轮先按“用户问题—证据形式—结果”给视频重新编码。
+{% endif %}
+
+## 六、评论区不是情绪报表，而是需求研究
+
+{% if comment_needs %}
+评论样本里，{% for need in comment_needs %}“{{ need.name | zh }}”出现 {{ need.frequency }} 次{% if not loop.last %}；{% endif %}{% endfor %}。这些频次本身不是结论，真正重要的是它们对应的未完成任务：用户是在求答案、求证据、比较选择、分享经历，还是只在表达情绪。
+
+{% for need in comment_needs %}
+- **{{ need.name | zh }}（{{ need.frequency }} 次）**：{{ need.opportunity_preview }}。内容转化时先回答“用户看完要更会判断什么”，再决定做教程、案例、证据补充或观点回应。
+{% endfor %}
+
+评论需求只有通过新内容验证后才有经营价值。如果回应内容带来更具体的追问、收藏、主页访问或关注，它可能是稳定需求；如果只带来更多相同玩梗，它更可能只是互动素材。可见评论还受排序、置顶和删除影响，所以不能把高频评论直接等同于全部受众画像。
+{% else %}
+当前没有形成可用的评论需求聚类。下一轮采集应保留评论所属视频、正文、时间与脱敏关系，并避免只采集置顶或高赞评论。
+{% endif %}
+
+## 七、从案例上升为方法论：建立内容操作系统
+
+真正可复制的不是作品外壳，而是五个决策接口：
+
+1. **用户问题**：这条内容解决谁在什么场景下的哪一个具体问题？
+2. **进入理由**：前三秒让用户识别了风险、收益、冲突还是信息缺口？
+3. **信任机制**：中段靠过程、案例、数字、对照还是个人经历兑现承诺？
+4. **完成标准**：结尾让用户获得答案、判断框架、情绪释放还是下一步行动？
+5. **实验变量**：这一条相较基线只改变了什么，发布后用什么证据决定保留或停止？
+
+{% if trusted_patterns %}
+系统当前有 {{ trusted_patterns | length }} 条达到参考门槛的规律，但它们仍只是待复现的账号内关联：
+
+{% for pattern in trusted_patterns %}
+- **{{ pattern.name | pattern_name }}**：{{ pattern | pattern_effect }}；支持样本 {{ pattern.support_count }} 条，置信度 {{ (pattern.confidence * 100) | round(0) | int }}%，成熟度 {{ pattern.maturity_level }}。{% if pattern.counterexample_count %}已有 {{ pattern.counterexample_count }} 条反例，发布前必须写明为何新内容不重复这些反例。{% endif %}{{ '\n' }}
+{% endfor %}
+{% else %}
+当前没有规律同时达到样本量和置信度门槛。正确做法不是补一句“可能有效”，而是增加可比样本，并让每一轮只改变少量变量。
+{% endif %}
+
+生产时可以使用一张假设卡：目标用户；待解决问题；前三秒承诺；核心证据；唯一实验变量；主指标；停止条件。发布后再填实际结果和竞争解释。连续三次复现且最差一次仍高于基线的结构，才进入团队模板；只由一条爆款支撑的观察留在案例库。
+
+## 八、未来 30 天的行动与复盘路径
+
+{% for experiment in experiment_cards %}
+### {{ experiment.name }}
+
+- **假设**：{{ experiment.hypothesis }}
+- **对照控制**：{{ experiment.control }}
+- **主指标**：{{ experiment.metric }}
+- **成功条件**：{{ experiment.success }}
+- **停止条件**：{{ experiment.stop }}
+
+{% endfor %}
+
+第 1 周不急着发布更多内容，而是完成 Top 5 与 Bottom 5 的配对：选择用户问题接近的作品，标记开头、证据、中段推进、时长和结尾动作。第 2 周执行第一组单变量实验，并在发布前写下成功与停止条件。第 3 周用评论需求制作回应内容，区分“热闹评论”和“深度行为”。第 4 周只做复盘与第二次验证：保留重复出现的信号，删除只靠一条个案成立的判断。
+
+每周会议不再逐条汇报数据，只回答六个问题：本周哪个判断被支持；哪个判断被反证；是否存在曝光或题材等竞争解释；哪一条规则能继续测试；哪一条应停止；为了做出下一项重要决策还缺什么数据。
+
+## 九、逐条视频学习笔记（证据索引）
+
+本节只保留可核对事实，不再为 20 条作品重复生成相同的“值得学习”段落。视频标识用于回到原始样本；真正的解释集中在前文的判断链。
+
+| # | 视频与标识 | 分层/表现分 | 点赞 | 评论 | 时长 | 明确语义 |
+|---:|---|---:|---:|---:|---:|---|
+{% for row in longform_rows %}| {{ loop.index }} | 《{{ row.title | replace('|', '｜') }}》；视频标识为 `{{ row.short_id }}` | {{ row.band or '—' }} / {{ row.score | round(2) if row.score is not none else '暂缺' }} | {{ '{:,}'.format(row.likes) if row.likes is not none else '暂缺' }} | {{ '{:,}'.format(row.comments) if row.comments is not none else '暂缺' }} | {{ row.duration_seconds | round(0) | int if row.duration_seconds is not none else '暂缺' }} 秒 | {% if row.pillar and row.pillar | lower != 'unknown' %}{{ row.pillar | zh }}{% else %}未形成可靠标签{% endif %} |
+{% endfor %}
+
+{% if not longform_rows %}当前账号尚无可用视频样本，完成采集、指标导入与单视频分析后再生成证据索引。{% endif %}
+
+## 十、数据边界：哪些结论现在不能说
+
+{{ data_health_summary }}{% if warnings %} 另需注意：{{ warnings | map('zh') | join('；') }}。{% endif %}
+
+当前不能说“某类视频一定有流量”，因为关联不等于因果；不能说“互动高所以转粉高”，因为缺少第二次快照和单条转粉；不能说“评论代表全部受众”，因为主动评论者是选择性样本；不能说“长视频或短视频一定更好”，因为缺少留存；也不能把降级分析、未知语义或缺失字段解释成内容特色。
+
+下一轮补数应按决策价值排序：先补播放、平均观看时长与完播，再做第二次账号快照；随后验证投放、发布时间和内容来源；最后再扩展粉丝画像。补数据不是为了让报表更满，而是为了区分曝光问题、内容留存问题、互动问题和转粉问题，从而停止在错误环节上优化。
+
+---
+*本报告由 video-account-distiller 基于当前已存储数据自动生成。它是一份可审计的决策底稿，不构成流量或商业结果保证。*

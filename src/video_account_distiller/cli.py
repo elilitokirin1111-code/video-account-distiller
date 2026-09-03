@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-import json
-import sys
-from collections.abc import Callable
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, Literal, cast
 
 import typer
 
 from video_account_distiller.adapters import build_collaboration_adapter
+from video_account_distiller.benchmarking import AccountBenchmarkProfileService
+from video_account_distiller.cli_backup import backup_app
+from video_account_distiller.cli_gpt_evaluation import gpt_evaluation_app
+from video_account_distiller.cli_release import release_app
+from video_account_distiller.cli_runtime import emit as _emit
+from video_account_distiller.cli_runtime import execute as _execute
 from video_account_distiller.closed_loop import (
     PredictionService,
     PublicationService,
@@ -26,23 +29,37 @@ from video_account_distiller.collaboration import (
 )
 from video_account_distiller.collection import (
     AccountCollectionService,
+    CollectionProfile,
     build_account_provider,
     build_collection_request,
+    resolve_profile_options,
 )
 from video_account_distiller.comments import CommentAnalysisService
 from video_account_distiller.distillation import (
     AccountDistillationService,
     BenchmarkComparisonService,
 )
+from video_account_distiller.distillation.account_knowledge import AccountVideoKnowledgeService
+from video_account_distiller.distillation.knowledge import SingleVideoKnowledgeService
+from video_account_distiller.distillation.video import SingleVideoDistillationService
 from video_account_distiller.doctor import doctor_report
 from video_account_distiller.errors import EXIT_CODES, DistillerError, ErrorCode
 from video_account_distiller.features import VideoAnalysisService
+from video_account_distiller.growth import AccountGrowthService
 from video_account_distiller.ingestion import ImportService
-from video_account_distiller.media import LocalMediaAnalysisService
+from video_account_distiller.insights import AnalysisContextService
+from video_account_distiller.knowledge import KnowledgeExportService, WeKnoraSyncService
+from video_account_distiller.media import (
+    AccountMediaEnrichmentService,
+    LocalMediaAnalysisService,
+    OllamaVisionProvider,
+    VisionModelProvider,
+    WhisperCliTranscriber,
+)
 from video_account_distiller.metrics import MetricsService
 from video_account_distiller.models import CollectionProviderKind, CollectionSort, Platform
 from video_account_distiller.normalization import NormalizationService
-from video_account_distiller.reports import ReportService
+from video_account_distiller.reports import NarrativeReportService, ReportService
 from video_account_distiller.sampling import SamplingService
 from video_account_distiller.status import project_status
 from video_account_distiller.storage.project import ProjectLayout
@@ -73,6 +90,22 @@ team_app = typer.Typer(
 account_app = typer.Typer(
     help="Collect and distill an authorized public account homepage.", no_args_is_help=True
 )
+knowledge_app = typer.Typer(
+    help="Export curated evidence-backed knowledge for local tools.",
+    no_args_is_help=True,
+)
+package_app = typer.Typer(
+    help="Build local, privacy-aware knowledge packages.",
+    no_args_is_help=True,
+)
+weknora_app = typer.Typer(
+    help="Sync curated reports into a WeKnora knowledge base.",
+    no_args_is_help=True,
+)
+video_app = typer.Typer(
+    help="Collect and deeply distill a single public video by URL.",
+    no_args_is_help=True,
+)
 app.add_typer(import_app, name="import")
 app.add_typer(analyze_app, name="analyze")
 app.add_typer(sync_app, name="sync")
@@ -80,8 +113,36 @@ app.add_typer(batch_app, name="batch")
 app.add_typer(snapshot_app, name="snapshot")
 app.add_typer(team_app, name="team")
 app.add_typer(account_app, name="account")
+app.add_typer(knowledge_app, name="knowledge")
+app.add_typer(backup_app, name="backup")
+app.add_typer(release_app, name="release")
+app.add_typer(gpt_evaluation_app, name="gpt-eval")
+knowledge_app.add_typer(package_app, name="package")
+knowledge_app.add_typer(weknora_app, name="weknora")
+app.add_typer(video_app, name="video")
 
-T = TypeVar("T")
+
+def _vision_provider(
+    *,
+    provider: str | None,
+    model: str,
+    base_url: str,
+    batch_size: int,
+    timeout_seconds: int,
+) -> VisionModelProvider | None:
+    if provider is None or provider.strip().lower() in {"", "none"}:
+        return None
+    if provider.strip().lower() != "ollama":
+        raise DistillerError(
+            ErrorCode.SCHEMA_INVALID,
+            "Only the local ollama vision provider is currently supported",
+        )
+    return OllamaVisionProvider(
+        model=model,
+        base_url=base_url,
+        batch_size=batch_size,
+        timeout_seconds=timeout_seconds,
+    )
 
 
 def _version_callback(value: bool) -> None:
@@ -101,35 +162,6 @@ def root_callback(
     ),
 ) -> None:
     """Run the distiller command-line toolkit."""
-
-
-def _emit(payload: Any, *, json_output: bool, human: str | None = None) -> None:
-    if json_output:
-        typer.echo(json.dumps(payload, ensure_ascii=True, default=str))
-    else:
-        typer.echo(human or json.dumps(payload, ensure_ascii=False, indent=2, default=str))
-
-
-def _execute(operation: Callable[[], T], *, json_output: bool) -> T:
-    try:
-        return operation()
-    except DistillerError as exc:
-        if json_output:
-            typer.echo(json.dumps(exc.as_dict(), ensure_ascii=True), file=sys.stdout)
-        else:
-            typer.echo(f"{exc.code.value}: {exc.message}", err=True)
-        raise typer.Exit(exc.exit_code) from exc
-    except Exception as exc:
-        wrapped = DistillerError(
-            ErrorCode.INTERNAL,
-            "Unexpected internal error",
-            details={"type": type(exc).__name__, "reason": str(exc)},
-        )
-        if json_output:
-            typer.echo(json.dumps(wrapped.as_dict(), ensure_ascii=True), file=sys.stdout)
-        else:
-            typer.echo(f"{wrapped.code.value}: {wrapped.message}: {exc}", err=True)
-        raise typer.Exit(wrapped.exit_code) from exc
 
 
 @app.command("init")
@@ -192,60 +224,200 @@ def doctor_command(
 def account_analyze_command(
     project: Path = typer.Option(..., "--project", help="Initialized analysis project."),
     url: str = typer.Option(..., "--url", help="Public Douyin account homepage URL."),
-    count: int = typer.Option(10, "--count", min=1, max=100),
+    collection_profile: CollectionProfile = typer.Option(
+        CollectionProfile.STANDARD,
+        "--profile",
+        help=(
+            "standard=20 videos; comprehensive=all available plus bounded comments; "
+            "owned=public plus authorized private-data imports."
+        ),
+    ),
+    count: int | None = typer.Option(
+        None,
+        "--count",
+        min=1,
+        max=20_000,
+        help="Maximum videos to collect; profile default applies when omitted.",
+    ),
+    all_videos: bool = typer.Option(
+        False,
+        "--all",
+        help="Collect every homepage video up to safety limits; overrides --count.",
+    ),
     sort: CollectionSort = typer.Option(CollectionSort.LATEST, "--sort"),
-    comments_per_video: int = typer.Option(
-        0,
+    comments_per_video: int | None = typer.Option(
+        None,
         "--comments-per-video",
         min=0,
-        max=20,
-        help="Collect up to this many public comments from each sampled video; 0 disables.",
+        max=100,
+        help="Public top-level comment sample; profile default applies when omitted.",
     ),
     comment_video_limit: int = typer.Option(
         3,
         "--comment-video-limit",
         min=1,
-        max=10,
+        max=20_000,
         help="Maximum high-comment videos sampled when comment collection is enabled.",
     ),
     provider: CollectionProviderKind = typer.Option(
         CollectionProviderKind.TIKHUB,
         "--provider",
+        help="Collection engine. TikHub is the documented API default; MediaCrawler is optional.",
     ),
     confirm_provider_cost: bool = typer.Option(
         False,
         "--confirm-provider-cost",
-        help="Confirm that the authorized provider may charge for API calls.",
+        help="Required only for providers that may charge for API calls, such as TikHub.",
+    ),
+    max_provider_calls: int | None = typer.Option(
+        None,
+        "--max-provider-calls",
+        min=1,
+        max=50_000,
+        help="Hard provider-call ceiling enforced before a non-dry-run collection.",
+    ),
+    media_limit: int = typer.Option(
+        0,
+        "--media-limit",
+        min=0,
+        max=20_000,
+        help=(
+            "Also download, transcribe, and analyze this many retained public videos. "
+            "0 keeps collection metadata-only."
+        ),
+    ),
+    whisper_model: str = typer.Option(
+        "base",
+        "--whisper-model",
+        help="Local OpenAI Whisper model used only when --media-limit is greater than 0.",
+    ),
+    whisper_command: Path | None = typer.Option(
+        None,
+        "--whisper-command",
+        help="Optional path to a local Whisper executable.",
+    ),
+    vision_provider: str | None = typer.Option(
+        None,
+        "--vision-provider",
+        help="Optional local visual provider; currently supports ollama.",
+    ),
+    vision_model: str = typer.Option("qwen3-vl:8b", "--vision-model"),
+    ollama_base_url: str = typer.Option(
+        "http://127.0.0.1:11434",
+        "--ollama-base-url",
+        help="Loopback Ollama endpoint.",
+    ),
+    vision_batch_size: int = typer.Option(4, "--vision-batch-size", min=1, max=8),
+    vision_timeout_seconds: int = typer.Option(
+        180,
+        "--vision-timeout-seconds",
+        min=1,
+        max=1800,
+    ),
+    strict_vision: bool = typer.Option(
+        False,
+        "--strict-vision",
+        help="Stop when local visual output remains invalid.",
+    ),
+    strict_media_enrichment: bool = typer.Option(
+        False,
+        "--strict-media-enrichment",
+        help="Stop the account workflow if a selected media download or transcription fails.",
     ),
     json_output: bool = typer.Option(False, "--json"),
     dry_run: bool = typer.Option(
         False,
         "--dry-run",
-        help="Validate and show maximum API calls without credentials or writes.",
+        help="Validate and show planned collection work without opening a browser or writing.",
     ),
 ) -> None:
     """Turn one Douyin homepage URL into normalized metrics and account distillation."""
 
     def operation() -> dict[str, Any]:
+        resolved_count, resolved_comments = resolve_profile_options(
+            profile=collection_profile,
+            count=count,
+            all_videos=all_videos,
+            comments_per_video=comments_per_video,
+        )
         request = build_collection_request(
             profile_url=url,
-            count=count,
+            count=resolved_count,
             sort=sort,
             provider=provider,
-            comments_per_video=comments_per_video,
+            comments_per_video=resolved_comments,
             comment_video_limit=comment_video_limit,
         )
         layout = ProjectLayout.open(project)
         collection_provider = build_account_provider(provider)
-        return AccountCollectionService(layout, collection_provider).analyze_url(
+        result = AccountCollectionService(layout, collection_provider).analyze_url(
             request=request,
             confirm_provider_cost=confirm_provider_cost,
             dry_run=dry_run,
+            collection_profile=collection_profile,
+            max_provider_calls=max_provider_calls,
         )
+        if dry_run:
+            if media_limit <= 0:
+                return result
+            if provider != CollectionProviderKind.MEDIACRAWLER:
+                raise DistillerError(
+                    ErrorCode.SCHEMA_INVALID,
+                    "--media-limit currently requires --provider mediacrawler",
+                )
+            result["media_enrichment_plan"] = {
+                "enabled": True,
+                "max_public_media_downloads": media_limit,
+                "max_local_transcriptions": media_limit,
+                "whisper_model": whisper_model,
+                "vision_provider": vision_provider or "none",
+                "vision_model": vision_model if vision_provider else None,
+                "network_vision_uploads": 0,
+                "source": "retained MediaCrawler detail evidence",
+            }
+            return result
+        account_id = str(result["account"]["account_id"])
+        if media_limit > 0:
+            if provider != CollectionProviderKind.MEDIACRAWLER:
+                raise DistillerError(
+                    ErrorCode.SCHEMA_INVALID,
+                    "--media-limit currently requires --provider mediacrawler",
+                )
+            result["media_enrichment"] = AccountMediaEnrichmentService(
+                layout,
+                transcriber=WhisperCliTranscriber(
+                    command=whisper_command,
+                    model=whisper_model,
+                ),
+                vision_provider=_vision_provider(
+                    provider=vision_provider,
+                    model=vision_model,
+                    base_url=ollama_base_url,
+                    batch_size=vision_batch_size,
+                    timeout_seconds=vision_timeout_seconds,
+                ),
+            ).enrich(
+                account_id=account_id,
+                limit=media_limit,
+                strict=strict_media_enrichment,
+                strict_vision=strict_vision,
+            )
+        result["benchmark_profile"] = AccountBenchmarkProfileService(layout).build(
+            account_id=account_id
+        )
+        return result
 
     result = _execute(operation, json_output=json_output)
     if dry_run:
-        human = f"Validated {url}; at most {result['provider_calls']['total_max']} provider calls."
+        if result["request"]["count"] is None:
+            human = (
+                f"Validated {url}; collection will continue until the homepage is exhausted "
+                "or the safety guard is reached."
+            )
+        else:
+            human = (
+                f"Validated {url}; at most {result['provider_calls']['total_max']} provider calls."
+            )
     else:
         account = result["account"]
         collection = result["collection"]
@@ -255,6 +427,593 @@ def account_analyze_command(
             f"{result['distillation']['outputs'][0]}"
         )
     _emit(result, json_output=json_output, human=human)
+
+
+@account_app.command("enrich-media")
+def account_enrich_media_command(
+    project: Path = typer.Option(..., "--project", help="Initialized analysis project."),
+    account: str = typer.Option(..., "--account", help="Internal account ID."),
+    limit: int = typer.Option(
+        3,
+        "--limit",
+        min=1,
+        max=20,
+        help="Maximum retained public videos to enrich in this run.",
+    ),
+    whisper_model: str = typer.Option("base", "--whisper-model"),
+    whisper_command: Path | None = typer.Option(
+        None,
+        "--whisper-command",
+        help="Optional path to a local OpenAI Whisper executable.",
+    ),
+    vision_provider: str | None = typer.Option(
+        None,
+        "--vision-provider",
+        help="Optional local visual provider; currently supports ollama.",
+    ),
+    vision_model: str = typer.Option("qwen3-vl:8b", "--vision-model"),
+    ollama_base_url: str = typer.Option(
+        "http://127.0.0.1:11434",
+        "--ollama-base-url",
+    ),
+    vision_batch_size: int = typer.Option(4, "--vision-batch-size", min=1, max=8),
+    vision_timeout_seconds: int = typer.Option(
+        180,
+        "--vision-timeout-seconds",
+        min=1,
+        max=1800,
+    ),
+    scene_threshold: float | None = typer.Option(
+        None,
+        "--scene-threshold",
+        min=0.001,
+        max=0.999,
+    ),
+    max_keyframes: int | None = typer.Option(
+        None,
+        "--max-keyframes",
+        min=1,
+        max=100,
+    ),
+    strict: bool = typer.Option(
+        False,
+        "--strict",
+        help="Stop on the first media, transcription, or text-analysis failure.",
+    ),
+    strict_vision: bool = typer.Option(
+        False,
+        "--strict-vision",
+        help="Stop when local visual output remains invalid.",
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Resolve retained evidence and local readiness without network or writes.",
+    ),
+) -> None:
+    """Enrich retained account videos with local frames, audio, transcript, and semantics."""
+
+    def operation() -> dict[str, Any]:
+        layout = ProjectLayout.open(project)
+        result = AccountMediaEnrichmentService(
+            layout,
+            transcriber=WhisperCliTranscriber(
+                command=whisper_command,
+                model=whisper_model,
+            ),
+            vision_provider=_vision_provider(
+                provider=vision_provider,
+                model=vision_model,
+                base_url=ollama_base_url,
+                batch_size=vision_batch_size,
+                timeout_seconds=vision_timeout_seconds,
+            ),
+        ).enrich(
+            account_id=account,
+            limit=limit,
+            strict=strict,
+            strict_vision=strict_vision,
+            scene_threshold=scene_threshold,
+            max_keyframes=max_keyframes,
+            dry_run=dry_run,
+        )
+        if not dry_run:
+            result["benchmark_profile"] = AccountBenchmarkProfileService(layout).build(
+                account_id=account
+            )
+        return result
+
+    result = _execute(
+        operation,
+        json_output=json_output,
+    )
+    if dry_run:
+        human = (
+            f"Resolved {len(result['selected'])} retained public videos for {account}; "
+            f"transcriber available={result['transcriber']['available']}"
+        )
+    else:
+        enrichment = result["enrichment"]
+        human = (
+            f"Enriched {enrichment['selected_count']} videos for {account}: "
+            f"{enrichment['completed_count']} complete, "
+            f"{enrichment['degraded_count']} degraded, "
+            f"{enrichment['failed_count']} failed; {result['outputs'][0]}"
+        )
+    _emit(result, json_output=json_output, human=human)
+
+
+@account_app.command("benchmark-profile")
+def account_benchmark_profile_command(
+    project: Path = typer.Option(..., "--project"),
+    account: str = typer.Option(..., "--account"),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Persist reusable interaction, comment, content, and visual account features."""
+
+    result = _execute(
+        lambda: AccountBenchmarkProfileService(ProjectLayout.open(project)).build(
+            account_id=account,
+            dry_run=dry_run,
+        ),
+        json_output=json_output,
+    )
+    profile = result["profile"]
+    _emit(
+        result,
+        json_output=json_output,
+        human=(
+            f"Built benchmark profile for {account}: "
+            f"{profile['sampled_video_count']} videos, "
+            f"{profile['comment_content']['comment_count']} comments; "
+            f"{result['outputs'][0]}"
+        ),
+    )
+
+
+@account_app.command("growth")
+def account_growth_command(
+    project: Path = typer.Option(..., "--project"),
+    account: str = typer.Option(..., "--account"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Summarize observed follower and account-stat changes across snapshots."""
+    result = _execute(
+        lambda: AccountGrowthService(ProjectLayout.open(project)).summarize(account_id=account),
+        json_output=json_output,
+    )
+    changes = result.get("changes")
+    follower_delta = None if changes is None else changes["followers"]["delta"]
+    _emit(
+        result,
+        json_output=json_output,
+        human=(
+            f"Growth history for {account}: {result['snapshot_count']} snapshots; "
+            f"follower delta={follower_delta}"
+        ),
+    )
+
+
+@account_app.command("context")
+def account_context_command(
+    project: Path = typer.Option(..., "--project"),
+    account: str = typer.Option(..., "--account"),
+    max_video_analyses: int = typer.Option(
+        10,
+        "--max-video-analyses",
+        min=1,
+        max=1_000,
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Build a bounded evidence payload for GPT-compatible analysis."""
+    result = _execute(
+        lambda: AnalysisContextService(ProjectLayout.open(project)).build(
+            account_id=account,
+            max_video_analyses=max_video_analyses,
+        ),
+        json_output=json_output,
+    )
+    _emit(
+        result,
+        json_output=json_output,
+        human=(
+            f"Built analysis context for {account}: "
+            f"{result['data_availability']['account_videos']} videos, "
+            f"{len(result['source_paths'])} evidence artifacts"
+        ),
+    )
+
+
+@package_app.command("export")
+def knowledge_package_export_command(
+    project: Path = typer.Option(..., "--project"),
+    account: str = typer.Option(..., "--account"),
+    max_video_analyses: int = typer.Option(100, "--max-video-analyses", min=1, max=1_000),
+    max_export_bytes: int = typer.Option(
+        1_000_000,
+        "--max-export-bytes",
+        min=10_000,
+        max=5_000_000,
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Build a deterministic, privacy-aware account knowledge document."""
+    result = _execute(
+        lambda: KnowledgeExportService(ProjectLayout.open(project)).export_account(
+            account_id=account,
+            max_video_analyses=max_video_analyses,
+            max_export_bytes=max_export_bytes,
+            dry_run=dry_run,
+        ),
+        json_output=json_output,
+    )
+    _emit(
+        result,
+        json_output=json_output,
+        human=(
+            f"{'Would export' if dry_run else 'Exported'} curated knowledge for "
+            f"{account}: {result['document_path']}"
+        ),
+    )
+
+
+@weknora_app.command("sync-video")
+def weknora_sync_video_command(
+    project: Path = typer.Option(..., "--project"),
+    video: str = typer.Option(..., "--video"),
+    kb_id: str = typer.Option(..., "--kb-id"),
+    base_url: str = typer.Option("http://127.0.0.1:8080", "--base-url"),
+    api_key: str = typer.Option(..., "--api-key", envvar="WEKNORA_API_KEY"),
+    distillation_mode: Literal["creative_learning", "knowledge"] = typer.Option(
+        "creative_learning",
+        "--distillation-mode",
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Upload one video's deep distillation card into a WeKnora knowledge base."""
+
+    service = WeKnoraSyncService(ProjectLayout.open(project))
+    sync_method = (
+        service.sync_video_knowledge
+        if distillation_mode == "knowledge"
+        else service.sync_video_distillation
+    )
+    result = _execute(
+        lambda: sync_method(
+            video_id=video,
+            base_url=base_url,
+            api_key=api_key,
+            kb_id=kb_id,
+        ),
+        json_output=json_output,
+    )
+    _emit(
+        result,
+        json_output=json_output,
+        human=(
+            f"Synced single-video distillation {video} -> {result['kb_name']}: "
+            f"{len(result['uploaded'])} uploaded, {len(result['replaced'])} replaced"
+        ),
+    )
+
+
+@knowledge_app.command("distill-account-videos")
+def knowledge_distill_account_videos_command(
+    project: Path = typer.Option(..., "--project"),
+    account: str = typer.Option(..., "--account"),
+    limit: int | None = typer.Option(None, "--limit", min=1, max=20_000),
+    provider: Literal["ollama", "llamacpp", "cloud", "none"] | None = typer.Option(
+        None,
+        "--provider",
+    ),
+    model: str | None = typer.Option(None, "--model"),
+    base_url: str | None = typer.Option(None, "--base-url"),
+    api_key: str | None = typer.Option(None, "--api-key"),
+    max_attempts: int | None = typer.Option(None, "--max-attempts", min=1, max=5),
+    strict_model: bool = typer.Option(False, "--strict-model"),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Distill an account into one import-ready knowledge document per video."""
+
+    result = _execute(
+        lambda: AccountVideoKnowledgeService(ProjectLayout.open(project)).distill(
+            account_id=account,
+            limit=limit,
+            provider=provider,
+            model=model,
+            base_url=base_url,
+            api_key=api_key,
+            max_attempts=max_attempts,
+            strict_model=strict_model,
+            dry_run=dry_run,
+        ),
+        json_output=json_output,
+    )
+    manifest = result.get("manifest") or {}
+    _emit(
+        result,
+        json_output=json_output,
+        human=(
+            f"{'Would distill' if dry_run else 'Distilled'} account {account}: "
+            f"{manifest.get('completed_count', result.get('eligible_count', 0))} documents, "
+            f"{manifest.get('skipped_count', len(result.get('skipped', [])))} skipped"
+        ),
+    )
+
+
+@weknora_app.command("sync-account")
+def weknora_sync_account_command(
+    project: Path = typer.Option(..., "--project"),
+    account: str = typer.Option(..., "--account"),
+    kb_id: str = typer.Option(..., "--kb-id"),
+    base_url: str = typer.Option("http://127.0.0.1:8080", "--base-url"),
+    api_key: str = typer.Option(..., "--api-key", envvar="WEKNORA_API_KEY"),
+    max_video_analyses: int = typer.Option(10, "--max-video-analyses", min=1, max=1_000),
+    distillation_mode: Literal["creative_learning", "knowledge"] = typer.Option(
+        "creative_learning",
+        "--distillation-mode",
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Upload account reports or one knowledge document per video into WeKnora."""
+
+    service = WeKnoraSyncService(ProjectLayout.open(project))
+
+    def _sync_account() -> dict[str, Any]:
+        if distillation_mode == "knowledge":
+            return service.sync_account_video_knowledge(
+                account_id=account,
+                base_url=base_url,
+                api_key=api_key,
+                kb_id=kb_id,
+            )
+        return service.sync_account(
+            account_id=account,
+            base_url=base_url,
+            api_key=api_key,
+            kb_id=kb_id,
+            max_video_analyses=max_video_analyses,
+        )
+
+    result = _execute(
+        _sync_account,
+        json_output=json_output,
+    )
+    _emit(
+        result,
+        json_output=json_output,
+        human=(
+            f"Synced account {account} -> {result['kb_name']}: "
+            f"{len(result['uploaded'])} uploaded, {len(result['replaced'])} replaced"
+        ),
+    )
+
+
+@video_app.command("collect")
+def video_collect_command(
+    project: Path = typer.Option(..., "--project"),
+    url: str = typer.Option(..., "--url", help="Douyin single-video URL."),
+    provider: CollectionProviderKind = typer.Option(
+        CollectionProviderKind.TIKHUB,
+        "--provider",
+        help="Collection provider: tikhub (paid API) or mediacrawler (local browser).",
+    ),
+    comments_per_video: int = typer.Option(0, "--comments-per-video", min=0, max=200),
+    confirm_provider_cost: bool = typer.Option(
+        False,
+        "--confirm-provider-cost",
+        help="Acknowledge the paid TikHub call after reviewing --dry-run.",
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Collect one public video and import it into the offline kernel."""
+
+    result = _execute(
+        lambda: AccountCollectionService(
+            ProjectLayout.open(project),
+            build_account_provider(provider),
+        ).analyze_video_url(
+            url=url,
+            provider=provider,
+            confirm_provider_cost=confirm_provider_cost,
+            comments_per_video=comments_per_video,
+            dry_run=dry_run,
+        ),
+        json_output=json_output,
+    )
+    human = "Would collect" if dry_run else "Collected"
+    _emit(
+        result,
+        json_output=json_output,
+        human=(
+            f"{human} {url} via {provider.value}: "
+            f"video_id={result.get('video_id', 'n/a')} "
+            f"account_id={result.get('account_id', 'n/a')}"
+        ),
+    )
+
+
+@video_app.command("analyze")
+def video_analyze_command(
+    project: Path = typer.Option(..., "--project"),
+    url: str = typer.Option(..., "--url", help="Douyin single-video URL."),
+    provider: CollectionProviderKind = typer.Option(
+        CollectionProviderKind.TIKHUB,
+        "--provider",
+        help="Collection provider: tikhub (paid API) or mediacrawler (local browser).",
+    ),
+    comments_per_video: int = typer.Option(0, "--comments-per-video", min=0, max=200),
+    whisper_model: str = typer.Option("base", "--whisper-model"),
+    whisper_command: Path | None = typer.Option(
+        None,
+        "--whisper-command",
+        help="Optional path to a local OpenAI Whisper executable.",
+    ),
+    vision_provider: str | None = typer.Option(
+        None,
+        "--vision-provider",
+        help="Optional local visual provider; currently supports ollama.",
+    ),
+    vision_model: str = typer.Option("qwen3-vl:8b", "--vision-model"),
+    ollama_base_url: str = typer.Option(
+        "http://127.0.0.1:11434",
+        "--ollama-base-url",
+    ),
+    vision_batch_size: int = typer.Option(4, "--vision-batch-size", min=1, max=8),
+    vision_timeout_seconds: int = typer.Option(
+        180,
+        "--vision-timeout-seconds",
+        min=1,
+        max=1800,
+    ),
+    deep: bool = typer.Option(
+        False,
+        "--deep",
+        help="Also run single-video deep distillation (选材/表现/拍摄/可复制清单).",
+    ),
+    distillation_mode: Literal["creative_learning", "knowledge"] = typer.Option(
+        "creative_learning",
+        "--distillation-mode",
+        help="Single-video goal: creative_learning or knowledge.",
+    ),
+    deep_provider: str | None = typer.Option(
+        None,
+        "--deep-provider",
+        help="Deep-distillation model provider: ollama, llamacpp, or cloud.",
+    ),
+    deep_model: str | None = typer.Option(None, "--deep-model"),
+    deep_base_url: str | None = typer.Option(None, "--deep-base-url"),
+    deep_api_key: str | None = typer.Option(None, "--deep-api-key"),
+    strict_deep: bool = typer.Option(
+        False,
+        "--strict-deep",
+        help="Fail instead of using deterministic deep-distillation fallback.",
+    ),
+    weknora_kb_id: str | None = typer.Option(
+        None,
+        "--weknora-kb-id",
+        help="When set, push the deep distillation card into this WeKnora knowledge base.",
+    ),
+    weknora_base_url: str = typer.Option("http://127.0.0.1:8080", "--weknora-base-url"),
+    weknora_api_key: str | None = typer.Option(
+        None,
+        "--weknora-api-key",
+        envvar="WEKNORA_API_KEY",
+        help="WeKnora API key (or WEKNORA_API_KEY env var).",
+    ),
+    confirm_provider_cost: bool = typer.Option(
+        False,
+        "--confirm-provider-cost",
+        help="Acknowledge the paid TikHub call after reviewing --dry-run.",
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Collect a video URL, transcribe locally, deep-distill, optionally push to WeKnora."""
+
+    layout = ProjectLayout.open(project)
+
+    def operation() -> dict[str, Any]:
+        collected = AccountCollectionService(
+            layout,
+            build_account_provider(provider),
+        ).analyze_video_url(
+            url=url,
+            provider=provider,
+            confirm_provider_cost=confirm_provider_cost,
+            comments_per_video=comments_per_video,
+            dry_run=dry_run,
+        )
+        if dry_run:
+            return {"ok": True, "dry_run": True, "collection": collected}
+        account_id = collected["account_id"]
+        video_id = collected["video_id"]
+        result: dict[str, Any] = {"collection": collected}
+        enrichment = AccountMediaEnrichmentService(
+            layout,
+            transcriber=WhisperCliTranscriber(
+                command=whisper_command,
+                model=whisper_model,
+            ),
+            vision_provider=_vision_provider(
+                provider=vision_provider,
+                model=vision_model,
+                base_url=ollama_base_url,
+                batch_size=vision_batch_size,
+                timeout_seconds=vision_timeout_seconds,
+            ),
+        ).enrich(
+            account_id=account_id,
+            limit=1,
+            selection_mode="selected",
+            video_ids=[video_id],
+            refresh_media=True,
+        )
+        result["media_enrichment"] = enrichment
+        result["analysis"] = VideoAnalysisService(layout).analyze(video_id=video_id)
+        if deep or distillation_mode == "knowledge":
+            distillation_service = (
+                SingleVideoKnowledgeService(layout)
+                if distillation_mode == "knowledge"
+                else SingleVideoDistillationService(layout)
+            )
+            deep_result = distillation_service.distill(
+                video_id=video_id,
+                deep_provider=(
+                    cast(Literal["ollama", "llamacpp", "cloud", "none"], deep_provider)
+                    if deep_provider in {"ollama", "llamacpp", "cloud", "none"}
+                    else None
+                ),
+                deep_model=deep_model,
+                deep_base_url=deep_base_url,
+                deep_api_key=deep_api_key,
+                strict_model=strict_deep,
+                dry_run=dry_run,
+            )
+            result[
+                "knowledge_distillation"
+                if distillation_mode == "knowledge"
+                else "deep_distillation"
+            ] = deep_result
+        if weknora_kb_id:
+            if not (weknora_api_key or "").strip():
+                raise DistillerError(
+                    ErrorCode.ADAPTER_AUTH,
+                    "WeKnora API Key is required for --weknora-kb-id",
+                    details={"next": "pass --weknora-api-key or set WEKNORA_API_KEY"},
+                )
+            sync_service = WeKnoraSyncService(layout)
+            sync_method = (
+                sync_service.sync_video_knowledge
+                if distillation_mode == "knowledge"
+                else sync_service.sync_video_distillation
+            )
+            result["weknora_sync"] = sync_method(
+                video_id=video_id,
+                base_url=weknora_base_url,
+                api_key=weknora_api_key or "",
+                kb_id=weknora_kb_id,
+            )
+        return result
+
+    result = _execute(operation, json_output=json_output)
+    human_parts = [f"Analyzed {url}"]
+    if "analysis" in result:
+        human_parts.append(f"status={result['analysis']['analysis']['status']}")
+    if "deep_distillation" in result:
+        human_parts.append(f"deep={result['deep_distillation']['distillation']['status']}")
+    if "knowledge_distillation" in result:
+        human_parts.append(f"knowledge={result['knowledge_distillation']['knowledge']['status']}")
+    if "weknora_sync" in result:
+        sync = result["weknora_sync"]
+        human_parts.append(f"weknora={sync['kb_name']}({len(sync['uploaded'])} uploaded)")
+    _emit(result, json_output=json_output, human="; ".join(human_parts))
 
 
 def _import_command(
@@ -546,6 +1305,29 @@ def report_command(
     )
 
 
+@app.command("narrative")
+def narrative_command(
+    project: Path = typer.Option(..., "--project"),
+    account: str = typer.Option(..., "--account"),
+    json_output: bool = typer.Option(False, "--json"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Generate a Chinese long-form narrative analysis report for an account."""
+
+    result = _execute(
+        lambda: NarrativeReportService(ProjectLayout.open(project)).generate(
+            account_id=account,
+            dry_run=dry_run,
+        ),
+        json_output=json_output,
+    )
+    _emit(
+        result,
+        json_output=json_output,
+        human=f"Generated narrative report for {account}: {result['outputs'][0]}",
+    )
+
+
 @analyze_app.command("video")
 def analyze_video_command(
     project: Path = typer.Option(..., "--project"),
@@ -560,6 +1342,34 @@ def analyze_video_command(
         False,
         "--strict-model",
         help="Fail instead of using deterministic low-confidence fallback.",
+    ),
+    deep: bool = typer.Option(
+        False,
+        "--deep",
+        help="Also run single-video deep distillation (topic/expression/craft/copy checklist).",
+    ),
+    distillation_mode: Literal["creative_learning", "knowledge"] = typer.Option(
+        "creative_learning",
+        "--distillation-mode",
+        help="Single-video goal: creative_learning or knowledge.",
+    ),
+    deep_provider: str | None = typer.Option(
+        None,
+        "--deep-provider",
+        help="Optional deep-distillation model provider: ollama, llamacpp, or cloud.",
+    ),
+    deep_model: str | None = typer.Option(None, "--deep-model"),
+    deep_base_url: str | None = typer.Option(None, "--deep-base-url"),
+    deep_api_key: str | None = typer.Option(None, "--deep-api-key"),
+    deep_output: Path | None = typer.Option(
+        None,
+        "--deep-output",
+        help="Offline JSON containing one single_video_deep_distillation candidate.",
+    ),
+    strict_deep: bool = typer.Option(
+        False,
+        "--strict-deep",
+        help="Fail instead of using deterministic deep-distillation fallback.",
     ),
     json_output: bool = typer.Option(False, "--json"),
     dry_run: bool = typer.Option(False, "--dry-run"),
@@ -577,10 +1387,44 @@ def analyze_video_command(
         json_output=json_output,
     )
     analysis = result["analysis"]
+    outputs = list(result["outputs"])
+    human = f"Analyzed {video} with status={analysis['status']}: {result['outputs'][0]}"
+    if deep or distillation_mode == "knowledge":
+        distillation_service = (
+            SingleVideoKnowledgeService(ProjectLayout.open(project))
+            if distillation_mode == "knowledge"
+            else SingleVideoDistillationService(ProjectLayout.open(project))
+        )
+        deep_result = _execute(
+            lambda: distillation_service.distill(
+                video_id=video,
+                deep_provider=(
+                    cast(Literal["ollama", "llamacpp", "cloud", "none"], deep_provider)
+                    if deep_provider in {"ollama", "llamacpp", "cloud", "none"}
+                    else None
+                ),
+                deep_model=deep_model,
+                deep_base_url=deep_base_url,
+                deep_api_key=deep_api_key,
+                model_output=deep_output,
+                max_attempts=max_attempts,
+                strict_model=strict_deep,
+                dry_run=dry_run,
+            ),
+            json_output=json_output,
+        )
+        result[
+            "knowledge_distillation" if distillation_mode == "knowledge" else "deep_distillation"
+        ] = deep_result
+        outputs.extend(deep_result["outputs"])
+        artifact_key = "knowledge" if distillation_mode == "knowledge" else "distillation"
+        deep_status = deep_result[artifact_key]["status"]
+        human += f"; {distillation_mode} status={deep_status}: {deep_result['outputs'][0]}"
+    result["outputs"] = outputs
     _emit(
         result,
         json_output=json_output,
-        human=(f"Analyzed {video} with status={analysis['status']}: {result['outputs'][0]}"),
+        human=human,
     )
 
 
@@ -633,6 +1477,23 @@ def analyze_media_command(
         "--vision-output",
         help="Offline JSON containing schema-targeted visual/OCR annotations.",
     ),
+    vision_provider: str | None = typer.Option(
+        None,
+        "--vision-provider",
+        help="Optional local visual provider; currently supports ollama.",
+    ),
+    vision_model: str = typer.Option("qwen3-vl:8b", "--vision-model"),
+    ollama_base_url: str = typer.Option(
+        "http://127.0.0.1:11434",
+        "--ollama-base-url",
+    ),
+    vision_batch_size: int = typer.Option(4, "--vision-batch-size", min=1, max=8),
+    vision_timeout_seconds: int = typer.Option(
+        180,
+        "--vision-timeout-seconds",
+        min=1,
+        max=1800,
+    ),
     strict_media: bool = typer.Option(
         False, "--strict-media", help="Return E_MEDIA_DECODE instead of a degraded artifact."
     ),
@@ -651,6 +1512,13 @@ def analyze_media_command(
             video_id=video,
             file=file,
             vision_output=vision_output,
+            provider=_vision_provider(
+                provider=vision_provider,
+                model=vision_model,
+                base_url=ollama_base_url,
+                batch_size=vision_batch_size,
+                timeout_seconds=vision_timeout_seconds,
+            ),
             strict_media=strict_media,
             strict_vision=strict_vision,
             scene_threshold=scene_threshold,

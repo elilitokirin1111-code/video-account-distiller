@@ -31,7 +31,8 @@ class FixtureAccountProvider:
         videos: list[CollectedVideo] = []
         metrics: list[CollectedMetricSnapshot] = []
         comments: list[CollectedComment] = []
-        for index in range(request.count):
+        video_count = request.count if request.count is not None else 12
+        for index in range(video_count):
             video_id = f"74000000000000000{index:02d}"
             videos.append(
                 CollectedVideo(
@@ -84,7 +85,7 @@ class FixtureAccountProvider:
                         )
                     )
         return AccountCollectionBatch(
-            provider=CollectionProviderKind.TIKHUB,
+            provider=request.provider,
             profile_url=request.profile_url,
             platform_account_id=platform_account_id,
             fetched_at=fetched_at,
@@ -111,7 +112,7 @@ class FixtureAccountProvider:
                 ProviderRawPage(
                     endpoint="/fixture/account",
                     fetched_at=fetched_at,
-                    payload={"fixture": True, "videos": request.count},
+                    payload={"fixture": True, "videos": video_count},
                 )
             ],
         )
@@ -123,6 +124,7 @@ def test_account_url_runs_existing_normalized_report_and_distillation_pipeline(
     provider = FixtureAccountProvider()
     request = AccountCollectionRequest(
         profile_url="https://www.douyin.com/user/MS4wLjABAAAAphase8-hotel",
+        provider=CollectionProviderKind.TIKHUB,
         count=10,
         comments_per_video=2,
         comment_video_limit=2,
@@ -136,9 +138,20 @@ def test_account_url_runs_existing_normalized_report_and_distillation_pipeline(
     account_id = stable_id("acc_", "douyin", "MS4wLjABAAAAphase8-hotel")
     assert provider.calls == 1
     assert result["account"]["account_id"] == account_id
+    assert result["account"]["follower_count_current"] == 24000
+    assert result["account"]["following_count_current"] == 58
+    assert result["account"]["total_likes_current"] == 320000
+    assert result["account"]["video_count_current"] == 86
     assert result["collection"]["videos"] == 10
     assert result["collection"]["comments"] == 4
     assert result["collection"]["comment_videos"] == 2
+    assert result["coverage"]["status"] == "complete_for_declared_scope"
+    assert result["coverage"]["videos"]["status"] == "requested_limit_reached"
+    assert (
+        result["coverage"]["comments"]["scope"]
+        == "bounded_top_level_sample_not_full_comment_universe"
+    )
+    assert result["coverage"]["account_snapshot"]["followers"] is True
     assert result["normalization"]["counts"]["accounts"] == 1
     assert result["normalization"]["counts"]["videos"] == 10
     assert result["normalization"]["counts"]["metrics"] == 10
@@ -148,10 +161,24 @@ def test_account_url_runs_existing_normalized_report_and_distillation_pipeline(
     assert result["report"]["report"]["data_scope"]["population_size"] == 10
     assert result["distillation"]["distillation"]["data_scope"]["video_count"] == 10
     raw_artifact = project.root / Path(result["collection"]["raw_artifact"])
+    drift_artifact = project.root / Path(result["collection"]["drift_artifact"])
     assert raw_artifact.is_file()
+    assert drift_artifact.is_file()
+    assert result["collection"]["drift"]["status"] == "fail"
+    assert "tikhub_response_contract_drift" in result["collection"]["warnings"]
     assert (project.normalized_dir / "accounts.parquet").is_file()
     assert (project.normalized_dir / "derived_metrics.parquet").is_file()
     assert (raw_artifact.parent / "comments.json").is_file()
+    assert validate_project(project).error_count == 0
+
+    drift_payload = read_json(drift_artifact)
+    drift_payload["ok"] = True
+    atomic_write_json(drift_artifact, drift_payload)
+    drift_validation = validate_project(project)
+    assert drift_validation.error_count == 1
+    assert drift_validation.issues[0].entity == "phase8_collection"
+    drift_payload["ok"] = False
+    atomic_write_json(drift_artifact, drift_payload)
     assert validate_project(project).error_count == 0
 
     videos_path = raw_artifact.parent / "videos.json"
@@ -180,3 +207,51 @@ def test_account_url_dry_run_never_calls_provider_or_writes(
     assert provider.calls == 0
     assert result["provider_calls"]["homepage_post_pages_max"] == 3
     assert not list(collection_dir.rglob("*.json"))
+
+
+def test_account_url_knowledge_mode_skips_operational_analysis(
+    project: ProjectLayout,
+) -> None:
+    provider = FixtureAccountProvider()
+    request = AccountCollectionRequest(
+        profile_url="https://www.douyin.com/user/MS4wLjABAAAAphase8-hotel",
+        provider=CollectionProviderKind.MEDIACRAWLER,
+        count=3,
+        comments_per_video=2,
+        comment_video_limit=2,
+    )
+
+    result = AccountCollectionService(project, provider).analyze_url(
+        request=request,
+        include_operational_analysis=False,
+    )
+
+    assert result["collection"]["videos"] == 3
+    assert result["normalization"]["counts"]["videos"] == 3
+    assert result["metrics"]["records"] == 3
+    assert result["report"] is None
+    assert result["comment_analysis"] is None
+    assert result["distillation"] is None
+
+
+def test_mediacrawler_account_url_runs_full_pipeline_without_cost_confirmation(
+    project: ProjectLayout,
+) -> None:
+    provider = FixtureAccountProvider()
+    request = AccountCollectionRequest(
+        profile_url="https://www.douyin.com/user/MS4wLjABAAAAphase8-hotel",
+        count=10,
+        provider=CollectionProviderKind.MEDIACRAWLER,
+        comments_per_video=2,
+        comment_video_limit=2,
+    )
+
+    result = AccountCollectionService(project, provider).analyze_url(request=request)
+
+    assert provider.calls == 1
+    assert result["request"]["provider"] == "mediacrawler"
+    assert result["collection"]["videos"] == 10
+    assert result["collection"]["comments"] == 4
+    assert result["normalization"]["counts"]["metrics"] == 10
+    assert result["comment_analysis"]["analysis"]["comment_count"] == 4
+    assert result["distillation"]["distillation"]["data_scope"]["video_count"] == 10

@@ -52,8 +52,10 @@ class FileAdapter:
             elif suffix in {".jsonl", ".ndjson"}:
                 records = []
                 for line_number, line in enumerate(
-                    source.read_text(encoding="utf-8-sig").splitlines(), start=1
+                    source.read_text(encoding="utf-8-sig").split("\n"),
+                    start=1,
                 ):
+                    line = line.rstrip("\r")
                     if not line.strip():
                         continue
                     value = json.loads(line)

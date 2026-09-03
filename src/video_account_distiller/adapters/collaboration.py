@@ -81,6 +81,17 @@ class UrllibHttpExecutor:
                 "Adapter request could not reach the official API",
                 details={"reason": str(exc.reason)},
             ) from exc
+        except TimeoutError as exc:
+            raise DistillerError(
+                ErrorCode.ADAPTER_RESPONSE,
+                "云端 API 读取超时",
+                details={
+                    "hint": (
+                        "大模型长上下文生成需要更长时间：请降低推理强度、"
+                        "减少逐视频证据数，或稍后重试。"
+                    )
+                },
+            ) from exc
 
 
 def _credential(token_env: str) -> str:

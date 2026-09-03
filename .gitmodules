@@ -1,0 +1,6 @@
+[submodule "third_party/MediaCrawler"]
+	path = third_party/MediaCrawler
+	url = https://github.com/NanmiCoder/MediaCrawler.git
+[submodule "third_party/claude-video"]
+	path = third_party/claude-video
+	url = https://github.com/bradautomates/claude-video.git

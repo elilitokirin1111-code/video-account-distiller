@@ -19,6 +19,7 @@ TABLES = (
     "transcripts",
     "derived_metrics",
     "media_features",
+    "audience_profiles",
 )
 
 # DuckDB constructs that are not allowed in read-only queries against Parquet views.

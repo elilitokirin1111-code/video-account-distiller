@@ -1,60 +1,157 @@
-# 账号蒸馏报告
+# 账号运营蒸馏与诊断报告
 
 - 账号：`{{ distillation.account_id }}`
-- 视频样本：{{ distillation.data_scope.video_count }}
-- 评论样本：{{ distillation.data_scope.comment_count }}
-- Pattern：{{ distillation.data_scope.pattern_count }}
+- 视频样本：{{ distillation.data_scope.video_count }}；已分析 {{ distillation.data_scope.analyzed_video_count }}
+- 完整分析：{{ distillation.data_scope.get("complete_video_analysis_count", 0) }}；降级分析：{{ distillation.data_scope.get("degraded_video_analysis_count", 0) }}
+- 语义覆盖率：{{ "%.0f%%"|format(distillation.data_scope.get("semantic_analysis_coverage", 0) * 100) }}；完整语义覆盖率：{{ "%.0f%%"|format(distillation.data_scope.get("complete_semantic_coverage", 0) * 100) }}
+- 平均语义置信度：{{ "%.2f"|format(distillation.data_scope.get("semantic_confidence_mean", 0)) }}；媒体覆盖率：{{ "%.0f%%"|format(distillation.data_scope.get("media_analysis_coverage", 0) * 100) }}
+- 可执行 Pattern：{{ distillation.data_scope.get("actionable_pattern_count", 0) }}/{{ distillation.data_scope.pattern_count }}
 
-## 一句话定位
+## 运营诊断总览
 
-{{ distillation.positioning.statement }}
+**一句话定位（{{ distillation.positioning.confidence }} 置信）**：{{ distillation.positioning.statement }}
 
-## 内容簇
+> 粉丝量和发布量只表示当前公开可见规模，不等同于账号成熟度、运营能力或商业化能力。
+
+{% if distillation.positioning.confidence == "low" %}
+> 当前定位为低置信观察，不应直接当成账号策略结论。请优先修复降级分析、补足内容语义与评论证据。
+{% endif %}
+
+### 已达到执行门槛的优势
+
+{% for item in distillation.strengths -%}
+- {{ item }}
+{% else -%}
+- 当前没有同时满足成熟度、置信度、反例和无混杂要求的优势。
+{% endfor %}
+
+### 已达到执行门槛的短板
+
+{% for item in distillation.weaknesses -%}
+- {{ item }}
+{% else -%}
+- 当前没有达到执行门槛的稳定短板；不把弱证据假设包装成结论。
+{% endfor %}
+
+### 可复制 / 不可直接复制
+
+- 可复制：{{ distillation.copyable_factors|join("；") or "当前证据不足，暂不建议直接复制" }}
+{% for item in distillation.noncopyable_factors -%}
+- 不可直接复制：{{ item }}
+{% endfor %}
+
+## 逐视频完整创作报告索引
+
+- 已生成 {{ distillation.data_scope.get("video_creative_report_count", 0) }} 份；完整 {{ distillation.data_scope.get("complete_video_creative_report_count", 0) }}，降级 {{ distillation.data_scope.get("degraded_video_creative_report_count", 0) }}。
+{% for item in video_creative_reports -%}
+### {{ loop.index }}. {{ item.title }}
+
+- 状态：{{ item.status }}；综合创作分：{{ "%.0f"|format(item.overall_score) if item.overall_score is not none else "证据不足" }}；评判：{{ item.rating }}；评分置信：{{ item.score_confidence }}
+- 概括：{{ item.summary }}
+- 完整报告：{% if item.report_path %}`{{ item.report_path }}`{% else %}缺失{% endif %}；结构化数据：`{{ item.json_path }}`
+{% else -%}
+- 当前尚未生成逐视频创作报告。
+{% endfor %}
+
+## 人设与视听风格
+
+- 人设信号：{{ distillation.positioning.persona_signals|join("；") or "待补充更多单视频语义分析" }}
+- 视听风格：{{ distillation.positioning.visual_and_audio_identity|join("；") or "待补充本地视频分析" }}
+- 仍未知：{{ distillation.positioning.unknowns|join("；") or "无" }}
+
+## 拍摄手法与表现形式画像
+
+{% if distillation.craft_profile -%}
+- 分析媒体：{{ distillation.craft_profile.analyzed_media_count }} 条；完成画面语义标注：{{ distillation.craft_profile.annotated_media_count }} 条
+{% if distillation.craft_profile.editing_rhythm -%}
+- 剪辑节奏：{{ distillation.craft_profile.editing_rhythm.pace_label or "未知" }}；镜头时长中位数 {{ "%.1f"|format(distillation.craft_profile.editing_rhythm.median_shot_duration_ms / 1000) if distillation.craft_profile.editing_rhythm.median_shot_duration_ms is not none else "未知" }} 秒；镜头数中位数 {{ distillation.craft_profile.editing_rhythm.shot_count_median or "未知" }}
+{% endif -%}
+{% for category, summaries in distillation.craft_profile.categories.items() -%}
+{% if summaries -%}
+- **{{ craft_labels[category] }}**：{% for item in summaries[:5] %}{{ item.tag }}（{{ "%.0f%%"|format(item.coverage * 100) }}、{{ item.video_count }} 条）{% if not loop.last %}；{% endif %}{% endfor %}
+{% endif -%}
+{% endfor -%}
+{% if distillation.craft_profile.signature_style -%}
+- 招牌风格：{{ distillation.craft_profile.signature_style|join("；") }}
+{% endif -%}
+{% if distillation.craft_profile.unknowns -%}
+- 画像未知项：{{ distillation.craft_profile.unknowns|join("；") }}
+{% endif -%}
+{% else -%}
+- 尚未生成本地媒体分析，无法蒸馏拍摄手法与表现形式。
+{% endif -%}
+
+## 内容方向与样本表现
 
 {% for cluster in distillation.content_clusters -%}
-- **{{ cluster.name }}**：{{ cluster.video_count }} 条，表现分中位数 {{ cluster.median_performance_score }},
-  高表现率 {{ cluster.high_performance_rate }}，证据 `{{ cluster.evidence_id }}`。
+- **{{ cluster.name }}**：{{ cluster.video_count }} 条；账号内相对表现分中位数 {{ "%.2f"|format(cluster.median_performance_score) if cluster.median_performance_score is not none else "未知" }}；高表现率 {{ "%.0f%%"|format(cluster.high_performance_rate * 100) if cluster.high_performance_rate is not none else "未知" }}；证据 `{{ cluster.evidence_id }}`。
+{% else -%}
+- 当前没有足够可靠的语义内容簇；纯数字或无法解释的采集代理值已排除。
 {% endfor %}
+
+> 上述表现仅是账号内相对关联，不代表播放效率，也不能证明因果。
 
 ## 评论区需求
 
 {% for cluster in distillation.comment_need_clusters -%}
 - **{{ cluster.name }}**：{{ cluster.frequency }} 条；机会：{{ cluster.content_opportunities|join("；") or "待补充" }}；证据 `{{ cluster.evidence_id }}`。
 {% else -%}
-- 尚未生成评论需求分析。
+- 尚未生成可用的评论需求分析。
 {% endfor %}
 
-## Pattern 与反例
+## Pattern 与反例：达到执行门槛
 
-{% for pattern in distillation.patterns -%}
+{% if distillation.data_scope.get("actionable_pattern_count", 0) > 0 -%}
+{% for pattern in distillation.patterns if pattern.maturity_level >= 1 and pattern.confidence >= 0.5 and pattern.counterexample_count >= 1 and not pattern.confounders -%}
 ### {{ pattern.name }}
 
-- 成熟度：Level {{ pattern.maturity_level }}；置信度：{{ "%.3f"|format(pattern.confidence) }}
+- 成熟度：Level {{ pattern.maturity_level }}；置信度：{{ "%.2f"|format(pattern.confidence) }}；可复制性：{{ pattern.replicability }}
 - 支持样本：{{ pattern.support_video_ids|join(", ") }}
-- 反例：{{ pattern.counterexample_video_ids|join(", ") or "当前样本未观察到，需主动验证" }}
-- 混杂因素：{{ pattern.confounders|join("；") or "未标记" }}
+- 反例：{{ pattern.counterexample_video_ids|join(", ") }}
+- 适用边界与风险：{{ pattern.risks|join("；") or "未标记" }}
 - 证据：{{ pattern.evidence_ids|join(", ") }}
 
 {% else -%}
-当前没有达到最低支持数的 Pattern。
+当前没有 Pattern 达到执行门槛。
 {% endfor %}
+{% else -%}
+当前整体语义质量未达到运营决策门槛，所有关联均降级为待验证假设。
+{% endif %}
 
-## 可执行动作
+## 待验证假设（不可直接当策略）
+
+{% if distillation.data_scope.get("actionable_pattern_count", 0) == 0 -%}
+{% for pattern in distillation.patterns -%}
+- **{{ pattern.name }}**：Level {{ pattern.maturity_level }}，置信度 {{ "%.2f"|format(pattern.confidence) }}；支持 {{ pattern.support_count }}，反例 {{ pattern.counterexample_count }}；混杂 {{ pattern.confounders|join("、") or "未观察到" }}。
+{% else -%}
+- 无。
+{% endfor %}
+{% else -%}
+{% for pattern in distillation.patterns if pattern.maturity_level < 1 or pattern.confidence < 0.5 or pattern.counterexample_count < 1 or pattern.confounders -%}
+- **{{ pattern.name }}**：Level {{ pattern.maturity_level }}，置信度 {{ "%.2f"|format(pattern.confidence) }}；支持 {{ pattern.support_count }}，反例 {{ pattern.counterexample_count }}；混杂 {{ pattern.confounders|join("、") or "未观察到" }}。
+{% else -%}
+- 无。
+{% endfor %}
+{% endif %}
+
+## 优先行动
 
 {% for item in distillation.action_recommendations -%}
-- {{ item }}
+{{ loop.index }}. {{ item }}
 {% endfor %}
 
-## 30 天实验草案
+## 30 天验证计划
 
 {% for item in distillation.experiment_plan -%}
-- {{ item }}
+{{ loop.index }}. {{ item }}
 {% else -%}
-- 补齐样本后再设计对照实验。
+1. 补齐样本后再设计对照实验。
 {% endfor %}
 
 ## 限制与警告
 
 {% for warning in distillation.warnings -%}
 - `{{ warning }}`
+{% else -%}
+- 无。
 {% endfor %}

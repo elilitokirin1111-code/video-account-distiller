@@ -2,57 +2,27 @@
 
 from __future__ import annotations
 
-import asyncio
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Request
 
 from video_account_distiller.api.deps import resolve_project
 from video_account_distiller.api.schemas import (
+    AccountMediaReparseParams,
     CommentAnalysisParams,
     MediaAnalysisParams,
     VideoAnalysisParams,
 )
-from video_account_distiller.comments import CommentAnalysisService
-from video_account_distiller.errors import DistillerError
-from video_account_distiller.features import VideoAnalysisService
-from video_account_distiller.media import LocalMediaAnalysisService
-from video_account_distiller.utils.ids import new_run_id
+from video_account_distiller.api.task_jobs import (
+    AccountMediaReparseJob,
+    AnalyzeCommentsJob,
+    AnalyzeMediaJob,
+    AnalyzeVideoJob,
+    enqueue_api_job,
+)
+from video_account_distiller.media import AccountMediaEnrichmentService
 
 router = APIRouter()
-
-
-def _next_task_id() -> str:
-    return new_run_id()
-
-
-def _enqueue(
-    tasks: dict,
-    task_id: str,
-    fn: Any,
-    *args: Any,
-    **kwargs: Any,
-) -> None:
-    tasks[task_id] = {"task_id": task_id, "status": "pending", "progress": 0}
-
-    async def _runner() -> None:
-        try:
-            tasks[task_id]["status"] = "running"
-            result = await asyncio.to_thread(fn, *args, **kwargs)
-            tasks[task_id].update(status="completed", result=result)
-        except DistillerError as exc:
-            tasks[task_id].update(
-                status="failed",
-                error={"code": exc.code.value, "message": exc.message, "details": exc.details},
-            )
-        except Exception as exc:
-            tasks[task_id].update(
-                status="failed",
-                error={"code": "E_INTERNAL", "message": str(exc)},
-            )
-
-    asyncio.ensure_future(_runner())
 
 
 # ── video analysis ──────────────────────────────────────────────────
@@ -62,23 +32,29 @@ def _enqueue(
 async def analyze_video(
     project_path: str,
     video_id: str,
-    body: VideoAnalysisParams = VideoAnalysisParams(),
+    request: Request,
+    body: VideoAnalysisParams = VideoAnalysisParams(
+        model_output=None,
+        max_attempts=None,
+        deep=False,
+        deep_provider=None,
+        deep_model=None,
+        deep_base_url=None,
+        deep_output=None,
+        strict_deep=False,
+    ),
     dry_run: bool = False,
-    request: Request = None,  # type: ignore[assignment]
 ) -> dict[str, Any]:
     layout = resolve_project(project_path)
-    task_id = _next_task_id()
-    _enqueue(
+    return enqueue_api_job(
         request.app.state.tasks,
-        task_id,
-        VideoAnalysisService(layout).analyze,
-        video_id=video_id,
-        model_output=Path(body.model_output) if body.model_output else None,
-        max_attempts=body.max_attempts,
-        strict_model=body.strict_model,
-        dry_run=dry_run,
+        AnalyzeVideoJob(
+            project_path=str(layout.root),
+            video_id=video_id,
+            body=body,
+            dry_run=dry_run,
+        ),
     )
-    return {"ok": True, "task_id": task_id, "status": "pending"}
 
 
 # ── comment analysis ─────────────────────────────────────────────────
@@ -88,23 +64,20 @@ async def analyze_video(
 async def analyze_comments(
     project_path: str,
     account_id: str,
-    body: CommentAnalysisParams = CommentAnalysisParams(),
+    request: Request,
+    body: CommentAnalysisParams = CommentAnalysisParams(model_output=None, max_attempts=None),
     dry_run: bool = False,
-    request: Request = None,  # type: ignore[assignment]
 ) -> dict[str, Any]:
     layout = resolve_project(project_path)
-    task_id = _next_task_id()
-    _enqueue(
+    return enqueue_api_job(
         request.app.state.tasks,
-        task_id,
-        CommentAnalysisService(layout).analyze,
-        account_id=account_id,
-        model_output=Path(body.model_output) if body.model_output else None,
-        max_attempts=body.max_attempts,
-        strict_model=body.strict_model,
-        dry_run=dry_run,
+        AnalyzeCommentsJob(
+            project_path=str(layout.root),
+            account_id=account_id,
+            body=body,
+            dry_run=dry_run,
+        ),
     )
-    return {"ok": True, "task_id": task_id, "status": "pending"}
 
 
 # ── media analysis ───────────────────────────────────────────────────
@@ -114,23 +87,51 @@ async def analyze_comments(
 async def analyze_media(
     project_path: str,
     video_id: str,
-    body: MediaAnalysisParams = MediaAnalysisParams(),
+    request: Request,
+    body: MediaAnalysisParams = MediaAnalysisParams(
+        file=None,
+        vision_output=None,
+        scene_threshold=None,
+        max_keyframes=None,
+    ),
     dry_run: bool = False,
-    request: Request = None,  # type: ignore[assignment]
 ) -> dict[str, Any]:
     layout = resolve_project(project_path)
-    task_id = _next_task_id()
-    _enqueue(
+    return enqueue_api_job(
         request.app.state.tasks,
-        task_id,
-        LocalMediaAnalysisService(layout).analyze,
-        video_id=video_id,
-        file=Path(body.file) if body.file else None,
-        vision_output=Path(body.vision_output) if body.vision_output else None,
-        strict_media=body.strict_media,
-        strict_vision=body.strict_vision,
-        scene_threshold=body.scene_threshold,
-        max_keyframes=body.max_keyframes,
-        dry_run=dry_run,
+        AnalyzeMediaJob(
+            project_path=str(layout.root),
+            video_id=video_id,
+            body=body,
+            dry_run=dry_run,
+        ),
     )
-    return {"ok": True, "task_id": task_id, "status": "pending"}
+
+
+@router.get("/{project_path:path}/analyze/accounts/{account_id}/media/reparse-candidates")
+async def media_reparse_candidates(
+    project_path: str,
+    account_id: str,
+) -> dict[str, Any]:
+    layout = resolve_project(project_path)
+    return AccountMediaEnrichmentService(layout).reparse_candidates(account_id=account_id)
+
+
+@router.post("/{project_path:path}/analyze/accounts/{account_id}/media/reparse")
+async def reparse_account_media(
+    project_path: str,
+    account_id: str,
+    request: Request,
+    body: AccountMediaReparseParams = AccountMediaReparseParams(),
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    layout = resolve_project(project_path)
+    return enqueue_api_job(
+        request.app.state.tasks,
+        AccountMediaReparseJob(
+            project_path=str(layout.root),
+            account_id=account_id,
+            body=body,
+            dry_run=dry_run,
+        ),
+    )

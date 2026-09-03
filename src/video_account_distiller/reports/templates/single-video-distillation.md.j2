@@ -1,0 +1,172 @@
+# 单视频完整创作拆解
+
+- 视频：`{{ distillation.video_id }}`
+- 文本分析：`{{ distillation.text_analysis_id or "缺失" }}`
+- 媒体分析：`{{ distillation.media_analysis_id or "缺失" }}`
+- 状态：`{{ distillation.status }}`
+- 产物：`{{ distillation.distillation_id }}`
+
+## 执行摘要
+
+{% if distillation.executive_summary -%}
+**一句话概括：** {{ distillation.executive_summary.one_sentence }}
+
+{{ distillation.executive_summary.detailed_summary }}
+
+- 核心信息：{{ distillation.executive_summary.core_message }}
+- 内容目标：{{ distillation.executive_summary.content_goal }}
+- 目标观众：{{ distillation.executive_summary.target_viewer|join("、") or "未知" }}
+- 观众可带走：{{ distillation.executive_summary.viewer_takeaways|join("；") or "未见可靠结论" }}
+{% else -%}
+旧版产物未包含执行摘要，请重新蒸馏以生成 v2 报告。
+{% endif -%}
+
+## 综合评判
+
+{% if distillation.evaluation -%}
+- 综合分：{% if distillation.evaluation.overall_score is not none %}**{{ "%.1f"|format(distillation.evaluation.overall_score) }}/100**{% else %}**暂不评分**{% endif %}
+- 结论等级：{{ distillation.evaluation.rating }}
+- 评分性质：{{ "确定性暂定规则分" if distillation.evaluation.score_basis == "provisional_rule_score" else "模型创作评估分" }}
+- 评分置信度：{{ distillation.evaluation.score_confidence }}
+- 有效评分权重覆盖：{{ "%.0f%%"|format(distillation.evaluation.evidence_coverage * 100) }}
+- 可复制度：{{ distillation.evaluation.replicability }}
+
+{{ distillation.evaluation.verdict }}
+
+| 维度 | 分数（0–10） | 权重 | 判断依据 |
+| --- | ---: | ---: | --- |
+{% for item in distillation.evaluation.dimensions -%}
+| {{ item.dimension }} | {{ "%.1f"|format(item.score) if item.score is not none else "证据不足" }} | {{ item.weight }}% | {{ item.rationale }} |
+{% endfor -%}
+{% else -%}
+旧版产物未包含综合评判，请重新蒸馏以生成 v2 报告。
+{% endif -%}
+
+## 完整创作结构拆解
+
+{% for item in distillation.structure_breakdown -%}
+### {{ item.sequence }}. {{ item.role }}{% if item.start_ms is not none and item.end_ms is not none %}（{{ "%.1f"|format(item.start_ms / 1000) }}s–{{ "%.1f"|format(item.end_ms / 1000) }}s）{% endif %}
+
+- 内容：{{ item.content_summary }}
+- 创作目的：{{ item.creative_purpose }}
+- 表达：{{ item.expression }}
+- 画面：{{ item.visual }}
+- 声音：{{ item.audio }}
+- 节奏：{{ item.pacing }}
+- 情绪：{{ item.emotion }}
+- 转场/承接：{{ item.transition }}
+- 文本证据：{{ item.evidence_segment_ids|join("、") or "无" }}；镜头证据：{{ item.evidence_shot_ids|join("、") or "无" }}
+
+{% else -%}
+旧版产物未包含完整结构拆解，请重新蒸馏以生成 v2 报告。
+{% endfor -%}
+
+## 优势、短板与优先改进
+
+### 优势
+
+{% for item in distillation.strengths -%}
+- **{{ item.finding }}**：{{ item.why_it_matters }}
+{% else -%}
+- 暂无可靠结论。
+{% endfor -%}
+
+### 短板
+
+{% for item in distillation.weaknesses -%}
+- **{{ item.finding }}**：{{ item.why_it_matters }}
+{% else -%}
+- 暂无可靠结论。
+{% endfor -%}
+
+### 优先改进
+
+{% for item in distillation.priority_improvements|sort(attribute="priority") -%}
+{{ item.priority }}. **问题：** {{ item.problem }}
+
+   - **动作：** {{ item.action }}
+   - **预期：** {{ item.expected_effect }}
+{% else -%}
+1. 暂无可靠改进建议。
+{% endfor -%}
+
+## 选材（为什么值得做）
+
+- 内容一句话：{{ distillation.topic.topic_statement }}
+- 选题角度：{{ distillation.topic.topic_angle }}
+- 目标人群：{{ distillation.topic.target_audience|join("、") or "未知" }}
+- 信息增量：{{ distillation.topic.information_increment }}
+- 记忆点：{{ distillation.topic.memory_point }}
+- 可复用选题公式：{{ distillation.topic.topic_formula }}
+{% if distillation.topic.selection_notes -%}
+- 选材备注：{{ distillation.topic.selection_notes|join("；") }}
+{% endif -%}
+
+## 表现形式（怎么讲）
+
+- 开场形式：{{ distillation.expression.opening_form }}
+- 字幕/艺术字：{{ distillation.expression.subtitle_style }}
+- 包装特征：{{ distillation.expression.packaging_features|join("；") or "未见标注" }}
+- 声音表现：{{ distillation.expression.audio_expression }}
+- 剪辑风格：{{ distillation.expression.editing_style }}
+{% if distillation.expression.expression_notes -%}
+- 表现备注：{{ distillation.expression.expression_notes|join("；") }}
+{% endif -%}
+
+## 拍摄手法（怎么拍）
+
+- 景别：{{ distillation.craft.shot_scale_profile }}
+- 运镜与机位：{{ distillation.craft.camera_profile }}
+- 构图：{{ distillation.craft.composition_profile }}
+- 光线：{{ distillation.craft.lighting_profile }}
+- 开场手法：{{ distillation.craft.opening_technique }}
+- 剪辑节奏：{{ distillation.craft.pacing }}
+{% if distillation.craft.craft_notes -%}
+- 拍摄备注：{{ distillation.craft.craft_notes|join("；") }}
+{% endif -%}
+
+## 可复制清单
+
+{% for label, items in [("选题", distillation.copy_checklist.topic), ("结构", distillation.copy_checklist.structure), ("拍摄", distillation.copy_checklist.craft), ("表现", distillation.copy_checklist.expression), ("避开", distillation.copy_checklist.avoid)] -%}
+{% if items -%}
+- **{{ label }}**：
+{% for item in items -%}
+  - {{ item }}
+{% endfor -%}
+{% endif -%}
+{% endfor -%}
+
+## 镜头级画像（确定性测量）
+
+{% if distillation.craft_summary.analyzed_shots > 0 -%}
+- 分析镜头：{{ distillation.craft_summary.analyzed_shots }}；平均镜头时长：{{ "%.1f"|format(distillation.craft_summary.average_shot_duration_ms / 1000) if distillation.craft_summary.average_shot_duration_ms is not none else "未知" }} 秒
+- 开场手法：{{ distillation.craft_summary.opening_techniques|join("、") or "未见标注" }}
+- 剪辑节奏：{{ distillation.craft_summary.pacing_tags|join("、") or "未知" }}
+- 景别：{% for tag, count in distillation.craft_summary.shot_scale.items() %}{{ tag }}×{{ count }}{% if not loop.last %}，{% endif %}{% endfor %}
+- 运镜：{% for tag, count in distillation.craft_summary.camera_movement.items() %}{{ tag }}×{{ count }}{% if not loop.last %}，{% endif %}{% endfor %}
+- 机位角度：{% for tag, count in distillation.craft_summary.camera_angle.items() %}{{ tag }}×{{ count }}{% if not loop.last %}，{% endif %}{% endfor %}
+- 构图：{% for tag, count in distillation.craft_summary.composition.items() %}{{ tag }}×{{ count }}{% if not loop.last %}，{% endif %}{% endfor %}
+- 光线：{% for tag, count in distillation.craft_summary.lighting.items() %}{{ tag }}×{{ count }}{% if not loop.last %}，{% endif %}{% endfor %}
+- 字幕/艺术字：{% for tag, count in distillation.craft_summary.text_overlay_style.items() %}{{ tag }}×{{ count }}{% if not loop.last %}，{% endif %}{% endfor %}
+- 动效/贴纸：{% for tag, count in distillation.craft_summary.motion_graphic.items() %}{{ tag }}×{{ count }}{% if not loop.last %}，{% endif %}{% endfor %}
+- 品牌露出：{% for tag, count in distillation.craft_summary.branding.items() %}{{ tag }}×{{ count }}{% if not loop.last %}，{% endif %}{% endfor %}
+- 静音占比：{{ "%.0f%%"|format(distillation.craft_summary.silence_ratio * 100) if distillation.craft_summary.silence_ratio is not none else "未知" }}
+- OCR 观测：{{ distillation.craft_summary.ocr_observation_count }}
+{% else -%}
+- 暂无本地媒体分析，拍摄手法与画面表现为未知。
+{% endif -%}
+
+## 模型、未知项与限制
+
+{% if distillation.deep_trace -%}
+- 任务：`{{ distillation.deep_trace.task }}`；状态：{{ distillation.deep_trace.status }}；Provider：{{ distillation.deep_trace.provider }} / {{ distillation.deep_trace.model }}；尝试 {{ distillation.deep_trace.attempts }} 次
+{% endif -%}
+- 仍未知：{{ distillation.unknowns|join("；") or "无" }}
+- 文本证据 ID：{{ distillation.evidence_segment_ids|join("、") or "无" }}
+- 镜头证据 ID：{{ distillation.evidence_shot_ids|join("、") or "无" }}
+
+{% for warning in distillation.warnings -%}
+- 警告：`{{ warning }}`
+{% else -%}
+- 警告：无。
+{% endfor -%}

@@ -86,8 +86,8 @@ def _parse_cues(text: str, *, is_vtt: bool) -> list[ParsedTranscriptSegment]:
 def _json_records(path: Path) -> list[dict[str, Any]]:
     if path.suffix.lower() == ".jsonl":
         values = [
-            json.loads(line)
-            for line in path.read_text(encoding="utf-8-sig").splitlines()
+            json.loads(line.rstrip("\r"))
+            for line in path.read_text(encoding="utf-8-sig").split("\n")
             if line.strip()
         ]
     else:

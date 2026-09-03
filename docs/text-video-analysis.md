@@ -51,3 +51,95 @@ raw model-output hashes, declared paths, and evidence references in one command.
 Semantic labels are annotations, not causes. One analyzed video cannot establish an account Pattern
 or validated rule. Visual Hook, shots, editing rhythm, on-screen text, music, and sound remain
 unknown until Phase 6. Phase 4 will compare repeated labeled samples, counterexamples, and comments.
+
+## Single-video deep distillation
+
+`distiller analyze video --deep` adds an optional third stage on top of the blind text analysis
+and any existing local media analysis. It builds one content-addressed `svd_*` reference card under
+`analyses/videos/<video-id>/` so you can distill one interesting video from an account you do not
+otherwise follow, without any account-level performance bands:
+
+- **选材 topic**: why the video exists, its angle (痛点/清单/悬念/身份点名…), target audience,
+  information increment, memory point, and a reusable topic formula.
+- **表现形式 expression**: opening form, subtitle/art-text style, packaging (stickers, motion
+  graphics, branding), audio expression, and editing style.
+- **拍摄手法 craft**: shot-scale/camera/composition/lighting profiles, opening technique, and
+  pacing, plus a deterministic per-shot `craft_summary` with counts and measured rhythm.
+- **可复制清单 copy checklist**: what to copy and what to avoid when reproducing the video.
+
+The deep stage accepts `--deep-provider ollama|llamacpp|cloud` with `--deep-model`,
+`--deep-base-url`, `--deep-api-key`, or offline `--deep-output` JSON. Model output is strictly
+validated, citations to `segment_id`/`shot_id` are filtered against real evidence, and invalid
+output is retried up to `max_schema_attempts`. Without a provider the service degrades visibly to a
+deterministic aggregation of the blind labels and measured media features (`status: degraded`,
+`deep_model_unavailable_deterministic_fallback`), which still organizes topic/structure/craft into
+the same report shape. `--strict-deep` fails instead of degrading. `distiller validate` checks the
+`svd_*` artifacts, their evidence index, and the referenced text/media analyses.
+
+The deep stage is also reachable through the HTTP API
+(`POST /api/projects/{project}/analyze/video/{video_id}` with `deep: true` and an optional
+`deep_provider` of `ollama`, `llamacpp`, or `cloud`; cloud credentials resolve from the workspace
+credential store rather than the request body), and the resulting reference card can be pushed to
+WeKnora:
+
+```bash
+distiller knowledge weknora sync-video --project <dir> --video <video-id> \
+  --kb-id <knowledge-base-id> --base-url http://127.0.0.1:8080 \
+  --api-key $env:WEKNORA_API_KEY --json
+```
+
+The same operation is available as
+`POST /api/projects/{project}/knowledge/weknora/videos/{video_id}/sync`. It uploads the latest
+`svd_*` report with `video-account-distiller` provenance metadata and replaces previous documents
+for the same video, mirroring the account-level WeKnora sync semantics.
+
+## Account-wide knowledge mode
+
+After text analysis exists for multiple videos, the account batch command keeps the same strict
+single-video knowledge contract and creates an import folder with one Markdown file per video:
+
+```bash
+distiller knowledge distill-account-videos --project <dir> --account <account-id> \
+  --provider llamacpp --json
+```
+
+The bundle lives under
+`knowledge/accounts/<account-id>/video-knowledge/<avk-id>/`. `manifest.json` records completed,
+degraded, and skipped videos; `documents/` contains only independent video documents. Missing text
+analysis never produces an empty placeholder. Use `--dry-run` to preview eligibility, or sync the
+latest bundle to WeKnora with `knowledge weknora sync-account --distillation-mode knowledge`.
+In the homepage workbench, select “视频内容知识提取（一视频一文档）”; this mode skips account
+operations distillation, account-health reports, strategy synthesis, and narrative reports.
+
+## Collecting one video by URL
+
+`distiller video collect --project <dir> --url <video-url> --confirm-provider-cost` collects a
+single public Douyin video (metadata, public metrics, optional top-level comments) through the
+documented TikHub `fetch_one_video` endpoint and imports it through the same immutable
+account-collection kernel (raw batch, accounts/videos/metrics/comments, normalization, account
+metrics). It returns the internal `account_id` and `video_id`. Standard URLs
+(`https://www.douyin.com/video/<id>`, `/note/<id>`, `modal_id=<id>`) are resolved locally; short
+`v.douyin.com` links must be expanded to the full address first.
+
+Like the account homepage workflow, single-video collection also supports the local MediaCrawler
+provider (`--provider mediacrawler`): the controlled bridge opens the dedicated visible browser,
+waits for manual Douyin login, and calls `get_video_by_id` for the detail plus optional
+top-level comments. MediaCrawler requires the pinned submodule runtime and manual authentication;
+TikHub is a paid API and still needs `--confirm-provider-cost`.
+
+The one-command workflow joins every stage:
+
+```bash
+uv run distiller video analyze --project <dir> --url <video-url> \
+  --whisper-model base --deep --deep-provider cloud \
+  --weknora-kb-id <knowledge-base-id> --confirm-provider-cost --json
+```
+
+It collects the video, downloads and locally transcribes the media (Whisper provides the
+transcript the deep distillation needs), runs the blind text analysis, deep-distills the
+reference card (optionally with a cloud model), and pushes it to WeKnora when `--weknora-kb-id`
+is set. The same collection step is exposed as
+`POST /api/projects/{project}/collection/analyze-video-url`, and the Web「新建蒸馏」page offers a
+「单视频蒸馏」mode for the collection entry.
+
+

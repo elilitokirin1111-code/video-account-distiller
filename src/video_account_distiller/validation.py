@@ -10,8 +10,9 @@ import yaml
 from pydantic import BaseModel, ValidationError
 
 from video_account_distiller.models import (
-    AccountCollectionBatch,
+    AccountBenchmarkProfile,
     AccountDistillation,
+    AccountMediaEnrichment,
     ArtifactEvidenceIndex,
     AuthorizedExportManifest,
     BatchResult,
@@ -31,6 +32,7 @@ from video_account_distiller.models import (
     RunManifest,
     ScoreResult,
     SingleVideoAnalysis,
+    SingleVideoDistillation,
     SnapshotScheduleResult,
     SyncReceipt,
     TeamConfig,
@@ -43,6 +45,10 @@ from video_account_distiller.storage.project import ProjectLayout
 from video_account_distiller.utils.hashing import sha256_file, sha256_json
 from video_account_distiller.utils.ids import stable_id
 from video_account_distiller.utils.io import read_json
+from video_account_distiller.validators import (
+    validate_collection_batches,
+    validate_knowledge_artifacts,
+)
 
 PERFORMANCE_KEYS = {
     "views",
@@ -60,7 +66,11 @@ PERFORMANCE_KEYS = {
 
 def _validate_staging(path: Path, model_type: type[BaseModel]) -> list[str]:
     errors: list[str] = []
-    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+    for line_number, line in enumerate(
+        path.read_text(encoding="utf-8").split("\n"),
+        start=1,
+    ):
+        line = line.rstrip("\r")
         if not line.strip():
             continue
         try:
@@ -156,6 +166,95 @@ def _validate_video_analysis(path: Path, project: ProjectLayout) -> list[str]:
     return [f"{project.relative(path)}: {message}" for message in errors]
 
 
+def _validate_video_distillation(path: Path, project: ProjectLayout) -> list[str]:
+    errors: list[str] = []
+    directory = path.parent
+    expected_paths = {
+        "report": directory / "report.md",
+        "evidence": directory / "evidence-index.json",
+        "warnings": directory / "warnings.json",
+    }
+    missing = [name for name, item in expected_paths.items() if not item.is_file()]
+    if missing:
+        return [f"{project.relative(path)}: missing artifacts: {', '.join(sorted(missing))}"]
+    try:
+        distillation = SingleVideoDistillation.model_validate(read_json(path))
+        evidence = ArtifactEvidenceIndex.model_validate(read_json(expected_paths["evidence"]))
+        warnings = read_json(expected_paths["warnings"])
+    except (OSError, ValueError, ValidationError) as exc:
+        return [f"{project.relative(path)}: {exc}"]
+
+    if not isinstance(warnings, list) or not all(isinstance(item, str) for item in warnings):
+        errors.append("warnings.json must contain a JSON array of strings")
+    if distillation.distillation_id != directory.name:
+        errors.append("distillation_id does not match its content-addressed directory")
+    if distillation.video_id != directory.parent.name:
+        errors.append("video_id does not match its distillation directory")
+    if evidence.artifact_id != distillation.distillation_id:
+        errors.append("evidence index identity does not match distillation.json")
+    if distillation.text_analysis_id is not None:
+        text_path = (
+            project.root
+            / "analyses"
+            / "videos"
+            / distillation.video_id
+            / distillation.text_analysis_id
+            / "analysis.json"
+        )
+        if not text_path.is_file():
+            errors.append(f"text analysis is missing: {distillation.text_analysis_id}")
+    if distillation.media_analysis_id is not None:
+        media_path = (
+            project.root
+            / "analyses"
+            / "media"
+            / distillation.video_id
+            / distillation.media_analysis_id
+            / "media-analysis.json"
+        )
+        if not media_path.is_file():
+            errors.append(f"media analysis is missing: {distillation.media_analysis_id}")
+    if not any(item.label == "video.craft_summary" for item in evidence.items):
+        errors.append("craft summary evidence is missing")
+    if distillation.deep_trace is not None and distillation.deep_trace.status == "success":
+        if distillation.status != "complete":
+            errors.append("deep trace success conflicts with degraded status")
+    expected_declared = {
+        "evidence_index_path": project.relative(expected_paths["evidence"]),
+        "warnings_path": project.relative(expected_paths["warnings"]),
+    }
+    for field, expected in expected_declared.items():
+        if getattr(distillation, field) != expected:
+            errors.append(f"{field} does not point to the colocated artifact")
+    return [f"{project.relative(path)}: {message}" for message in errors]
+
+
+def _has_intentional_media_cleanup(
+    project: ProjectLayout,
+    analysis: MediaAnalysis,
+) -> bool:
+    cleanup_root = project.root / "analyses" / "accounts" / analysis.account_id / "media-cleanups"
+    if not cleanup_root.is_dir():
+        return False
+    for cleanup_path in cleanup_root.glob("*.json"):
+        try:
+            payload = read_json(cleanup_path)
+        except (OSError, ValueError, TypeError):
+            continue
+        if not isinstance(payload, dict) or payload.get("account_id") != analysis.account_id:
+            continue
+        for entry in payload.get("entries", []):
+            if not isinstance(entry, dict):
+                continue
+            if (
+                entry.get("raw_media_path") == analysis.raw_media_path
+                and entry.get("media_hash") == analysis.metadata.media_hash
+                and isinstance(entry.get("deleted_at"), str)
+            ):
+                return True
+    return False
+
+
 def _validate_media_analysis(path: Path, project: ProjectLayout) -> list[str]:
     errors: list[str] = []
     directory = path.parent
@@ -198,8 +297,11 @@ def _validate_media_analysis(path: Path, project: ProjectLayout) -> list[str]:
     raw_media = (project.root / analysis.raw_media_path).resolve()
     if not raw_media.is_relative_to(project.root):
         errors.append("raw_media_path escapes the project root")
-    elif not raw_media.is_file() or sha256_file(raw_media) != analysis.metadata.media_hash:
-        errors.append("immutable raw media is missing or its hash changed")
+    elif raw_media.is_file():
+        if sha256_file(raw_media) != analysis.metadata.media_hash:
+            errors.append("immutable raw media hash changed")
+    elif not _has_intentional_media_cleanup(project, analysis):
+        errors.append("immutable raw media is missing without a cleanup record")
     evidence_items = {item.evidence_id: item for item in evidence.items}
     media_items = [item for item in evidence.items if item.kind == "media"]
     if not any(
@@ -334,6 +436,39 @@ def _validate_phase4_artifact(
     )
     if empty_sources:
         errors.append(f"referenced evidence has no normalized sources: {empty_sources}")
+    return [f"{project.relative(path)}: {message}" for message in errors]
+
+
+def _validate_benchmark_profile(path: Path, project: ProjectLayout) -> list[str]:
+    """Validate a reusable cross-account profile and its retained sources."""
+
+    errors: list[str] = []
+    try:
+        profile = AccountBenchmarkProfile.model_validate(read_json(path))
+        warnings_path = path.parent / "warnings.json"
+        if not warnings_path.is_file() or read_json(warnings_path) != profile.warnings:
+            errors.append("warnings.json does not match the profile")
+        if profile.profile_id != path.parent.name:
+            errors.append("profile path does not match profile_id")
+        if profile.account_id != path.parents[2].name:
+            errors.append("profile path does not match account_id")
+        if not profile.input_hashes:
+            errors.append("profile input_hashes must not be empty")
+        source_found = False
+        for source_path in (project.root / "reports" / "accounts" / profile.account_id).glob(
+            "*/distillation.json"
+        ):
+            source_payload = read_json(source_path)
+            if (
+                isinstance(source_payload, dict)
+                and source_payload.get("distillation_id") == profile.source_distillation_id
+            ):
+                source_found = True
+                break
+        if not source_found:
+            errors.append("source distillation is missing")
+    except (OSError, ValueError, ValidationError) as exc:
+        return [f"{project.relative(path)}: {exc}"]
     return [f"{project.relative(path)}: {message}" for message in errors]
 
 
@@ -626,6 +761,20 @@ def validate_project(project: ProjectLayout, *, persist: bool = True) -> Quality
                 )
             )
 
+    svd_paths = sorted((project.root / "analyses" / "videos").glob("*/svd_*/distillation.json"))
+    for path in svd_paths:
+        for message in _validate_video_distillation(path, project):
+            issues.append(
+                DataQualityIssue(
+                    issue_id=stable_id("dqi_", manifest.run_id, project.relative(path), message),
+                    run_id=manifest.run_id,
+                    severity="error",
+                    code="analysis_artifact_invalid",
+                    entity="video_distillations",
+                    message=message,
+                )
+            )
+
     media_analysis_paths = sorted(
         (project.root / "analyses" / "media").glob("*/*/media-analysis.json")
     )
@@ -653,6 +802,56 @@ def validate_project(project: ProjectLayout, *, persist: bool = True) -> Quality
             )
         )
 
+    media_enrichment_paths = sorted(
+        (project.root / "analyses" / "accounts").glob("*/media-enrichments/*/enrichment.json")
+    )
+    for path in media_enrichment_paths:
+        try:
+            enrichment = AccountMediaEnrichment.model_validate(read_json(path))
+            if enrichment.enrichment_id != path.parent.name:
+                raise ValueError("media enrichment path does not match enrichment_id")
+            if enrichment.account_id != path.parents[2].name:
+                raise ValueError("media enrichment path does not match account_id")
+            source_batch = project.root / enrichment.source_batch_path
+            if (
+                not source_batch.is_file()
+                or sha256_file(source_batch) != enrichment.source_batch_hash
+            ):
+                raise ValueError("media enrichment source batch hash mismatch")
+            warning_path = path.parent / "warnings.json"
+            if not warning_path.is_file() or read_json(warning_path) != enrichment.warnings:
+                raise ValueError("media enrichment warning artifact mismatch")
+            for video in enrichment.videos:
+                if video.media_analysis_path is not None:
+                    media_path = project.root / video.media_analysis_path
+                    if not media_path.is_file():
+                        raise ValueError(f"media analysis is missing for video: {video.video_id}")
+                if video.text_analysis_path is not None:
+                    text_path = project.root / video.text_analysis_path
+                    if not text_path.is_file():
+                        raise ValueError(f"text analysis is missing for video: {video.video_id}")
+            if (
+                enrichment.distillation_path is not None
+                and not (project.root / enrichment.distillation_path).is_file()
+            ):
+                raise ValueError("media enrichment distillation artifact is missing")
+        except (OSError, ValueError, ValidationError) as exc:
+            issues.append(
+                DataQualityIssue(
+                    issue_id=stable_id(
+                        "dqi_",
+                        manifest.run_id,
+                        project.relative(path),
+                        str(exc),
+                    ),
+                    run_id=manifest.run_id,
+                    severity="error",
+                    code="media_enrichment_artifact_invalid",
+                    entity="media_enrichments",
+                    message=f"{project.relative(path)}: {exc}",
+                )
+            )
+
     phase4_paths: list[tuple[Path, type[Any]]] = [
         *[
             (path, CommentAnalysis)
@@ -678,6 +877,27 @@ def validate_project(project: ProjectLayout, *, persist: bool = True) -> Quality
                     severity="error",
                     code="analysis_artifact_invalid",
                     entity="phase4_artifacts",
+                    message=message,
+                )
+            )
+
+    benchmark_profile_paths = sorted(
+        (project.root / "analyses" / "accounts").glob("*/benchmark-profiles/*/profile.json")
+    )
+    for path in benchmark_profile_paths:
+        for message in _validate_benchmark_profile(path, project):
+            issues.append(
+                DataQualityIssue(
+                    issue_id=stable_id(
+                        "dqi_",
+                        manifest.run_id,
+                        project.relative(path),
+                        message,
+                    ),
+                    run_id=manifest.run_id,
+                    severity="error",
+                    code="benchmark_profile_artifact_invalid",
+                    entity="benchmark_profiles",
                     message=message,
                 )
             )
@@ -821,41 +1041,30 @@ def validate_project(project: ProjectLayout, *, persist: bool = True) -> Quality
                 )
             )
 
-    for path in collection_batch_paths:
-        try:
-            payload = read_json(path)
-            batch = AccountCollectionBatch.model_validate(payload)
-            if sha256_json(payload) != path.parent.name:
-                raise ValueError("content hash does not match account collection directory")
-            if batch.provider.value != path.parent.parent.name:
-                raise ValueError("collection provider does not match directory")
-            companions = {
-                "accounts.json": [batch.account.model_dump(mode="json")],
-                "videos.json": [item.model_dump(mode="json") for item in batch.videos],
-                "metrics.json": [item.model_dump(mode="json") for item in batch.metrics],
-            }
-            comments_companion = path.parent / "comments.json"
-            if batch.comments or comments_companion.is_file():
-                companions["comments.json"] = [
-                    item.model_dump(mode="json") for item in batch.comments
-                ]
-            for filename, expected in companions.items():
-                companion = path.parent / filename
-                if not companion.is_file() or sha256_json(read_json(companion)) != sha256_json(
-                    expected
-                ):
-                    raise ValueError(f"collection companion mismatch: {filename}")
-        except (OSError, ValueError, ValidationError) as exc:
-            issues.append(
-                DataQualityIssue(
-                    issue_id=stable_id("dqi_", manifest.run_id, project.relative(path), str(exc)),
-                    run_id=manifest.run_id,
-                    severity="error",
-                    code="raw_integrity",
-                    entity="phase8_collection",
-                    message=f"{project.relative(path)}: {exc}",
-                )
+    knowledge_errors, knowledge_artifact_count = validate_knowledge_artifacts(project)
+    for message in knowledge_errors:
+        issues.append(
+            DataQualityIssue(
+                issue_id=stable_id("dqi_", manifest.run_id, "local_knowledge", message),
+                run_id=manifest.run_id,
+                severity="error",
+                code="knowledge_artifact_invalid",
+                entity="local_knowledge",
+                message=message,
             )
+        )
+
+    for path, message in validate_collection_batches(project, collection_batch_paths):
+        issues.append(
+            DataQualityIssue(
+                issue_id=stable_id("dqi_", manifest.run_id, project.relative(path), message),
+                run_id=manifest.run_id,
+                severity="error",
+                code="raw_integrity",
+                entity="phase8_collection",
+                message=f"{project.relative(path)}: {message}",
+            )
+        )
 
     warnings: list[str] = []
     if len(platforms) > 1:
@@ -875,13 +1084,16 @@ def validate_project(project: ProjectLayout, *, persist: bool = True) -> Quality
             "platforms": len(platforms),
             "video_analyses": len(analysis_paths),
             "phase6_artifacts": len(media_analysis_paths),
+            "media_enrichments": len(media_enrichment_paths),
             "phase4_artifacts": len(phase4_paths),
+            "benchmark_profiles": len(benchmark_profile_paths),
             "phase5_artifacts": len(phase5_checks),
             "rules": len(rule_paths),
             "rubrics": len(rubric_paths),
             "phase7_artifacts": len(phase7_paths) + int(team_config.is_file()),
             "phase7_raw": len(raw_collaboration_paths),
             "phase8_collections": len(collection_batch_paths),
+            "knowledge_artifacts": knowledge_artifact_count,
             "errors": sum(issue.severity == "error" for issue in issues),
             "warnings": sum(issue.severity == "warning" for issue in issues) + len(warnings),
         },

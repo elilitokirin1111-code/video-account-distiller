@@ -24,9 +24,16 @@ Transcript timing may be `null`; never invent timestamps for TXT. Phase 3 semant
 existing transcript segment IDs. `blind-analysis.json` must contain no performance fields.
 
 Phase 4 IDs use `cma_*` comment analyses, `cms_*` comment signals, `cnc_*` need clusters, `dst_*`
-account distillations, `clu_*` content clusters, `pat_*` Patterns, and `cmp_*` comparisons. Every
+account distillations, `clu_*` content clusters, `pat_*` Patterns, `abp_*` account benchmark
+profiles, and `cmp_*` comparisons. Every
 Pattern requires support, a counterexample field, disjoint sample sets, scope, maturity, version,
 risks, and evidence IDs. Core records are not rewritten.
+
+`AccountBenchmarkProfile` stores account/metric snapshot times, per-video public interaction
+medians, totals and mix for likes/comments/shares/saves, follower-normalized interactions when the
+denominator exists, comment-like coverage, semantic comment aggregates, content pillars, visual
+identity, input hashes, and explicit unavailable fields. It never turns unknown views or
+followers into zero. Comparisons embed the exact profiles and same-platform percentile rankings.
 
 Phase 5 IDs use `rule_*`, `rub_*`, `cand_*`, `score_*`, `pred_*`, `pub_*`, `retro_*`, and `exp_*`.
 Rubric weights must total 100. Prediction quantiles must satisfy P25 ≤ P50 ≤ P75 and include
@@ -37,6 +44,13 @@ Phase 6 IDs use `mda_*`, `mdf_*`, `shot_*`, and `key_*`. Shot intervals are non-
 non-overlapping, and exactly match duration. Keyframes carry a local path and SHA-256. OCR must cite
 an existing shot/keyframe and timestamp evidence. Unknown decoder, audio, OCR, and visual values stay
 `null` or absent; they are never inferred as zero/false.
+
+Retained account media enrichment uses `ame_*` and strict `AccountMediaEnrichment`,
+`VideoMediaEnrichment`, and `TranscriptionSummary` models under the Phase 6 schema. The artifact
+links one retained Provider batch hash to media/transcript/text-analysis IDs and a rebuilt
+distillation. `VideoMediaEnrichment.status` covers the media/transcription chain and
+`text_analysis_status` separately marks a bounded heuristic result as degraded. Signed source URLs
+are forbidden in this contract.
 
 Phase 7 authorization grants bind one connector, resource, operation, and expiry. Connector files
 contain environment-variable names, never credential values. Sync receipts record requested,

@@ -128,6 +128,7 @@ _PATTERN_DIMENSIONS = {
     "posting_time": "feasibility",
     "comment_trigger": "audience_need",
     "conversion": "interaction_cta",
+    "craft": "feasibility",
     "failure": "risk_control",
 }
 

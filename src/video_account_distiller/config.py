@@ -11,13 +11,19 @@ from pydantic import BaseModel, ConfigDict, Field
 from video_account_distiller.errors import DistillerError, ErrorCode
 
 DEFAULT_WEIGHTS = {
-    "views": 0.25,
-    "like_rate": 0.15,
-    "comment_rate": 0.15,
-    "share_rate": 0.15,
-    "save_rate": 0.10,
-    "follow_conversion": 0.10,
-    "watch_efficiency": 0.10,
+    "views": 0.20,
+    "like_rate": 0.10,
+    "comment_rate": 0.10,
+    "share_rate": 0.10,
+    "save_rate": 0.06,
+    "follow_conversion": 0.06,
+    "watch_efficiency": 0.06,
+    # Absolute interaction volumes proxy heat when views are unavailable;
+    # they complement the rate terms when views are present.
+    "likes_abs": 0.10,
+    "comments_abs": 0.10,
+    "shares_abs": 0.06,
+    "saves_abs": 0.06,
 }
 
 
@@ -67,6 +73,19 @@ class ModelsSection(BaseModel):
     model_config = ConfigDict(extra="forbid")
     text_provider: str | None = None
     vision_provider: str | None = None
+    vision_model: str = "qwen3-vl-8b"
+    ollama_base_url: str = "http://127.0.0.1:11434"
+    llamacpp_base_url: str = "http://127.0.0.1:8081"
+    llamacpp_model: str | None = None
+    llamacpp_api_key: str | None = None
+    llamacpp_text_base_url: str = "http://127.0.0.1:8082"
+    llamacpp_text_model: str | None = None
+    cloud_base_url: str | None = None
+    cloud_api_key: str | None = None
+    cloud_text_model: str | None = None
+    cloud_vision_model: str | None = None
+    vision_batch_size: int = Field(default=4, ge=1, le=8)
+    vision_timeout_seconds: int = Field(default=180, ge=1, le=1800)
     require_schema_validation: bool = True
     max_schema_attempts: int = Field(default=2, ge=1, le=5)
     allow_degraded_analysis: bool = True
@@ -79,7 +98,7 @@ class MediaSection(BaseModel):
     scene_threshold: float = Field(default=0.30, gt=0, lt=1)
     max_shots: int = Field(default=500, ge=1, le=5000)
     max_keyframes: int = Field(default=12, ge=1, le=100)
-    keyframe_width: int = Field(default=720, ge=160, le=3840)
+    keyframe_width: int = Field(default=1440, ge=160, le=3840)
     audio_sample_rate: int = Field(default=8000, ge=1000, le=48000)
     audio_window_ms: int = Field(default=100, ge=20, le=1000)
     silence_threshold_dbfs: float = Field(default=-40.0, ge=-100, le=0)
@@ -112,6 +131,11 @@ class ReportsSection(BaseModel):
     include_evidence_index: bool = True
 
 
+class KnowledgeSection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    obsidian_vault_path: str | None = Field(default=None, max_length=4096)
+
+
 class DistillerConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     project: ProjectSection
@@ -123,6 +147,7 @@ class DistillerConfig(BaseModel):
     collaboration: CollaborationSection = Field(default_factory=CollaborationSection)
     scoring: ScoringSection = Field(default_factory=ScoringSection)
     reports: ReportsSection = Field(default_factory=ReportsSection)
+    knowledge: KnowledgeSection = Field(default_factory=KnowledgeSection)
 
     def as_yaml(self) -> str:
         """Serialize the validated configuration as stable YAML."""

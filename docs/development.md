@@ -107,11 +107,15 @@ counterexample sets are disjoint; and maturity never exceeds Level 1.
 After distilling every account:
 
 ```bash
+uv run distiller account benchmark-profile --project ./demo-project \
+  --account <acc_id> --json
 uv run distiller compare --project ./demo-project --target <acc_id> \
   --benchmarks <benchmark_id_1>,<benchmark_id_2> --json
 ```
 
-Verify cross-platform items keep separate baselines and never compare raw views.
+Verify profiles preserve interaction/comment summaries and input hashes; ranking uses only
+target-platform accounts, reports per-account data coverage, and never uses raw or unavailable
+views. Rebuilding identical inputs must reuse the same `abp_*`.
 
 ## Phase 5 smoke test
 
@@ -178,25 +182,45 @@ classification. The automated suite must remain network-disabled.
 
 ## Phase 8 smoke test
 
-Keep automated tests network-disabled and inject `HttpResponse` Fixtures for URL resolution,
-profile, and paginated posts. Verify URL/host rejection, latest/popular ordering, pagination,
-unknown-vs-zero mapping, authorization, bounded 429 handling, no token leakage, cost confirmation,
-immutable companion validation, and full URL-to-distillation orchestration.
+Keep automated tests network-disabled. Inject bridge-result Fixtures for MediaCrawler and
+`HttpResponse` Fixtures for TikHub. Verify URL rejection, latest/popular ordering, pagination,
+unknown-vs-zero mapping, manual-login errors, missing runtime, authorization, bounded 429 handling,
+no secret leakage, TikHub cost confirmation, immutable companion validation, and full
+URL-to-distillation orchestration.
 
-For a separately approved live acceptance, set `TIKHUB_API_KEY` only in the local environment and
-run:
+For a separately approved live MediaCrawler acceptance, initialize the submodule, run `doctor`, and
+then run:
 
 ```bash
+git submodule update --init --recursive
+uv run distiller doctor --json
 uv run distiller account analyze --project ./demo-project \
-  --url <approved-douyin-homepage> --count 10 --dry-run --json
+  --url <approved-douyin-homepage> --dry-run --json
 uv run distiller account analyze --project ./demo-project \
-  --url <approved-douyin-homepage> --count 10 \
-  --confirm-provider-cost --json
+  --url <approved-douyin-homepage> --json
 uv run distiller validate --project ./demo-project --json
 ```
 
-Manually compare three public posts and inspect logs/Git for secrets. Do not tag a new stable
-version until the live Provider payload, counts, billing, validation, and secret checks pass.
+Complete login or platform verification manually in visible Chrome. Manually compare three public
+posts and inspect logs/Git for credentials, Cookie content, or browser-profile files. Test TikHub
+separately with `--provider tikhub` only when cost has been approved. Do not tag a new stable version
+until live Provider payload, count, validation, scope, licensing, and secret checks pass.
+
+For a separately approved local-video acceptance, preview and then enrich one retained video before
+expanding the sample:
+
+```bash
+uv run distiller account enrich-media --project ./demo-project \
+  --account <acc_id> --limit 1 --whisper-model base --dry-run --json
+uv run distiller account enrich-media --project ./demo-project \
+  --account <acc_id> --limit 1 --whisper-model base --strict --json
+uv run distiller validate --project ./demo-project --json
+```
+
+Confirm that stdout/run manifests contain no signed media URL, raw video is named by SHA-256,
+transcript segments resolve to their immutable raw JSON, keyframes hash correctly, the new
+single-video analysis changes semantic coverage, and the resulting account distillation reports
+measured production signals without inventing visual semantics.
 
 ## Skill validation
 
@@ -225,6 +249,7 @@ uv build
 Install the wheel into a new Python 3.11 environment and run `tools/release_acceptance.py`; do not
 reuse the repository editable environment as release evidence. On Windows, include a Chinese path
 and an authorized local hotel MP4 when available. Run the Skill quick validator, confirm the source
-tree is clean, then push the release commit and signed or annotated `v<version>` tag. The tag
-workflow repeats all gates, smoke-tests the installed wheel, writes SHA-256 checksums, and creates
-the GitHub Release.
+tree is clean, and stage the version-matched deterministic public-beta bundle under
+`release-evidence/` before pushing the signed or annotated `v<version>` tag. The tag workflow
+repeats all gates, smoke-tests the installed wheel, verifies the freeze against the package version,
+writes SHA-256 checksums, and creates the GitHub Release.

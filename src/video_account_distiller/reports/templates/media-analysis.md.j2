@@ -19,6 +19,22 @@
 - No decoded shot timeline is available.
 {% endfor %}
 
+## 拍摄手法与表现形式
+
+{% if craft_summary.opening_techniques -%}
+- 开场手法：{{ craft_summary.opening_techniques | join("；") }}
+{% else -%}
+- 开场手法：未提供视觉标注，无法判断
+{% endif %}
+{% if craft_summary.pacing_tags -%}
+- 剪辑节奏：{{ craft_summary.pacing_tags | join("；") }}
+{% else -%}
+- 剪辑节奏：镜头时长未知
+{% endif %}
+{% for label, items in craft_summary.categories.items() -%}
+- {{ label }}：{% for value, count in items %}{{ value }}×{{ count }}{% if not loop.last %}，{% endif %}{% else %}未标注{% endfor %}
+{% endfor %}
+
 ## Warnings
 
 {% for warning in analysis.warnings -%}

@@ -1,4 +1,4 @@
-version: "1"
+version: "2"
 platforms:
   douyin:
     accounts:
@@ -14,14 +14,32 @@ platforms:
     metrics:
       video_id: [aweme_id, item_id]
       views: [play_count]
+      impressions: [exposure_count, show_count, 曝光次数, 展现量]
       likes: [digg_count]
       comments: [comment_count]
       shares: [share_count]
       saves: [collect_count]
+      avg_watch_time_seconds: [average_play_time, avg_play_duration, 平均播放时长]
+      completion_rate: [play_finish_rate, finish_rate, 完播率]
+      profile_visits: [profile_visit_count, homepage_visit_count, 主页访问量]
+      follows_gained: [new_follower_count, follower_increase, 新增粉丝]
+      clicks: [link_click_count, product_click_count, 点击量]
+      leads: [lead_count, 线索数]
+      orders: [order_count, 成交订单数]
+      revenue: [gmv, income, revenue_amount, 成交金额, 收益]
     comments:
       platform_comment_id: [cid, comment_id, id]
       video_id: [aweme_id, item_id]
       text: [comment_text, content]
+    audience_profiles:
+      account_id: [author_id, sec_uid, account_id]
+      snapshot_at: [exported_at, snapshot_at, 数据日期]
+      dimension: [dimension, dimension_key, 画像维度]
+      bucket: [bucket, segment, 人群分组]
+      share: [share, percentage, 占比]
+      audience_count: [audience_count, count, 人数]
+      sample_size: [sample_size, total_count, 样本数]
+      source_schema_version: [export_schema_version, source_schema_version, 导出版本]
   xiaohongshu:
     accounts:
       platform_account_id: [user_id, red_id]
@@ -43,6 +61,15 @@ platforms:
       platform_comment_id: [comment_id, id]
       video_id: [note_id]
       text: [content, comment_text]
+    audience_profiles:
+      account_id: [user_id, author_id, account_id]
+      snapshot_at: [exported_at, snapshot_at]
+      dimension: [dimension, dimension_key]
+      bucket: [bucket, segment]
+      share: [share, percentage]
+      audience_count: [audience_count, count]
+      sample_size: [sample_size, total_count]
+      source_schema_version: [export_schema_version, source_schema_version]
   wechat-channels:
     accounts:
       platform_account_id: [finder_id, user_id]
@@ -64,6 +91,15 @@ platforms:
       platform_comment_id: [comment_id, id]
       video_id: [object_id, feed_id]
       text: [content, comment_text]
+    audience_profiles:
+      account_id: [finder_id, user_id, account_id]
+      snapshot_at: [exported_at, snapshot_at]
+      dimension: [dimension, dimension_key]
+      bucket: [bucket, segment]
+      share: [share, percentage]
+      audience_count: [audience_count, count]
+      sample_size: [sample_size, total_count]
+      source_schema_version: [export_schema_version, source_schema_version]
   bilibili:
     accounts:
       platform_account_id: [mid, user_id]
@@ -85,6 +121,15 @@ platforms:
       platform_comment_id: [rpid, comment_id]
       video_id: [bvid, aid]
       text: [message, content]
+    audience_profiles:
+      account_id: [mid, user_id, account_id]
+      snapshot_at: [exported_at, snapshot_at]
+      dimension: [dimension, dimension_key]
+      bucket: [bucket, segment]
+      share: [share, percentage]
+      audience_count: [audience_count, count]
+      sample_size: [sample_size, total_count]
+      source_schema_version: [export_schema_version, source_schema_version]
   tiktok:
     accounts:
       platform_account_id: [author_id, user_id, uid]
@@ -106,6 +151,15 @@ platforms:
       platform_comment_id: [comment_id, cid, id]
       video_id: [video_id, item_id]
       text: [text, comment_text]
+    audience_profiles:
+      account_id: [author_id, user_id, account_id]
+      snapshot_at: [exported_at, snapshot_at]
+      dimension: [dimension, dimension_key]
+      bucket: [bucket, segment]
+      share: [share, percentage]
+      audience_count: [audience_count, count]
+      sample_size: [sample_size, total_count]
+      source_schema_version: [export_schema_version, source_schema_version]
   youtube:
     accounts:
       platform_account_id: [channel_id]
@@ -127,6 +181,15 @@ platforms:
       platform_comment_id: [comment_id, id]
       video_id: [video_id]
       text: [text, text_display]
+    audience_profiles:
+      account_id: [channel_id, account_id]
+      snapshot_at: [exported_at, snapshot_at]
+      dimension: [dimension, dimension_key]
+      bucket: [bucket, segment]
+      share: [share, percentage]
+      audience_count: [audience_count, count]
+      sample_size: [sample_size, total_count]
+      source_schema_version: [export_schema_version, source_schema_version]
   instagram:
     accounts:
       platform_account_id: [user_id, ig_user_id]
@@ -148,3 +211,12 @@ platforms:
       platform_comment_id: [comment_id, id]
       video_id: [media_id]
       text: [text, comment_text]
+    audience_profiles:
+      account_id: [user_id, ig_user_id, account_id]
+      snapshot_at: [exported_at, snapshot_at]
+      dimension: [dimension, dimension_key]
+      bucket: [bucket, segment]
+      share: [share, percentage]
+      audience_count: [audience_count, count]
+      sample_size: [sample_size, total_count]
+      source_schema_version: [export_schema_version, source_schema_version]

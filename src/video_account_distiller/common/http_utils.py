@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
@@ -18,6 +19,28 @@ from video_account_distiller.errors import DistillerError, ErrorCode
 if TYPE_CHECKING:
     from video_account_distiller.adapters.collaboration import HttpExecutor, HttpResponse
     from video_account_distiller.models.collaboration import RetryPolicy
+
+
+_NAMED_SECRET_PATTERN = re.compile(
+    r"""(?ix)
+    (["']?(?:authorization|api[_ -]?key|access[_ -]?token|token|secret)["']?
+    \s*[:=]\s*["']?)
+    (?:bearer\s+)?
+    ([^"'\s,;&}\]]{4,})
+    """,
+)
+_BEARER_SECRET_PATTERN = re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+/=-]{4,}")
+
+
+def _redact_sensitive_text(value: str, *, secrets: tuple[str, ...] = ()) -> str:
+    """Remove known credentials and common credential fields from diagnostics."""
+
+    redacted = value
+    for secret in secrets:
+        if len(secret) >= 4:
+            redacted = redacted.replace(secret, "[REDACTED]")
+    redacted = _NAMED_SECRET_PATTERN.sub(r"\1[REDACTED]", redacted)
+    return _BEARER_SECRET_PATTERN.sub(r"\1[REDACTED]", redacted)
 
 
 def read_env_credential(env_var: str, label: str | None = None) -> str:
@@ -50,6 +73,34 @@ def compute_retry_after(response: HttpResponse, attempt: int, policy: RetryPolic
         except ValueError:
             pass
     return min(policy.base_seconds * float(2**attempt), 60.0)
+
+
+def _auth_failure_message(response: Any, *, status: int) -> str:
+    """Turn 401/403 responses into actionable messages.
+
+    Alibaba Model Studio MaaS returns 403 with ``insufficient_quota`` when the
+    workspace's free tier for a model is exhausted; surfacing that directly is
+    far more useful than a generic credential-scope message.
+    """
+    if status in {401, 403} and response.body:
+        try:
+            payload = json.loads(response.body.decode("utf-8"))
+        except (UnicodeError, json.JSONDecodeError):
+            payload = {}
+        error = payload.get("error") if isinstance(payload, dict) else None
+        if isinstance(error, dict):
+            code = str(error.get("code") or "").casefold()
+            message = str(error.get("message") or "")
+            if code == "insufficient_quota" or "quota" in message.casefold():
+                return (
+                    "云模型额度不足（insufficient_quota）：请在阿里云百炼控制台充值，"
+                    "或关闭“仅使用免费额度”模式后重试，或更换模型。"
+                )
+            if code == "invalid_api_key" or "api key" in message.casefold():
+                return "API Key 无效或与所选服务商不匹配，请检查密钥保存的服务商槽位。"
+            if code == "access_denied" or "permission" in message.casefold():
+                return "API Key 无权访问该模型或接口，请在服务商控制台检查模型授权。"
+    return "API rejected the credential or permission scope"
 
 
 def request_json(
@@ -94,7 +145,7 @@ def request_json(
         if response.status in {401, 403}:
             raise DistillerError(
                 ErrorCode.ADAPTER_AUTH,
-                "API rejected the credential or permission scope",
+                _auth_failure_message(response, status=response.status),
                 details={"http_status": response.status},
             )
         retryable = response.status == 429 or response.status >= 500
@@ -108,10 +159,29 @@ def request_json(
                 details={"attempts": attempt + 1},
             )
         if response.status < 200 or response.status >= 300:
+            body_preview = ""
+            if response.body:
+                try:
+                    sensitive_values = [token]
+                    if extra_headers:
+                        sensitive_values.extend(
+                            value
+                            for name, value in extra_headers.items()
+                            if any(
+                                marker in name.casefold()
+                                for marker in ("authorization", "api-key", "api_key", "token")
+                            )
+                        )
+                    body_preview = _redact_sensitive_text(
+                        response.body.decode("utf-8", errors="replace")[:500],
+                        secrets=tuple(sensitive_values),
+                    )
+                except Exception:
+                    body_preview = ""
             raise DistillerError(
                 ErrorCode.ADAPTER_RESPONSE,
                 "API returned an unexpected response",
-                details={"http_status": response.status},
+                details={"http_status": response.status, "body_preview": body_preview},
             )
         try:
             decoded = json.loads(response.body.decode("utf-8"))

@@ -1,0 +1,125 @@
+from __future__ import annotations
+
+import io
+import tarfile
+import zipfile
+from pathlib import Path
+
+from video_account_distiller.release import (
+    audit_release_candidate,
+    write_checksum_manifest,
+)
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+RELEASE_VERSION = "1.1.1"
+WINDOWS_INSTALLER_NAME = f"VideoAccountDistiller-Setup-{RELEASE_VERSION}-win64.exe"
+
+
+def _write_release_artifacts(directory: Path, *, forbidden_wheel_path: str | None = None) -> None:
+    directory.mkdir()
+    (directory / ".gitignore").write_text("*\n", encoding="utf-8")
+    wheel = directory / f"video_account_distiller-{RELEASE_VERSION}-py3-none-any.whl"
+    with zipfile.ZipFile(wheel, mode="w") as archive:
+        archive.writestr(
+            forbidden_wheel_path or "video_account_distiller/__init__.py",
+            b"",
+        )
+    sdist = directory / f"video_account_distiller-{RELEASE_VERSION}.tar.gz"
+    with tarfile.open(sdist, mode="w:gz") as archive:
+        for name, content in (
+            (f"video_account_distiller-{RELEASE_VERSION}/LICENSE", b"MIT"),
+            (
+                f"video_account_distiller-{RELEASE_VERSION}/THIRD_PARTY_NOTICES.md",
+                b"notices",
+            ),
+        ):
+            info = tarfile.TarInfo(name)
+            info.size = len(content)
+            archive.addfile(info, io.BytesIO(content))
+    skill = directory / f"video-account-distiller-skill-{RELEASE_VERSION}.zip"
+    with zipfile.ZipFile(skill, mode="w") as archive:
+        archive.writestr("video-account-distiller/SKILL.md", b"---\nname: test\n---\n")
+    (directory / WINDOWS_INSTALLER_NAME).write_bytes(b"MZ\x90\x00test-installer")
+
+
+def test_source_and_version_release_audit_passes() -> None:
+    report = audit_release_candidate(REPOSITORY_ROOT)
+
+    assert report.ok is True
+    assert report.package_version == RELEASE_VERSION
+    assert report.skill_version == RELEASE_VERSION
+    assert all(report.required_files.values())
+    assert report.public_beta_required is False
+    assert report.public_beta_verified is None
+    assert report.issues == []
+
+
+def test_release_audit_can_require_public_beta_freeze_evidence() -> None:
+    report = audit_release_candidate(
+        REPOSITORY_ROOT,
+        require_public_beta_freeze=True,
+    )
+
+    assert report.ok is False
+    assert report.public_beta_required is True
+    assert report.public_beta_verified is None
+    assert any(issue.code == "public_beta_evidence_required" for issue in report.issues)
+
+
+def test_release_artifacts_and_checksum_manifest_are_verified(
+    tmp_path: Path,
+) -> None:
+    artifacts = tmp_path / "dist"
+    _write_release_artifacts(artifacts)
+    checksum_path = write_checksum_manifest(artifacts)
+
+    report = audit_release_candidate(REPOSITORY_ROOT, artifact_dir=artifacts)
+
+    assert checksum_path.is_file()
+    assert report.ok is True
+    assert set(report.artifact_checksums) == {
+        WINDOWS_INSTALLER_NAME,
+        f"video-account-distiller-skill-{RELEASE_VERSION}.zip",
+        f"video_account_distiller-{RELEASE_VERSION}-py3-none-any.whl",
+        f"video_account_distiller-{RELEASE_VERSION}.tar.gz",
+    }
+    assert report.issues == []
+
+
+def test_release_audit_rejects_third_party_source_inside_wheel(
+    tmp_path: Path,
+) -> None:
+    artifacts = tmp_path / "dist"
+    _write_release_artifacts(artifacts, forbidden_wheel_path="third_party/MediaCrawler/main.py")
+
+    report = audit_release_candidate(REPOSITORY_ROOT, artifact_dir=artifacts)
+
+    assert report.ok is False
+    assert any(issue.code == "forbidden_wheel_content" for issue in report.issues)
+    assert any(issue.code == "checksum_manifest_missing" for issue in report.issues)
+
+
+def test_release_audit_requires_exact_versioned_windows_installer(
+    tmp_path: Path,
+) -> None:
+    artifacts = tmp_path / "dist"
+    _write_release_artifacts(artifacts)
+    (artifacts / WINDOWS_INSTALLER_NAME).rename(
+        artifacts / "VideoAccountDistiller-Setup-1.0.0-win64.exe"
+    )
+
+    report = audit_release_candidate(REPOSITORY_ROOT, artifact_dir=artifacts)
+
+    assert report.ok is False
+    assert any(issue.code == "release_windows_installer_missing" for issue in report.issues)
+
+
+def test_release_audit_rejects_non_pe_windows_installer(tmp_path: Path) -> None:
+    artifacts = tmp_path / "dist"
+    _write_release_artifacts(artifacts)
+    (artifacts / WINDOWS_INSTALLER_NAME).write_bytes(b"not-an-executable")
+
+    report = audit_release_candidate(REPOSITORY_ROOT, artifact_dir=artifacts)
+
+    assert report.ok is False
+    assert any(issue.code == "invalid_windows_installer" for issue in report.issues)

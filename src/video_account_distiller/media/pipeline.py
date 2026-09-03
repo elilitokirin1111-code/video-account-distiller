@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import shutil
 import sys
@@ -16,6 +17,7 @@ from typing import Any, Literal
 from jinja2 import Environment, StrictUndefined
 
 from video_account_distiller.config import load_config
+from video_account_distiller.distillation.craft import PACING_FAST_MS, PACING_MEDIUM_MS
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.media.backend import (
     FFmpegMediaBackend,
@@ -25,6 +27,7 @@ from video_account_distiller.media.backend import (
 from video_account_distiller.media.providers import (
     StructuredVisionFileProvider,
     VisionModelProvider,
+    VisionProviderUnavailable,
     VisionSchemaFailure,
 )
 from video_account_distiller.models import (
@@ -38,6 +41,7 @@ from video_account_distiller.models import (
     MediaVisionAnnotation,
     MediaVisionBundle,
     ShotSegment,
+    ShotVisualAnnotation,
     SilenceInterval,
     VisionInputKeyframe,
     VisionInputShot,
@@ -50,7 +54,103 @@ from video_account_distiller.utils.ids import stable_id
 from video_account_distiller.utils.io import atomic_write_json, atomic_write_text, read_json
 from video_account_distiller.utils.lookup import resolve_video
 
-MEDIA_ANALYSIS_VERSION = "1.0.0"
+MEDIA_ANALYSIS_VERSION = "1.2.0"
+
+
+def _pacing_tags(average_shot_duration_ms: float | None) -> list[str]:
+    """Derive an editing-rhythm tag from the measured average shot duration."""
+    if average_shot_duration_ms is None:
+        return []
+    if average_shot_duration_ms < PACING_FAST_MS:
+        return ["快节奏剪辑"]
+    if average_shot_duration_ms <= PACING_MEDIUM_MS:
+        return ["中等节奏剪辑"]
+    return ["慢节奏剪辑"]
+
+
+def _opening_technique_tags(annotation: ShotVisualAnnotation | None) -> list[str]:
+    """Derive opening-technique tags from the first shot's visible craft labels.
+
+    The opening is the strongest expression-form signal for short-video hooks:
+    which shot scale, camera motion, and text style a video leads with. Tags stay
+    readable Chinese labels such as 特写开场 / 固定机位开场 / 开场大字标题.
+    """
+    if annotation is None:
+        return []
+    tags: list[str] = []
+    tags.extend(f"{value}开场" for value in annotation.shot_scale)
+    tags.extend(f"{value}开场" for value in annotation.camera_movement)
+    tags.extend(f"开场{value}" for value in annotation.text_overlay_styles)
+    if annotation.ocr_observation_ids:
+        tags.append("开场即出字幕")
+    return sorted(dict.fromkeys(tags))
+
+
+CRAFT_TAG_ATTRIBUTES: tuple[tuple[str, str], ...] = (
+    ("景别", "shot_scale"),
+    ("运镜手法", "camera_movement"),
+    ("机位角度", "camera_angle"),
+    ("构图", "composition"),
+    ("光线", "lighting"),
+    ("字幕与艺术字", "text_overlay_styles"),
+    ("动效与贴纸", "motion_graphics"),
+    ("品牌露出", "branding"),
+)
+
+
+def _media_craft_summary(analysis: MediaAnalysis) -> dict[str, Any]:
+    """Count visible craft labels per category for the per-video media report."""
+    summary: dict[str, Any] = {"categories": {}, "opening_techniques": [], "pacing_tags": []}
+    annotations = analysis.vision.shot_annotations if analysis.vision else []
+    first = None
+    if analysis.shots:
+        first_shot = min(analysis.shots, key=lambda item: (item.start_ms, item.index))
+        first = next(
+            (item for item in annotations if item.shot_id == first_shot.shot_id),
+            None,
+        )
+    for label, attribute in CRAFT_TAG_ATTRIBUTES:
+        counts: dict[str, int] = {}
+        for annotation in annotations:
+            for value in getattr(annotation, attribute):
+                counts[value] = counts.get(value, 0) + 1
+        summary["categories"][label] = sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))
+    opening = _opening_technique_tags(first)
+    if opening:
+        summary["opening_techniques"] = opening
+    pacing = _pacing_tags(
+        fmean(item.duration_ms for item in analysis.shots) if analysis.shots else None
+    )
+    if pacing:
+        summary["pacing_tags"] = pacing
+    return summary
+
+
+def _preserve_provider_responses(
+    project: ProjectLayout,
+    responses: list[Any],
+    response_hashes: list[str],
+) -> list[Path]:
+    paths: list[Path] = []
+    for response, response_hash in zip(responses, response_hashes, strict=True):
+        path = project.root / "raw" / "vision-outputs" / f"{response_hash}.json"
+        if not path.exists():
+            atomic_write_text(
+                path,
+                json.dumps(
+                    response,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+            )
+        if sha256_file(path) != response_hash:
+            raise DistillerError(
+                ErrorCode.RAW_INTEGRITY,
+                "Vision Provider raw output hash mismatch",
+            )
+        paths.append(path)
+    return paths
 
 
 def _resolve_media_path(
@@ -82,6 +182,92 @@ def _selected_shot_indexes(count: int, maximum: int) -> list[int]:
     if maximum == 1:
         return [0]
     return sorted({round(index * (count - 1) / (maximum - 1)) for index in range(maximum)})
+
+
+def _keyframe_points(
+    shots: Sequence[ShotSegment],
+    *,
+    duration_ms: int,
+    maximum: int,
+) -> list[tuple[int, int]]:
+    """Blend opening/ending anchors, scene midpoints, and uniform time coverage."""
+
+    if not shots or maximum < 1:
+        return []
+    duration = max(duration_ms, max((shot.end_ms for shot in shots), default=0))
+    if duration <= 0:
+        return [
+            (index, shots[index].start_ms + shots[index].duration_ms // 2)
+            for index in _selected_shot_indexes(len(shots), maximum)
+        ]
+
+    def shot_index_at(timestamp_ms: int) -> int:
+        return next(
+            (
+                index
+                for index, shot in enumerate(shots)
+                if shot.start_ms <= timestamp_ms < shot.end_ms
+            ),
+            len(shots) - 1,
+        )
+
+    coverage_target = (
+        4
+        if duration <= 10_000
+        else 6
+        if duration <= 30_000
+        else 8
+        if duration <= 60_000
+        else 12
+        if duration <= 180_000
+        else 16
+    )
+    target = min(maximum, max(min(len(shots), maximum), coverage_target))
+    if target == 1:
+        timestamp_ms = min(duration - 1, duration // 2)
+        return [(shot_index_at(timestamp_ms), timestamp_ms)]
+
+    edge_offset = min(250, max(1, duration // 20))
+    opening_ms = min(duration - 1, edge_offset)
+    ending_ms = max(0, duration - 1 - edge_offset)
+    selected: list[tuple[int, int]] = [
+        (shot_index_at(opening_ms), opening_ms),
+        (shot_index_at(ending_ms), ending_ms),
+    ]
+    selected = list(dict.fromkeys(selected))
+
+    # Keep both types of evidence in the candidate pool. Farthest-point
+    # selection spreads samples through time while preferring a real scene
+    # midpoint when two candidates provide the same temporal coverage.
+    candidates: dict[int, tuple[int, bool]] = {}
+    for index, shot in enumerate(shots):
+        timestamp_ms = min(duration - 1, shot.start_ms + shot.duration_ms // 2)
+        candidates[timestamp_ms] = (index, True)
+    grid_size = max(target * 2, 4)
+    for position in range(grid_size):
+        timestamp_ms = min(duration - 1, round((position + 0.5) * duration / grid_size))
+        previous = candidates.get(timestamp_ms)
+        candidates[timestamp_ms] = (
+            shot_index_at(timestamp_ms),
+            bool(previous and previous[1]),
+        )
+    for _, timestamp_ms in selected:
+        candidates.pop(timestamp_ms, None)
+
+    while len(selected) < target and candidates:
+        timestamp_ms, (shot_index, _is_scene) = max(
+            candidates.items(),
+            key=lambda item: (
+                min(abs(item[0] - existing) for _, existing in selected),
+                item[1][1],
+                -abs(item[0] - duration // 2),
+                -item[0],
+            ),
+        )
+        selected.append((shot_index, timestamp_ms))
+        candidates.pop(timestamp_ms)
+
+    return sorted(selected, key=lambda item: (item[1], item[0]))
 
 
 def _jpeg_dimensions(path: Path) -> tuple[int, int] | None:
@@ -264,6 +450,7 @@ def _generate_vision(
             errors=["visual/OCR provider not supplied; fields remain unknown"],
         )
     errors: list[str] = []
+    provider_unavailable = False
     valid_shots = {item.shot_id for item in bundle.shots}
     valid_keyframes = {item.keyframe_id for item in bundle.keyframes}
     for attempt in range(1, max_attempts + 1):
@@ -280,9 +467,23 @@ def _generate_vision(
                 status="success",
                 errors=errors,
             )
+        except VisionProviderUnavailable as exc:
+            provider_unavailable = True
+            errors.append(str(exc)[:500])
         except (VisionSchemaFailure, ValueError, TypeError) as exc:
             errors.append(str(exc)[:500])
     if strict:
+        if provider_unavailable:
+            raise DistillerError(
+                ErrorCode.MODEL_UNAVAILABLE,
+                f"Vision model service remained unavailable after {max_attempts} attempts",
+                details={
+                    "provider": provider.provider_name,
+                    "model": provider.model_name,
+                    "attempts": max_attempts,
+                    "errors": errors,
+                },
+            )
         raise DistillerError(
             ErrorCode.MODEL_SCHEMA_INVALID,
             f"Vision output remained invalid after {max_attempts} attempts",
@@ -523,10 +724,12 @@ class LocalMediaAnalysisService:
                             duration_ms=end_ms - start_ms,
                         )
                     )
-                selected_indexes = _selected_shot_indexes(len(shots), keyframe_limit)
-                for index in selected_indexes:
+                for index, timestamp_ms in _keyframe_points(
+                    shots,
+                    duration_ms=duration_ms,
+                    maximum=keyframe_limit,
+                ):
                     shot = shots[index]
-                    timestamp_ms = shot.start_ms + shot.duration_ms // 2
                     keyframe_id = stable_id("key_", media_hash, shot.shot_id, str(timestamp_ms))
                     temp_path = temp_dir / f"{keyframe_id}.jpg"
                     try:
@@ -546,7 +749,9 @@ class LocalMediaAnalysisService:
                     temp_frames[keyframe_id] = temp_path
                     frame_dimensions[keyframe_id] = _jpeg_dimensions(temp_path)
                     keyframe_specs.append((keyframe_id, shot.shot_id, timestamp_ms, frame_hash))
-                    shots[index] = shot.model_copy(update={"keyframe_ids": [keyframe_id]})
+                    shots[index] = shot.model_copy(
+                        update={"keyframe_ids": [*shot.keyframe_ids, keyframe_id]}
+                    )
                 if metadata.audio_codec is None:
                     audio = AudioFeatures(
                         status="skipped",
@@ -612,6 +817,8 @@ class LocalMediaAnalysisService:
                     for item in shots
                 ],
                 keyframes=provisional_keyframes,
+                source_video_path=str(source),
+                duration_ms=metadata.duration_ms,
             )
             vision, vision_trace = _generate_vision(
                 bundle=vision_bundle,
@@ -619,6 +826,12 @@ class LocalMediaAnalysisService:
                 max_attempts=config.models.max_schema_attempts,
                 strict=strict_vision,
             )
+            provider_responses = list(
+                getattr(selected_provider, "raw_responses", [])
+                if selected_provider is not None
+                else []
+            )
+            provider_output_hashes = [sha256_json(response) for response in provider_responses]
             if vision_trace.status == "degraded":
                 degraded = True
                 warnings.extend(f"vision_schema:{item}" for item in vision_trace.errors)
@@ -638,6 +851,7 @@ class LocalMediaAnalysisService:
                     "vision_trace": vision_trace.model_dump(mode="json"),
                     "scene_threshold": threshold,
                     "provider_hash": provider_hash,
+                    "provider_output_hashes": provider_output_hashes,
                 }
             )
             analysis_id = stable_id("mda_", analysis_fingerprint)
@@ -665,17 +879,42 @@ class LocalMediaAnalysisService:
                 "warnings": output_dir / "warnings.json",
             }
             relative_paths = [self.project.relative(path) for path in paths.values()]
+            raw_provider_outputs = _preserve_provider_responses(
+                self.project,
+                provider_responses,
+                provider_output_hashes,
+            )
             if paths["analysis"].is_file():
+                # Raw videos are intentionally pruned after successful distillation.
+                # A later targeted reparse may download the same blob again; restore
+                # the verified raw copy for the duration of that new processing run.
+                if not raw_media_path.is_file():
+                    raw_media_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(source, raw_media_path)
+                if sha256_file(raw_media_path) != media_hash:
+                    raise DistillerError(
+                        ErrorCode.RAW_INTEGRITY,
+                        "Restored raw media hash mismatch",
+                    )
                 return {
                     "ok": True,
                     "dry_run": False,
                     "already_generated": True,
                     "analysis": read_json(paths["analysis"]),
-                    "outputs": relative_paths,
+                    "outputs": [
+                        *relative_paths,
+                        *(self.project.relative(path) for path in raw_provider_outputs),
+                    ],
                 }
             manifest = self.project.begin_run(
                 "analyze media",
-                input_hashes=sorted({media_hash, *([provider_hash] if provider_hash else [])}),
+                input_hashes=sorted(
+                    {
+                        media_hash,
+                        *([provider_hash] if provider_hash else []),
+                        *provider_output_hashes,
+                    }
+                ),
             )
             generated_at = datetime.now(UTC)
             evidence = MediaEvidenceIndex(
@@ -764,9 +1003,20 @@ class LocalMediaAnalysisService:
             )
             atomic_write_text(
                 paths["report"],
-                template.render(analysis=analysis.model_dump(mode="python")).strip() + "\n",
+                template.render(
+                    analysis=analysis.model_dump(mode="python"),
+                    craft_summary=_media_craft_summary(analysis),
+                ).strip()
+                + "\n",
             )
             feature_id = stable_id("mdf_", analysis_id)
+            visual_annotations = vision.shot_annotations if vision else []
+            annotations_by_shot = {item.shot_id: item for item in visual_annotations}
+            first_annotation = None
+            if shots:
+                first_shot = min(shots, key=lambda item: (item.start_ms, item.index))
+                first_annotation = annotations_by_shot.get(first_shot.shot_id)
+            average_shot_duration_ms = fmean(item.duration_ms for item in shots) if shots else None
             feature = MediaFeatureRecord(
                 record_id=feature_id,
                 media_feature_id=feature_id,
@@ -778,13 +1028,50 @@ class LocalMediaAnalysisService:
                 height=metadata.height,
                 shot_count=len(shots),
                 keyframe_count=len(keyframes),
-                average_shot_duration_ms=(
-                    fmean(item.duration_ms for item in shots) if shots else None
-                ),
+                average_shot_duration_ms=average_shot_duration_ms,
                 silence_ratio=audio.silence_ratio,
                 rms_dbfs=audio.rms_dbfs,
                 ocr_observation_count=len(vision.ocr_observations) if vision else 0,
-                visual_annotation_count=len(vision.shot_annotations) if vision else 0,
+                visual_annotation_count=len(visual_annotations),
+                visual_labels=sorted(
+                    {value for item in visual_annotations for value in item.labels}
+                ),
+                dominant_colors=sorted(
+                    {value for item in visual_annotations for value in item.dominant_colors}
+                ),
+                visual_style_tags=sorted(
+                    {
+                        value
+                        for item in visual_annotations
+                        for value in [*item.composition, *item.camera, *item.lighting]
+                    }
+                ),
+                text_overlay_style_tags=sorted(
+                    {value for item in visual_annotations for value in item.text_overlay_styles}
+                ),
+                motion_graphic_tags=sorted(
+                    {value for item in visual_annotations for value in item.motion_graphics}
+                ),
+                branding_tags=sorted(
+                    {value for item in visual_annotations for value in item.branding}
+                ),
+                shot_scale_tags=sorted(
+                    {value for item in visual_annotations for value in item.shot_scale}
+                ),
+                camera_movement_tags=sorted(
+                    {value for item in visual_annotations for value in item.camera_movement}
+                ),
+                camera_angle_tags=sorted(
+                    {value for item in visual_annotations for value in item.camera_angle}
+                ),
+                composition_tags=sorted(
+                    {value for item in visual_annotations for value in item.composition}
+                ),
+                lighting_tags=sorted(
+                    {value for item in visual_annotations for value in item.lighting}
+                ),
+                opening_technique_tags=_opening_technique_tags(first_annotation),
+                pacing_tags=_pacing_tags(average_shot_duration_ms),
                 analysis_status=status,
                 analysis_path=self.project.relative(paths["analysis"]),
                 source_platform=video.source_platform,
@@ -805,7 +1092,11 @@ class LocalMediaAnalysisService:
             state = self.project.load_state()
             state.last_media_analysis_at = datetime.now(UTC)
             self.project.save_state(state)
-            output_files = [*relative_paths, self.project.relative(feature_path)]
+            output_files = [
+                *relative_paths,
+                *(self.project.relative(path) for path in raw_provider_outputs),
+                self.project.relative(feature_path),
+            ]
             self.project.finish_run(
                 manifest,
                 success=True,

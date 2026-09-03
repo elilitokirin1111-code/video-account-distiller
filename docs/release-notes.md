@@ -6,30 +6,204 @@ changes.
 
 ## Unreleased
 
+No changes are assigned after the staged `1.1.1` candidate yet.
+
+## 1.1.1 — 2026-09-03 (staged; not published)
+
+This patch candidate completes the desktop workflow for selecting project accounts and reviewing
+or synchronizing evidence-gated creative reports. Package and Skill versions move together to
+`1.1.1`; existing project data is not rewritten automatically.
+
 ### Added
 
+- A project-backed WeKnora account picker that shows account name, handle, and platform while
+  retaining the canonical `acc_*` ID for refresh, copy, selection, and synchronization.
+- Per-video creative report v2 with an executive summary, full structure breakdown, dimension
+  scores, strengths, weaknesses, prioritized improvements, and account-level rollups.
+- Explicit low-evidence gating so missing transcript, visual, audio, or performance evidence stays
+  unknown or unscored instead of becoming a fabricated judgment.
+
+### Changed
+
+- Qwen native-video analysis and DeepSeek V4 Flash text distillation now support their distinct
+  Bailian endpoints, including the workspace-specific MaaS endpoint required by DeepSeek V4.
+- WeKnora creative-learning sync now includes each available per-video creative report and reports
+  total and degraded document counts.
+
+## 1.1.0 — 2026-09-02 (staged; not published)
+
+The source version and release asset contract are staged for `1.1.0`, but no tag or GitHub Release
+has been published. Promotion remains blocked until a real 7～14 day public-beta campaign targeting
+`1.1.0` produces the required frozen evidence bundle and the complete cross-platform artifact
+audit passes. Existing core, analysis, schema, rubric, and rule versions are intentionally not
+renumbered by this package release.
+
+### Changed
+
+- Raised the `qwen3.7-plus` native-video Base64 client limit from 64 MiB to 256 MiB.
+- Windows installation now always creates the desktop shortcut instead of leaving it behind an
+  unchecked optional task.
+
+### Added
+
+- A fail-closed Windows in-place updater: stable GitHub Release discovery, exact installer asset
+  matching, size and SHA-256 verification, streamed `.part` staging, atomic promotion, and silent
+  same-AppId installation into the running EXE directory after active tasks finish.
+
+- Alibaba Cloud Model Studio (Bailian) as a selectable account-level deep-analysis provider,
+  including Web-based online credential validation, operating-system keyring storage, approved
+  endpoint validation, JSON-mode schema checks, CNY cost previews, and provider-specific audit
+  metadata.
+
+- Native `qwen3.7-plus` cloud video understanding with adaptive FPS, mixed keyframe evidence
+  anchors, bounded Base64 upload, and keyframe-only fallback; the desktop adds a one-click
+  Qwen-video + DeepSeek-V4-Flash knowledge-distillation preset.
+- Backup-first project schema migration preview/apply commands with verified archives, validation,
+  migration receipts, automatic state rollback, and explicit future/unknown-version rejection.
+- An immutable 7-14 day public-beta evidence gate covering hashed multi-account/machine identities,
+  compatibility snapshots, real SQLite concurrency and injected-failure retry, task/backup/migration
+  recovery drills, incident recording, and explicitly confirmed release-freeze records.
+- Post-freeze evidence re-verification, deterministic portable evidence ZIPs with per-file hashes,
+  version binding, path/inventory limits, and tamper detection.
+- Optional or mandatory public-beta evidence consumption in RC audit, including artifact/checksum
+  membership enforcement and a stable-tag workflow that fails closed when evidence is absent.
 - Phase 8 collection schema `0.8.0` and strict request, canonical account/video/metric, raw-page,
   and Provider batch contracts.
 - Backward-compatible collection schema `0.8.1` with optional canonical comments, one-page
   high-comment-video sampling, immutable comment companions, and automatic redacted comment
   analysis before account distillation.
-- `distiller account analyze` for a user-approved Douyin homepage URL, bounded 1～100 post
-  pagination, `latest`/`popular` order, no-network dry-run, and explicit paid-call confirmation.
+- Backward-compatible collection schema `0.8.2` where an omitted video count means all
+  Provider-exposed homepage videos, with repeated-cursor detection, 1,000-page/20,000-video
+  emergency guards, and an optional explicit count limit.
+- Initial `distiller account analyze` support for a user-approved Douyin homepage URL, bounded
+  1～100 post pagination, `latest`/`popular` order, no-network dry-run, and explicit paid-call
+  confirmation.
 - Fixed-host TikHub Provider with environment-only credential, bounded retry, stable
   authorization/rate-limit/response errors, and injectable offline HTTP tests.
+- Pinned `NanmiCoder/MediaCrawler` Git submodule and controlled sidecar Provider for the declared
+  personal non-commercial learning/research workflow.
+- Visible dedicated Chrome profile with manual authentication, stable runtime/login/timeout errors,
+  offline bridge Fixtures, and a third-party licensing notice.
+- Dedicated Microsoft Edge support, browser-specific login profiles, a bounded configurable login
+  timeout, and navigation-safe manual authentication.
 - Immutable Provider batches and canonical companions under `raw/account-collections/`, routed
   through the existing import, Parquet, robust-metric, report, and account-distillation services.
 - Phase 8 project validation, status counters, `doctor` capability, offline Fixtures, CLI/provider
   contracts, integration tests, Skill route, live-acceptance guide, and architecture/data docs.
+- Pinned MIT `bradautomates/claude-video` workflow reference and project-native
+  `AccountMediaEnrichmentService`.
+- `distiller account enrich-media` plus opt-in `account analyze --media-limit`, with retained
+  Douyin-source allowlisting, immutable media, local Whisper Chinese transcription, scene/keyframe/
+  audio analysis, single-video semantics, and account re-distillation.
+- Strict `AccountMediaEnrichment`, `VideoMediaEnrichment`, and `TranscriptionSummary` contracts;
+  stable media-download/transcription errors; project validation/status/doctor coverage; and
+  network-disabled unit, contract, and integration tests.
+- Loopback-only `OllamaVisionProvider` with `qwen3-vl:8b`, strict JSON Schema, bounded keyframe
+  batches, frame-to-shot evidence mapping, OCR, scene/color/composition/camera/lighting,
+  artistic-text, motion-graphic, and branding fields.
+- Content-addressed `abp_*` account benchmark profiles that retain likes/comments/shares/saves,
+  comment-like and semantic aggregates, content pillars, visual identity, snapshot times, hashes,
+  and unavailable-field warnings for future comparisons.
+- Same-platform account ranking based on per-video public-interaction medians and optional
+  per-1,000-follower interactions, with per-account coverage and explicit view exclusion.
+- `distiller account benchmark-profile`, automatic profile generation after homepage analysis and
+  retained-media enrichment, profile validation, status counts, report tables, and offline tests.
+- Optional OpenKB sidecar integration with curated account Markdown, privacy allowlisting,
+  content-hash idempotence, same-target document replacement, environment-only connection
+  settings, explicit model-processing confirmation, CLI/API routes, project validation, and
+  network-free contract tests.
+- Vision contract 1.4.0 with explicit per-frame `shot_scale` and `camera_movement` fields
+  (legacy `camera` mirrored into `camera_angle`), filtered field-name echoes, and deterministic
+  per-video `opening_technique_tags` / `pacing_tags` in `media_features.parquet`.
+- Account craft distillation: a structured `CraftProfile` (景别/运镜/机位/构图/光线/字幕艺术字/
+  动效贴纸/品牌露出/开场手法/剪辑节奏 with per-tag coverage), `signature_style`,
+  performance-associated `craft` Patterns with support/counterexamples, evidence and warning
+  coverage, report sections, benchmark-profile `craft_identity`, and knowledge-base craft lines.
+- Single-video deep distillation: `distiller analyze video --deep` merges the blind text analysis
+  and local media analysis into one content-addressed `svd_*` reference card covering 选材 topic
+  (angle/audience/information increment/memory point/topic formula), 表现形式 expression,
+  拍摄手法 craft (with deterministic per-shot counts), and a 可复制清单 copy checklist; optional
+  `--deep-provider ollama|llamacpp|cloud` or offline `--deep-output`, strict schema validation with
+  segment/shot citation filtering, deterministic degradation without a model, and project
+  validation coverage.
+- Single-video to WeKnora chain: HTTP deep-distillation support in
+  `analyze/video/{video_id}` (`deep`/`deep_provider` params, cloud credentials from the credential
+  store), `distiller knowledge weknora sync-video` CLI, and
+  `knowledge/weknora/videos/{video_id}/sync` API that uploads the latest `svd_*` reference card
+  with provenance metadata and replaces earlier documents for the same video.
+- Single-video collection: TikHub `fetch_one_video` support
+  (`distiller video collect --url`), `AccountCollectionService.analyze_video_url`, the
+  `POST /collection/analyze-video-url` API, the one-command
+  `distiller video analyze --url ... --deep --weknora-kb-id` workflow
+  (collect → local transcription → deep distillation → WeKnora), and a 「单视频蒸馏」mode in the
+  Web「新建蒸馏」page.
+- Single-video MediaCrawler provider: the controlled bridge gains a `--video-url` mode
+  (`get_video_by_id` for the detail and optional top-level comments); `distiller video collect
+  --provider mediacrawler`, the API `provider` field, and the Web provider selector now mirror
+  the account homepage workflow (visible browser, manual login).
+- Web shell: sidebar defaults to expanded on every page (still collapsible by the user) and a small
+  runtime diagnostic badge reports the build id, viewport width, and sidebar visibility.
+- Qwen (Bailian) across the full cloud chain: scheme-less Model Studio MaaS gateways
+  (`ws-*.maas.aliyuncs.com`) now get `https://` completed automatically in the text and vision
+  providers; the account-distill task form's 知识分析服务商 picker selects DeepSeek/OpenAI/Bailian
+  with Qwen models (`qwen3.7-plus`, `qwen-max-latest`, `qwen-plus-latest`, `qwen-turbo-latest`,
+  `qwen-long`), `deepseek-chat` joins the DeepSeek model enum, and the cloud form guides endpoint
+  choice and key/provider matching. A `401` on cloud tasks is documented as a key/provider
+  mismatch (e.g. a Bailian key saved in the DeepSeek credential slot).
 
 ### Changed
 
-- The development Skill can now route user-approved public Douyin homepage analysis without using
-  browser state, cookies, login automation, CAPTCHA handling, or direct platform-page scraping.
-- Comment sampling remains disabled by default; `--comments-per-video` and
-  `--comment-video-limit` add explicit bounded calls that are included in dry-run billing output.
-- Package and Skill remain `1.0.0` until a real-token paid acceptance run succeeds; existing core
-  and Phase 2～7 artifact schemas are unchanged.
+- The standard CLI, API, and Web entry points now default to TikHub, a bounded 20-video scope, and
+  zero comments. Real paid calls still require explicit cost confirmation.
+- Full-homepage collection is now an explicit `--all` operation with the existing repeated-cursor,
+  1,000-page, and 20,000-video safety guards. `--count` remains an explicit 1～20,000 limit.
+- MediaCrawler is now an explicit optional local research adapter selected with
+  `--provider mediacrawler`; its source and browser runtime remain outside the installable wheel.
+- API background work now uses one typed task executor, stable error envelopes, completed progress,
+  and a task store isolated per app instance.
+- The Web report browser now resolves account/report IDs from canonical report paths and displays
+  retained Markdown. Transcript import now sends the entered video ID and language.
+- Only the controlled MediaCrawler bridge is approved: visible Chrome and manual authentication,
+  with no proxy, stealth, automatic-login, CAPTCHA, or risk-control-evasion features.
+- Contradictory public `play_count = 0` values with positive interactions are normalized as missing,
+  and all-tied performance scores use neutral band `B` instead of labeling every work `S`.
+- TikHub Douyin homepage posts now default to the welcome-credit-compatible Web endpoint. Operators
+  with paid credit can opt into the more stable APP V3 endpoint with
+  `TIKHUB_DOUYIN_POSTS_MODE=app-v3`; there is no automatic paid fallback.
+- The first real MediaCrawler Edge acceptance passed on 2026-07-23 with 10 videos, 10 metric
+  snapshots, and 30 comments accepted, zero row rejections, and zero project validation findings.
+  That acceptance ran against package `1.0.0`; package and Skill are now staged at `1.1.0`, while
+  existing core and Phase 2～7 artifact schemas remain unchanged.
+- The conservative no-model video fallback now classifies only explicit Chinese hotel keywords at
+  confidence no greater than `0.45`. Account positioning also reports measured orientation, median
+  shot duration, audio activity, and any schema-backed visual annotations, while preserving
+  unknown visual semantics and causal limits.
+- Long clips with too few detected cuts now receive bounded uniform keyframe coverage, and repeated
+  analyses/distillations select the newest timestamped media artifact rather than relying on an ID
+  sort. Media-chain status and degraded local semantic status are reported independently.
+- Qwen3-VL structured output is accepted from Ollama's local `message.content` or
+  `message.thinking`, then validated identically; empty or malformed output still fails with the
+  stable model Schema error.
+- Cross-platform accounts remain available for conservative Pattern transfer but are excluded from
+  public-interaction ranking. Missing views remain unknown and never enter the composite score.
+
+### Acceptance
+
+- The 2026-07-27 integrated offline gate passed 203 tests with 85.41% statement coverage,
+  Ruff, Skill validation, and strict mypy across 174 source/test files.
+- A source-distribution-built wheel installed into a clean Python 3.11 environment and completed
+  22 subprocess steps, including curated OpenKB export, no-network sync preview, and final project
+  validation with zero errors and zero warnings. This does not claim a live OpenKB/model call.
+- A separately approved local run enriched two retained public videos (106.4 seconds and
+  318.8 seconds) with local Whisper, yielding 53 and 208 transcript segments.
+- The refreshed media kernel produced 12 keyframes for the long single-shot clip and 151 detected
+  shots with 16 bounded keyframes for the longer edited clip.
+- The account report reached 2/10 evidence-linked semantic coverage, added two measured
+  media-production records, and passed final project validation with zero errors and zero warnings.
+  See `docs/phase8-media-enrichment-acceptance-2026-07-23.md`.
+- Ollama and `qwen3-vl:8b` were installed on the D drive for local visual acceptance; exact
+  versions, model digest, real-project result, and validation outcome are recorded in the current
+  `docs/local-vision-and-benchmark-acceptance-2026-07-23.md` note.
 
 ## 1.0.0 — 2026-07-23
 

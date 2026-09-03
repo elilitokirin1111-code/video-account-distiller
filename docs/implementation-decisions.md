@@ -436,3 +436,603 @@ requirements from later phases.
   analysis, but multiplies Provider calls and expands the personal-data footprint. A one-page,
   high-signal, explicitly enabled sample creates predictable cost and privacy limits while reusing
   the tested Phase 4 pipeline.
+
+## ID-057 — Default live acceptance to the free-credit-compatible Web posts endpoint
+
+- **Decision:** Use TikHub's Douyin Web homepage-post endpoint by default because the API
+  marketplace currently marks it as eligible for welcome credit. Keep the documented APP V3
+  endpoint available through `TIKHUB_DOUYIN_POSTS_MODE=app-v3`, but never fall back to it
+  automatically.
+- **Reason:** The approved first live test has only welcome credit, while TikHub currently marks
+  the APP V3 homepage-post endpoint as paid-credit-only. The Web endpoint has the same bounded
+  pagination contract but is documented as potentially less stable. An explicit opt-in preserves
+  the more stable paid path without risking an unexpected charge or changing normalized schemas.
+
+## ID-058 — Pin MediaCrawler as an explicitly third-party research component
+
+- **Decision:** Add `NanmiCoder/MediaCrawler` as a Git submodule pinned to commit
+  `0625e01a6bc717a3fc9c96d3dac7fb8957043838`. Preserve its upstream license and add
+  `THIRD_PARTY_NOTICES.md`. Limit the bundled path to the user's declared personal,
+  non-commercial learning and research scope; require a new licensing review before commercial
+  use, hosted service, paid delivery, or redistribution beyond the upstream terms.
+- **Reason:** A pinned source tree and lockfile make the research runtime reproducible and
+  auditable, while a clear third-party boundary prevents the root MIT license from being
+  misinterpreted as relicensing MediaCrawler. The notice preserves learning/reference attribution
+  without making an unsupported commercial-rights claim.
+
+## ID-059 — Use a controlled MediaCrawler sidecar instead of its full crawler workflow
+
+- **Decision:** Invoke only MediaCrawler's Douyin client, parsing, and signing code from a separate
+  locked `uv` process. Launch visible Chrome with a dedicated persistent profile and require manual
+  user authentication. Disable proxies and do not invoke upstream stealth injection,
+  automatic-login, slider/CAPTCHA, or risk-control-evasion paths.
+- **Reason:** The project needs the useful data-collection capability but must keep authentication
+  and platform controls under direct user control. A strict JSON sidecar preserves process and
+  dependency isolation, stable errors, offline contract testing, and the existing provider-neutral
+  analysis kernel.
+
+## ID-060 — Make MediaCrawler the default complete homepage-to-distillation workflow (superseded)
+
+- **Decision:** Default the CLI and request model to `mediacrawler`, sample up to 10 top-level
+  comments from each of at most three high-comment collected videos, and keep TikHub as an explicit
+  optional paid Provider. A single `account analyze` command must still preserve raw pages and
+  hashes, import and validate canonical rows, rebuild Parquet/DuckDB, calculate robust metrics, and
+  generate comment analysis, account health, and distillation artifacts.
+- **Reason:** The requested operating model is a usable end-to-end workflow from one homepage URL,
+  not a disconnected collector or manual export bridge. Reusing `AccountCollectionService` keeps
+  all existing evidence, privacy, and validation contracts intact while removing a mandatory
+  third-party API charge from the default personal-research path.
+
+## ID-061 — Keep manual authentication navigation-safe and browser-specific
+
+- **Decision:** Treat page-navigation errors during the bounded login wait as transient, support
+  `chrome` and `msedge` through separate dedicated profiles, and allow an environment-only
+  30～900-second login timeout. Continue to reject every other browser channel and never automate
+  credentials, CAPTCHA, verification, proxy, stealth, or risk-control behavior.
+- **Reason:** The first Windows acceptance attempt showed that a normal user-initiated login
+  navigation could destroy Playwright's evaluation context, while the default three-minute window
+  could close before a slower manual login completed. These changes make the allowed manual path
+  reliable without broadening the security boundary.
+
+## ID-062 — Treat contradictory zero public views as unavailable
+
+- **Decision:** When a public post reports `play_count = 0` together with any positive interaction,
+  normalize views to `null`, retain every interaction count, and emit the existing missing-view
+  collection warning. If every otherwise-known performance score is tied, assign neutral band
+  `B` rather than incorrectly labeling every row `S`.
+- **Reason:** The first live MediaCrawler payload exposed positive likes, comments, shares, and
+  saves while withholding play counts as zero. Treating that sentinel as a measured zero removed
+  all rate denominators and caused a percentile tie to appear as universal top performance.
+  Missing and neutral output is more honest than a fabricated ranking.
+
+## ID-063 — Pin claude-video as an MIT workflow reference
+
+- **Decision:** Add `bradautomates/claude-video` as a Git submodule pinned to
+  `83da59fa78c3eee9e20f515fe75c438bb5166efd` (`0.2.0`) and preserve its MIT license and
+  attribution in `THIRD_PARTY_NOTICES.md`.
+- **Reason:** The upstream project provides a compact, auditable reference for URL/local-video
+  acquisition, scene-aware frames, captions, and Whisper fallback. Pinning it makes the borrowed
+  workflow boundary reproducible without making an unversioned GitHub dependency part of the
+  analysis kernel.
+
+## ID-064 — Adapt the workflow instead of executing upstream watch.py
+
+- **Decision:** Do not execute upstream `/watch` in the account pipeline. Implement a project-native
+  `AccountMediaEnrichmentService` that reuses the existing FFmpeg media service, transcript
+  importer, normalizer, single-video analyzer, and account distiller.
+- **Reason:** Upstream output is Markdown-oriented, defaults captions to English, falls back only
+  to cloud Whisper APIs, and has an open source/output-directory deletion risk. The native adapter
+  preserves strict Pydantic JSON, raw hashes, stable errors, Windows UTF-8 behavior, offline tests,
+  and the project's evidence chain.
+
+## ID-065 — Resolve video bytes only from retained approved Provider evidence
+
+- **Decision:** Media enrichment may read candidates only from an immutable MediaCrawler
+  `aweme/detail` page for the selected normalized video. Accept only HTTPS `douyin.com` or
+  `douyinvod.com` hosts, validate the final redirect host, limit each file to 512 MiB, never emit
+  signed URLs, and remove only service-owned temporary files after the media is hash-preserved.
+- **Reason:** This removes manual per-video import while keeping the account, sample, provenance,
+  and network boundary explicit. It also prevents the feature from becoming an arbitrary URL
+  fetcher or a second authentication/cookie workflow.
+
+## ID-066 — Keep transcription local and mockable
+
+- **Decision:** Use a local OpenAI Whisper CLI through an argument-array subprocess with no shell,
+  default model `base`, explicit executable override, one-hour timeout, strict JSON conversion,
+  and stable unavailable/failed error codes. Tests inject a local fixture transcriber and disable
+  all sockets.
+- **Reason:** Current public Douyin details do not provide speech captions. Local transcription
+  closes the semantic-analysis gap without uploading guest, room, screen, or booking content to a
+  third-party model service.
+
+## ID-067 — Surface measured production style and bounded local hotel semantics
+
+- **Decision:** Let the degraded text fallback classify only explicit Chinese hotel-operation,
+  service, housekeeping, career, and accommodation keywords, cap confidence at `0.45`, and retain
+  a human/model-review warning. Account positioning may summarize measured orientation, median
+  shot duration, silence ratio, and schema-backed visual annotations from `media_features`.
+- **Reason:** Always returning `primary_pillar=unknown` made a real 10-video report structurally
+  correct but operationally empty. Explicit evidence-linked local labels and measured production
+  signals improve the report without fabricating objects, people, OCR, music meaning, causality,
+  or performance patterns.
+
+## ID-068 — Keep the bundled live visual Provider loopback-only
+
+- **Decision:** Add Ollama/Qwen3-VL as the only bundled live visual path. Accept only
+  `http://127.0.0.1:11434` or `localhost` on port 11434 and reject TLS, remote hosts, credentials,
+  alternate ports, paths, queries, and fragments before reading image bytes.
+- **Reason:** The project needs real visual/OCR analysis without sending guest, room, screen, or
+  booking imagery to a cloud service. A hard loopback boundary is testable and preserves the
+  existing local-first privacy model.
+
+## ID-069 — Install Ollama program and model storage on D
+
+- **Decision:** On the accepted Windows workstation, install Ollama under `D:\AI\Ollama\App`, set
+  the user `OLLAMA_MODELS` value to `D:\AI\Ollama\Models`, and pull `qwen3-vl:8b` there. Keep this
+  path operator-configurable in documentation rather than hard-coding it into project data.
+- **Reason:** The user explicitly requested D-drive installation and the workstation has ample D
+  capacity. Environment-based model storage avoids filling the system drive while keeping normal
+  Ollama behavior.
+
+## ID-070 — Persist reusable public-interaction and comment-content profiles
+
+- **Decision:** Build content-addressed `abp_*` profiles from the latest normalized per-video
+  metrics, exact comment-analysis artifact, exact account distillation, and any visual identity.
+  Retain every profile and automatically rebuild after homepage analysis or media enrichment.
+- **Reason:** Later account comparisons must not require the user to re-enter older data. Immutable
+  raw batches plus versioned derived profiles preserve history and make the exact comparison input
+  auditable.
+
+## ID-071 — Rank only visible same-platform interaction dimensions
+
+- **Decision:** Rank target-platform accounts using percentiles for median likes, comments, shares,
+  saves/favorites, and interactions per 1,000 followers when available. Average only each account's
+  available dimensions, report coverage, exclude cross-platform accounts, and never use homepage
+  views.
+- **Reason:** Douyin public pages may withhold views and follower denominators. Treating them as
+  zero or comparing them across platforms would create false precision. Comment semantics explain
+  audience needs but do not inflate the interaction score.
+
+## ID-072 — Validate Qwen structured output from either Ollama message field
+
+- **Decision:** Prefer non-empty `message.content`; when it is empty, accept `message.thinking` and
+  validate it against the same strict JSON Schema. Do not regex-repair or invent missing evidence.
+- **Reason:** Real `qwen3-vl:8b` acceptance returned the requested structured JSON in the local
+  thinking field even with thinking disabled. Supporting the actual Ollama response shape closes
+  compatibility without weakening Schema or evidence checks.
+
+## ID-073 — Make homepage exhaustion the default video scope (superseded)
+
+- **Decision:** Interpret `AccountCollectionRequest.count = null` as all Provider-exposed homepage
+  videos and make that the CLI default. Continue pagination until `has_more` is false. Retain
+  `--count <1-20000>` only as an explicit user limit, detect repeated cursors, and stop with a
+  visible warning at the 1,000-page or 20,000-video emergency guard.
+- **Reason:** A fixed 10-video default made account distillation and later cross-account ranking
+  sensitive to a small recent slice. Full accessible history provides the requested account-level
+  evidence, while Provider termination, cursor detection, explicit paid-provider confirmation,
+  and emergency guards prevent accidental infinite or uncontrolled collection.
+
+## ID-074 — Make bounded TikHub collection the standard product entry point
+
+- **Decision:** Supersede ID-073 at the CLI/API/Web entry points: default to TikHub, 20 recent
+  videos, and zero comments. Preserve `AccountCollectionRequest.count = null` as the internal
+  full-homepage contract, but expose it only through explicit `--all`. Keep MediaCrawler available
+  only through `--provider mediacrawler`.
+- **Reason:** The standard product must behave the same from a source checkout and an installed
+  wheel. TikHub has a documented, browser-free boundary, while MediaCrawler has a separate
+  non-commercial license, source checkout, Node/browser runtime, and manual login. A bounded default
+  also makes time, cost, and evidence scope reviewable before users opt into comments or full history.
+
+## ID-075 — Centralize and isolate API task execution
+
+- **Decision:** Route blocking API services through one typed in-process executor with a stable task
+  envelope, normalized `DistillerError` payloads, terminal progress, and one task store per FastAPI
+  application instance.
+- **Reason:** Four copied task runners had already diverged in error serialization and progress
+  behavior, and the module-global task dictionary leaked state across application instances. One
+  executor gives the Web console and API clients a single contract and creates a clean seam for a
+  future persistent queue.
+
+## ID-076 — Integrate OpenKB as an optional one-way sidecar
+
+- **Decision:** Keep OpenKB out of the core dependency set. Export only bounded, privacy-aware
+  account analysis documents to `knowledge-outbox/openkb/`, synchronize them through the OpenKB
+  REST API with canonical payload hashes, and mark all query results non-authoritative. Require
+  explicit model-processing confirmation before real sync/query operations.
+- **Reason:** OpenKB adds cross-report compiled knowledge and long-term query value, but it does not
+  collect platform data, understand video files, replace Parquet/DuckDB, or preserve Distiller's
+  row-level evidence contract. A separate process isolates its Alpha dependency graph and lets an
+  OpenKB outage fail only the optional knowledge surface.
+
+## ID-077 — Queue the self-service workflow with SQLite claims and bounded leases
+
+- **Decision:** Persist the serializable self-service account-distillation job before execution and
+  let any API process sharing the same SQLite database atomically claim it. Enforce a bounded global
+  concurrency limit, a stricter workflow resource limit, and a pending-task ceiling. Renew active
+  claims with leases; when a lease expires, fail the task as explicitly retryable instead of
+  automatically replaying it. Keep existing one-step API jobs in-process until each has a validated
+  serializable job contract.
+- **Reason:** Durable pending work must survive an API restart and multiple workbench processes must
+  not duplicate expensive collection or media work. Automatic replay after an uncertain process
+  failure could duplicate Provider charges or partially repeat immutable writes, so checkpoint-based
+  user retry remains the safer boundary. Migrating the primary workbench workflow first closes the
+  main M2 path without coupling every legacy service call to one oversized dispatcher change.
+
+## ID-078 — Keep GPT credentials environment-only and freeze the pricing basis per run
+
+- **Decision:** Accept only secret-free GPT analysis requests. Read `OPENAI_API_KEY` inside the API
+  process, require a local preflight that exposes the bounded data scope, request fingerprints,
+  selected model, rate-card snapshot, and conservative cost ceiling, and persist actual token usage
+  with that immutable pricing basis. Save a separate fixed-question evaluation artifact; never
+  write GPT output into Rule or Rubric records.
+- **Reason:** Request-body credentials contradict the repository's environment-only secret
+  contract and expand the browser/API leakage surface. A versioned price snapshot makes historical
+  estimates reproducible even after public prices change, while the preflight and non-retryable
+  task boundary prevent silent paid calls. Separate evaluation keeps model conclusions derived,
+  reviewable, and comparable without weakening deterministic governance.
+
+## ID-079 — Keep private-data provenance in immutable import receipts
+
+- **Decision:** Classify imported data as `public`, `authorized_private`, `model_inferred`, or
+  `unknown` in immutable import receipts, and retain the authorization grant ID for private imports.
+  Normalize creator audience data through a versioned flat segment contract. Generate a fixed
+  machine-readable account data-gap table that separates intended source tier, observed provenance,
+  availability counts, and row-level evidence backlinks.
+- **Reason:** Adding source labels directly to historical normalized rows would silently rewrite old
+  provenance and make unchanged raw hashes appear newly trusted. Receipt-level provenance preserves
+  the original authorization boundary, while `unknown` remains honest for legacy imports. A flat
+  audience segment table is strict enough to validate shares and counts but portable across changing
+  creator-center export shapes.
+
+## ID-080 — Keep the productized Web redesign inside the Streamlit boundary
+
+- **Decision:** Retain the existing Streamlit multipage runtime and FastAPI contracts, but centralize
+  the visual shell, theme tokens, browser-persisted light/dark state, Chinese navigation, reusable
+  cards, workflow steppers, form states, tables, badges, and responsive rules in one shared Web
+  module. Keep page-specific business requests in their existing page modules.
+- **Reason:** Replacing the frontend framework would add a second deployment and API-client surface
+  while the current product workflows are still evolving. A shared Streamlit design layer removes
+  the default prototype appearance and provides consistent SaaS behavior without duplicating or
+  destabilizing collection, import, analysis, report, permission, and task-recovery logic.
+
+## ID-081 — Select account-analysis providers explicitly without moving credentials into requests
+
+- **Decision:** Keep one provider-neutral account-analysis contract and add Alibaba Cloud Model
+  Studio beside OpenAI as an explicit Web/API choice. Validate a password-masked credential online,
+  persist it only in the current operating-system user's secure keyring until the user updates or
+  deletes it, allow only Alibaba Cloud HTTPS `compatible-mode/v1` endpoints, and retain
+  provider-specific immutable USD/CNY pricing snapshots. Apply the same local schema, evidence
+  allowlist, privacy gates, audit artifacts, and non-retryable paid-task boundary to both providers.
+- **Reason:** A selectable provider lets operators choose the service appropriate for their region
+  and account without forking the distillation pipeline. Operating-system credential storage avoids
+  repeated local environment edits while keeping secrets outside projects and task records. Endpoint
+  trust and shared validation prevent a compatibility API from weakening the evidence contract.
+
+## ID-082 — Separate evidence readiness from knowledge distillation
+
+- **Decision:** Always rebuild deterministic account patterns after media analysis, but report the
+  workflow as only `evidence_ready` until an explicitly authorized account-level synthesis runs.
+  Make DeepSeek V4 Flash with thinking enabled and high reasoning effort the default synthesis
+  configuration. Keep the paid call optional, privacy-gated, mockable, and secret-free in durable
+  task payloads; resolve credentials from the operating-system keyring or environment in the worker.
+- **Reason:** A template-rendered report is not evidence that the system has formed reusable
+  knowledge. Distinguishing the two states prevents the product from claiming “distillation
+  complete” when it has only normalized and summarized evidence, while preserving an offline path.
+
+## ID-083 — Persist model learning as candidate knowledge cards, never validated rules
+
+- **Decision:** Require account synthesis to emit falsifiable knowledge cards containing a claim,
+  mechanism, competing explanations, scope, boundary conditions, decision, trade-off, target metric,
+  success condition, and stop condition. Persist them under `knowledge-base/claims/` as candidate or
+  experimental records with evidence backlinks and mandatory human review. A single model run may
+  assign maturity Level 0–3 only and cannot write or promote a Level-4 Rule or alter a Rubric.
+- **Reason:** The durable asset is a testable operating proposition, not a metric inventory or a
+  fluent report. Candidate isolation supports learning and later experiment-driven promotion without
+  allowing one model response to bypass the existing evidence and governance lifecycle.
+
+## ID-084 — Retire OpenKB and keep knowledge artifacts local
+
+- **Decision:** Remove OpenKB from the Web, API, CLI, durable job registry, environment template,
+  and automatic workflow language. Write new curated knowledge packages to
+  `knowledge-outbox/local/` for local archival and Obsidian use. Preserve existing historical
+  `knowledge-outbox/openkb/` files without migrating or deleting them.
+- **Reason:** The durable product asset is the evidence-linked knowledge card and local knowledge
+  package, not a dependency on a separate knowledge sidecar. Retiring the integration removes an
+  unnecessary synchronization, credential, and model-processing surface while preserving history.
+
+## ID-085 — Expand acquisition separately from selective media reparsing
+
+- **Decision:** Increase the standard public-video acquisition window from 20 to 50 and the
+  operator-selected media-enrichment ceiling from 20 to 100. Add a durable account-level reparse
+  task that can target only failed/degraded videos, explicit retained video IDs, or the current
+  retained batch. Preserve successful transcripts by default, optionally refresh media analysis,
+  keep prior immutable artifacts, and rebuild account distillation after a successful retry.
+- **Reason:** Metadata collection and multimodal parsing have different cost and failure profiles.
+  A larger evidence window improves representativeness, while bounded selective retries prevent one
+  transient download, transcription, or vision failure from forcing another account collection or
+  overwriting prior evidence.
+
+## ID-086 — Replace avoidable unknowns with bounded proxies, not invented facts
+
+- **Decision:** During account distillation, prefer validated performance bands when available. If
+  a public provider omits views but at least five videos retain public likes/comments/shares/saves,
+  derive an explicitly labelled account-local public-interaction percentile solely for pattern and
+  counterexample mining. Treat absence of an explicit CTA as an analyzable strategy category, infer
+  a public-scale account stage from observed followers and published-video count, and render true
+  evidence gaps as specific Chinese explanations instead of generic `unknown`/`none` tokens.
+- **Reason:** Generic missing labels conceal whether the system lacks data, lacks taxonomy coverage,
+  or observed a meaningful absence. A transparent proxy recovers useful comparisons without
+  pretending that views, completion, conversion, causality, or business lifecycle are known.
+
+## ID-087 — Carry the declared collection scope through downstream analysis
+
+- **Decision:** Default comment coverage and media understanding to the operator's finite collection
+  scope instead of independently resetting them to 20. Allow collection, media enrichment, and
+  selective reparsing to share the 20,000-video safety ceiling. Aggregate every completed video
+  analysis in deterministic distillation, then provide cloud/local knowledge synthesis with up to
+  1,000 compact per-video evidence rows alongside the full-corpus clusters and patterns. Preserve
+  immutable full analysis artifacts on disk and disclose whether the model context contains full
+  detail or full-corpus aggregation plus a compact detail sample.
+- **Reason:** Increasing acquisition alone creates false coverage when later stages silently truncate
+  the corpus. Compact evidence rows remove the historical 25/50-item context bottleneck without
+  duplicating long transcripts or exceeding the existing upload-size guard, while full-corpus
+  deterministic aggregation retains information from accounts larger than the model detail cap.
+
+## ID-088 — Treat a valid empty speech result as evidence, not a runtime failure
+
+- **Decision:** When Whisper completes successfully and returns a valid segment list containing no
+  usable speech, record transcription as complete with zero segments and the stable warning
+  `no_speech_detected`. Continue media, visual, text, and account analysis even in strict workflows.
+  Preserve hard failures for process errors, timeouts, malformed output, and unavailable runtimes.
+- **Reason:** Music-only, ambient, and montage videos are valid account evidence. Retrying the same
+  semantic result on CPU wastes time, while aborting a whole account batch confuses “no speech” with
+  an infrastructure failure and discards usable visual and metadata evidence.
+
+## ID-089 — Recover media sources from every retained provider response shape
+
+- **Decision:** Build each video's allowlisted download candidates by merging immutable evidence from
+  single-video detail payloads, wrapped detail payloads, and `aweme_list` account-list payloads.
+  Deduplicate URLs without refreshing or inventing signed sources. If all retained shapes genuinely
+  lack a source, record that video as failed with `retained_source_unavailable` and continue the
+  account batch even when strict media processing is enabled; actual download and decode failures
+  retain strict failure behavior.
+- **Reason:** Public detail calls may degrade while the already-retained account listing still
+  contains valid play addresses. Ignoring that evidence creates a false download failure. A truly
+  unavailable, deleted, or restricted video is a per-item evidence gap and should not discard the
+  rest of an otherwise valid account analysis.
+
+## ID-090 — Bound local vision JSON before increasing its generation budget
+
+- **Decision:** Keep llama.cpp vision output under the strict Pydantic-derived JSON Schema, while
+  adding explicit maximum lengths for summaries, labels, OCR text, arrays, and bounding boxes.
+  Increase the single-frame completion budget from 2,048 to 4,096 tokens. When llama.cpp reports a
+  length-truncated completion, retry from the original image with a compact instruction instead of
+  feeding the incomplete assistant JSON back into the conversation. Continue to reject any final
+  response that does not validate; never persist truncated or repaired-by-guesswork model JSON.
+- **Reason:** A visually dense frame can make Qwen enumerate unconstrained arrays until the token
+  ceiling, leaving syntactically incomplete JSON. Raising the ceiling alone only delays that failure,
+  while replaying a truncated response encourages continuation of an invalid object. Schema bounds
+  make generation finite and the clean retry preserves both evidence grounding and strict validation.
+
+## ID-091 — Do not treat image-post background audio as a video source
+
+- **Decision:** Detect retained Douyin image posts from their non-empty `images` collection and
+  zero-duration video envelope before extracting media candidates. Do not download the associated
+  `video.play_addr`, because it is the slideshow background audio rather than a video stream. Record
+  the item as `retained_non_video_post`, continue strict account enrichment, preserve its metadata and
+  comments for downstream account analysis, and do not recommend reparsing against the same retained
+  batch.
+- **Reason:** Douyin type-68 carousel posts use the same response envelope as videos and may expose
+  `audio/mp4` or MP3 URLs under `video.play_addr`. Passing those URLs to the video decoder produces a
+  false media-download or no-video-stream failure and can abort an otherwise valid account batch.
+  Explicit classification preserves the evidence boundary without pretending that background audio
+  is visual footage.
+
+## ID-092 — Distill shooting techniques and expression forms as labeled craft patterns
+
+- **Decision:** Extend the vision contract (prompt 1.4.0) with explicit `shot_scale` and
+  `camera_movement` fields while keeping the legacy `camera` field for viewpoint/angle; mirror the
+  angle into `ShotVisualAnnotation.camera_angle`. Aggregate per-shot labels into per-video
+  `MediaFeatureRecord` craft tags (`shot_scale_tags`, `camera_movement_tags`, `camera_angle_tags`,
+  `composition_tags`, `lighting_tags`) plus deterministic `opening_technique_tags` (from the first
+  shot) and `pacing_tags` (from measured shot duration). At account level, build one `CraftProfile`
+  whose per-tag coverage denominators are explicit (vision-annotated media for visual categories,
+  shot-bearing media for pacing), promote a `signature_style`, mine each tag as a `craft` Pattern
+  against account-local S/A versus C/D bands, and carry `craft_identity` into benchmark profiles.
+  All new model fields default to empty so pre-existing artifacts and replays stay readable.
+- **Reason:** The account previously summarized vision labels only as merged, coverage-free text
+  lines, so recurring shooting techniques and expression forms could not be compared, mined against
+  performance, or transferred between accounts. Craft tags stay deterministic aggregations of model
+  labels: camera motion is best-effort from still frames and must not be presented as measured fact,
+  so unknowns and low-coverage warnings remain explicit, and craft Patterns are Level 0/1
+  observations exactly like text Patterns.
+
+## ID-093 — Deep-distill a single video independently of its account
+
+- **Decision:** Add an optional third stage `distiller analyze video --deep` that merges the blind
+  text analysis and the latest local media analysis into one content-addressed `svd_*` reference
+  card: 选材 topic (angle, audience, information increment, memory point, topic formula),
+  表现形式 expression (opening form, subtitle style, packaging, audio, editing), 拍摄手法 craft
+  (shot scale/camera/composition/lighting profiles plus deterministic per-shot counts), and a
+  可复制清单 copy checklist. The deep model stage is optional (`--deep-provider
+  ollama|llamacpp|cloud`, offline `--deep-output`, or none); output is strictly validated with
+  `segment_id`/`shot_id` citation filtering and retries, and without a provider the service
+  degrades visibly to deterministic aggregation of the existing artifacts (`status: degraded`).
+  The card never requires account-level performance bands.
+- **Reason:** A viewer may find one video interesting inside an account they do not follow, while
+  account distillation is band-relative and sample-based and therefore cannot describe a single
+  foreign video. Keeping the model stage optional preserves the offline/replayable boundary: the
+  deterministic fallback still organizes every observable signal into the same report shape, and
+  the `svd_*` artifact is validated like other Phase 3/6 outputs. One video's deep card remains a
+  reference card, never an account Pattern or a causal rule.
+
+## ID-094 — Sync single-video deep distillations into WeKnora
+
+- **Decision:** Extend the one-way WeKnora chain from accounts to single videos:
+  `WeKnoraSyncService.sync_video_distillation` uploads the latest `svd_*` reference card with
+  `video-account-distiller` provenance metadata (plus `video_id` and `distillation_id`), replacing
+  earlier documents for the same video while leaving unrelated knowledge untouched. Expose it as
+  `distiller knowledge weknora sync-video` and
+  `POST /api/projects/{project}/knowledge/weknora/videos/{video_id}/sync`. The HTTP deep
+  distillation itself (`analyze/video/{video_id}` with `deep: true` and `deep_provider`) never
+  accepts API keys in the request body: `cloud` credentials resolve from the workspace credential
+  store exactly like account GPT analysis, keeping secrets out of the durable task database.
+- **Reason:** The single-video workflow ends with a deep distillation card that previously had no
+  knowledge-base destination; the WeKnora path stopped at account-level exports. Per-video
+  replacement metadata mirrors the account-level semantics already proven in
+  `sync_account` (delete only `distiller`-channel documents owned by the same entity), and reusing
+  the existing list/upload/delete primitives keeps one code path for provenance and error mapping.
+
+## ID-095 — Collect one video by URL for the single-video workflow
+
+- **Decision:** Add a bounded single-video collector to both providers and route it through the
+  same immutable account-collection kernel
+  (`AccountCollectionService.analyze_video_url`: raw batch → accounts/videos/metrics/comments
+  import → normalization → account metrics), skipping account-level reports, comment clustering,
+  and account distillation because a single video cannot form an account sample. TikHub uses the
+  documented `fetch_one_video` endpoint (paid, requires cost confirmation); the MediaCrawler
+  controlled bridge gains a `--video-url` mode that opens the dedicated visible browser, waits
+  for manual login, and calls `get_video_by_id` plus optional top-level comments — mirroring the
+  account homepage provider choice. Expose it as `distiller video collect --url --provider
+  tikhub|mediacrawler`, `POST /collection/analyze-video-url`, and the one-command
+  `distiller video analyze --url ... --deep --weknora-kb-id` workflow. Video IDs are resolved
+  locally from standard `douyin.com/video/<id>` / `/note/<id>` / `modal_id=<id>` URLs; short
+  `v.douyin.com` links are rejected with instructions because they require an extra network hop.
+  The account row derives from the detail's author object, or a minimal placeholder account when
+  the author block is absent.
+- **Reason:** The deep-distillation stage already existed but required the video to be present in
+  the offline kernel first, leaving no "paste one video link" entry. Reusing the existing batch
+  import/normalization path keeps raw evidence, hashing, dedup, and validation semantics identical
+  to account collection, while the placeholder-account fallback lets a foreign video flow through
+  without pretending its owner was fully profiled. Supporting both providers keeps the single
+  video workflow consistent with the account workflow's paid-API and local-browser choices.
+
+## ID-096 — Normalize cloud endpoints and expose Qwen across the full chain
+
+- **Decision:** OpenAI-compatible text/vision providers now complete a missing `https://` scheme on
+  any configured base URL, so pasting an Alibaba Model Studio MaaS gateway
+  (`ws-<workspace>.cn-beijing.maas.aliyuncs.com`) works without manual prefixing. The account-distill
+  task form replaces the hard-coded DeepSeek knowledge-synthesis block with a provider picker
+  (DeepSeek/OpenAI/阿里云百炼) and matching Qwen/DeepSeek model lists; `BailianModel` grows
+  `qwen-max-latest`, `qwen-plus-latest`, `qwen-turbo-latest`, and `qwen-long`, and
+  `DeepSeekModel` gains `deepseek-chat`. The cloud form documents endpoint choice and warns that a
+  key saved under the wrong provider slot returns 401 (`E_ADAPTER_AUTH`).
+- **Reason:** The investigation found a failed `account_distill` task whose cloud text config
+  pointed at a scheme-less Bailian MaaS host while its knowledge-analysis step selected DeepSeek and
+  used a Bailian key saved in the DeepSeek credential slot — the classic 401. Normalizing the
+  scheme fixes the transport; exposing Bailian as a first-class picker with Qwen models fixes the
+  configuration mismatch, and the docs/UI guidance makes the provider/key pairing diagnosable
+  instead of surfacing an opaque "API rejected the credential or permission scope".
+
+## ID-097 — Persist bounded task summaries separately from task results
+
+- **Decision:** Add a migrated `summary_json` column to `api_tasks` and update it atomically with
+  every user-visible task state change. `GET /api/tasks` now reads only indexed scalar columns plus
+  this bounded summary (`stage`, `message`, `error`, `retryable`); `GET /api/tasks/{task_id}` remains
+  the sole detail path that deserializes `payload_json`. The web task history resolves one detail
+  only when restoring or opening a selected completed task.
+- **Reason:** Completed workflow payloads can contain large nested collection and analysis results.
+  Deserializing all of them for every polling list request makes monitoring cost grow with historical
+  artifact size even though the UI needs only status fields. A separately maintained summary keeps
+  list latency bounded without changing durable task details or retry metadata.
+
+## ID-098 — Keep creative learning and video knowledge as separate artifact contracts
+
+- **Decision:** Add `distillation_mode=creative_learning|knowledge` with the existing mode as the
+  default. Knowledge mode uses an independent strict schema and `svk_*` identity, classifies each
+  item as a video statement, creator opinion, or model inference, filters fabricated transcript/OCR/
+  shot references, and writes exactly `knowledge.json`, `knowledge.md`, `evidence.json`, and
+  `warnings.json` under `analyses/videos/{video_id}/knowledge/{knowledge_id}/`. It performs no
+  external fact checking. WeKnora knowledge sync matches `source + video_id + document_type` and
+  publishes `document_type=video_knowledge`, so it cannot replace creative-learning documents.
+- **Reason:** Adding many optional knowledge fields to the creative-analysis card would blur two
+  different questions and make old consumers mode-dependent. Separate schemas, IDs, paths, and
+  sync identities let both interpretations of the same video coexist and remain replayable.
+
+## ID-099 — Append hospitality transfer analysis without narrowing the base account report
+
+- **Decision:** Add `analysis_focus=general|hospitality`, defaulting to `general`. Hospitality mode
+  runs the complete general account contract first and appends a strict `hospitality_transfer`
+  section containing relevance, source mechanisms, adaptations, preserve/replace/do-not-transfer
+  boundaries, limitations, and allowlisted evidence. `none` and `low` relevance with no playbooks
+  are valid results. The focus is persisted in audits, workflow checkpoints, retry allowlists, and
+  UI task templates.
+- **Reason:** A hotel-oriented user still needs the source account understood on its own terms.
+  Treating hospitality as an independent transfer layer prevents forced hotel analogies and invented
+  trends while preserving the general analysis behavior and its evidence discipline.
+
+## ID-100 — Batch account knowledge as one document per video
+
+- **Decision:** Add `AccountVideoKnowledgeService` as an orchestration layer over the existing
+  `SingleVideoKnowledgeService`. It selects account videos with a completed text analysis, creates
+  or reuses their independent `svk_*` artifacts, then assembles an `avk_*` import bundle containing
+  `manifest.json`, `README.md`, and exactly one front-matter-tagged Markdown file per video under
+  `documents/`. Missing inputs and per-video failures are recorded in a skip list. The batch is
+  available through a first-class, mutually exclusive account workflow mode, a durable HTTP task,
+  and
+  `distiller knowledge distill-account-videos`; WeKnora account sync accepts
+  `distillation_mode=knowledge` and uploads each video document under its existing isolated sync
+  identity.
+- **Reason:** A combined account knowledge report is difficult to update, deduplicate, cite, and
+  retrieve in a knowledge base. Reusing the already validated single-video schema avoids divergent
+  extraction semantics, while a separate batch manifest provides progress, failure isolation, and
+  a directly importable folder without merging evidence from unrelated videos. Knowledge mode must
+  bypass the account-health, operational-pattern, strategy-synthesis, and narrative-report stages;
+  treating it as an additive checkbox makes a user's explicit knowledge selection look and behave
+  like the original operations workflow.
+
+## ID-101 — Add a native Windows desktop shell over the shared application boundary
+
+- **Decision:** Ship a PySide6 desktop package with native widgets and no browser/WebView. It owns
+  an in-process FastAPI/SQLite worker on a dynamically selected loopback port and calls that API
+  through a small typed application client, while project initialization, collection, media
+  enrichment, account/knowledge workflows, task retry, and WeKnora sync continue to use the same
+  domain services and durable contracts as CLI/API/Streamlit. Non-secret preferences live under
+  `%LOCALAPPDATA%`; TikHub, WeKnora, and cloud credentials use the current user's OS keyring. Legacy
+  API callers may still submit a cloud key once, but the router migrates it to the keyring before a
+  durable task is created. PyInstaller builds a one-directory native EXE and bundles the pinned
+  MediaCrawler source, lockfile, bridge, marker, and uv runtime; an offscreen packaged smoke mode
+  must create the six-page Qt window, start the embedded API, and initialize/validate a project
+  before an artifact is accepted.
+- **Reason:** The previous Windows tray entry only launched FastAPI plus Streamlit and opened a web
+  browser, so it did not satisfy a standalone desktop product boundary and duplicated orchestration
+  concerns in presentation code. A thin Qt presentation layer preserves every existing integration
+  while giving users one-click service status, submission, progress, result export, and retry. A
+  machine-verifiable packaged smoke contract catches missing Qt plugins, templates, prompt assets,
+  routers, and data files that source-level unit tests cannot detect.
+
+## ID-102 — Combine Fluent navigation with progressive workflow disclosure
+
+- **Decision:** Use a compact Fluent/WinUI-style application shell, Linear-like information
+  hierarchy, settings cards inspired by model desktop clients, and a Carbon/Dify-style six-stage
+  task tracker. Frequently changed account and objective controls remain visible; model settings are
+  grouped separately, while uncommon media parameters live in an animated disclosure section.
+  Background work exposes both a global pulsing wait timer and durable per-task stage, progress,
+  message, elapsed time, and status. Animations are short Qt property animations over native widgets
+  and never substitute for task state reported by the API.
+- **Reason:** The earlier dense three-column form made all controls appear equally important and
+  gave long operations only a static status sentence. A staged, progressively disclosed layout
+  shortens the primary path, makes waiting legible, and keeps the window usable while work runs;
+  binding every progress cue to durable task data prevents decorative motion from implying progress
+  that did not occur.
+
+## ID-103 — Use Qwen native video with keyframe evidence and DeepSeek synthesis
+
+- **Decision:** When cloud visual analysis selects `qwen3.7-plus`, send the retained source video
+  through Alibaba Model Studio's OpenAI-compatible `video_url` input and include the mixed
+  opening/ending, scene-midpoint, and uniform-coverage keyframes as immutable evidence anchors.
+  Use 2 FPS for clips up to three minutes, 1 FPS up to ten minutes, and 0.5 FPS beyond that. Keep a
+  256 MiB Base64 client limit and fall back to keyframe-only analysis with an explicit unknown marker.
+  The desktop's recommended one-key route uses Bailian `qwen3.7-plus` for visual chronology and
+  Bailian-hosted `deepseek-v4-flash` for schema-validated knowledge extraction.
+- **Reason:** Eight sparse keyframes can miss fast transitions, brief captions, gestures, and event
+  order, while a raw-video-only answer cannot satisfy the existing evidence-link contract. The
+  combined request improves temporal coverage without discarding stable shot/keyframe citations;
+  Whisper remains authoritative for audio because Qwen visual video input does not consume the
+  audio track.
+
+
+
+
+
+

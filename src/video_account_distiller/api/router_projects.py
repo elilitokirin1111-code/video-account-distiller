@@ -2,23 +2,136 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from video_account_distiller.api.deps import resolve_project
-from video_account_distiller.api.schemas import ProjectInitRequest
+from video_account_distiller.api.schemas import (
+    CloudCredentialUpdate,
+    CloudModelSettingsUpdate,
+    CloudPresetUpdate,
+    ProjectInitRequest,
+)
+from video_account_distiller.config import load_config
+from video_account_distiller.errors import DistillerError, ErrorCode
+from video_account_distiller.insights import (
+    AnalysisProviderKind,
+    CloudCredentialStore,
+    cloud_credential_status,
+    probe_account_analysis_provider,
+    resolve_cloud_credential,
+)
 from video_account_distiller.storage.project import ProjectLayout
+from video_account_distiller.utils.io import atomic_write_text
 from video_account_distiller.validation import validate_project
 
 router = APIRouter()
 
 
+def _credential_store(request: Request) -> CloudCredentialStore:
+    return cast(CloudCredentialStore, request.app.state.cloud_credentials)
+
+
+def _cloud_provider_credentials(store: CloudCredentialStore) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for provider in AnalysisProviderKind:
+        status = cloud_credential_status(store, provider.value)
+        result[provider.value] = {
+            **status,
+            "api_key_configured": status["configured"],
+            "api_key_env": status["environment_fallback"],
+        }
+    return result
+
+
+def _provider_executor(request: Request, provider: AnalysisProviderKind) -> Any:
+    if provider is AnalysisProviderKind.OPENAI:
+        return getattr(request.app.state, "openai_executor", None)
+    if provider is AnalysisProviderKind.DEEPSEEK:
+        return getattr(request.app.state, "deepseek_executor", None)
+    return getattr(request.app.state, "bailian_executor", None)
+
+
+@router.put("/cloud-model/credentials/{provider}")
+async def save_cloud_model_credential(
+    provider: AnalysisProviderKind,
+    body: CloudCredentialUpdate,
+    request: Request,
+) -> dict[str, Any]:
+    """Validate and persist a credential in the current user's OS keyring."""
+
+    credential = body.api_key.get_secret_value()
+    result = await asyncio.to_thread(
+        probe_account_analysis_provider,
+        provider,
+        credential=credential,
+        executor=_provider_executor(request, provider),
+    )
+    store = _credential_store(request)
+    store.set(provider.value, credential)
+    return {
+        **result,
+        "credential_persisted": True,
+        "credential_storage": "operating_system_keyring",
+    }
+
+
+@router.post("/cloud-model/credentials/{provider}/probe")
+async def probe_saved_cloud_model_credential(
+    provider: AnalysisProviderKind,
+    request: Request,
+) -> dict[str, Any]:
+    """Verify the saved credential and return supported models without exposing the key."""
+
+    resolved = resolve_cloud_credential(_credential_store(request), provider.value)
+    if resolved is None:
+        raise DistillerError(
+            ErrorCode.ADAPTER_AUTH,
+            "No saved cloud API credential is available",
+            details={"provider": provider.value},
+        )
+    result = await asyncio.to_thread(
+        probe_account_analysis_provider,
+        provider,
+        credential=resolved.value,
+        executor=_provider_executor(request, provider),
+    )
+    return {**result, "credential_source": resolved.source}
+
+
+@router.delete("/cloud-model/credentials/{provider}")
+async def delete_cloud_model_credential(
+    provider: AnalysisProviderKind,
+    request: Request,
+) -> dict[str, Any]:
+    """Delete the provider credential from the current user's OS keyring."""
+
+    deleted = _credential_store(request).delete(provider.value)
+    return {"ok": True, "provider": provider.value, "deleted": deleted}
+
+
 @router.post("/projects/init")
 async def init_project(body: ProjectInitRequest) -> dict[str, Any]:
     """Initialise a new distiller project at *path*."""
-    layout, already = ProjectLayout.initialize(Path(body.path), project_name=body.name)
+    template = (
+        Path(body.config_template).expanduser() / "distiller.yaml" if body.config_template else None
+    )
+    layout, already = ProjectLayout.initialize(
+        Path(body.path),
+        project_name=body.name,
+        config_template=template,
+    )
+    if not already:
+        # Web-created projects default to the local llama.cpp setup so
+        # per-account folders work without extra configuration.
+        config = load_config(layout.config_path)
+        if config.models.text_provider is None and config.models.vision_provider is None:
+            config.models.text_provider = "llamacpp"
+            config.models.vision_provider = "llamacpp"
+            atomic_write_text(layout.config_path, config.as_yaml())
     return {
         "ok": True,
         "data": {"project": str(layout.root), "already_initialized": already},
@@ -38,3 +151,124 @@ async def validate(project_path: str) -> dict[str, Any]:
     layout = resolve_project(project_path)
     report = validate_project(layout, persist=False)
     return {"ok": True, "data": report.model_dump(mode="json")}
+
+
+@router.get("/projects/{project_path:path}/settings/cloud-model")
+async def cloud_model_settings(project_path: str, request: Request) -> dict[str, Any]:
+    """Return the project-level cloud-upload permission without any credential."""
+
+    layout = resolve_project(project_path)
+    config = load_config(layout.config_path)
+    providers = _cloud_provider_credentials(_credential_store(request))
+    return {
+        "ok": True,
+        "allow_cloud_model_upload": config.privacy.allow_cloud_model_upload,
+        "api_key_persisted": providers["openai"]["stored_in_os_keyring"],
+        "api_key_configured": providers["openai"]["api_key_configured"],
+        "api_key_env": providers["openai"]["api_key_env"],
+        "providers": providers,
+    }
+
+
+@router.put("/projects/{project_path:path}/settings/cloud-model")
+async def update_cloud_model_settings(
+    project_path: str,
+    body: CloudModelSettingsUpdate,
+    request: Request,
+) -> dict[str, Any]:
+    """Persist only the project permission flag; API keys remain environment-only."""
+
+    layout = resolve_project(project_path)
+    config = load_config(layout.config_path)
+    privacy = config.privacy.model_copy(
+        update={"allow_cloud_model_upload": body.allow_cloud_model_upload}
+    )
+    updated = config.model_copy(update={"privacy": privacy})
+    atomic_write_text(layout.config_path, updated.as_yaml())
+    providers = _cloud_provider_credentials(_credential_store(request))
+    return {
+        "ok": True,
+        "allow_cloud_model_upload": updated.privacy.allow_cloud_model_upload,
+        "api_key_persisted": providers["openai"]["stored_in_os_keyring"],
+        "api_key_configured": providers["openai"]["api_key_configured"],
+        "api_key_env": providers["openai"]["api_key_env"],
+        "providers": providers,
+    }
+
+
+def _provider_for_cloud_url(base_url: str | None) -> str:
+    value = (base_url or "").lower()
+    if "dashscope" in value or "aliyuncs" in value:
+        return "bailian"
+    if "deepseek" in value:
+        return "deepseek"
+    return "openai"
+
+
+@router.get("/projects/{project_path:path}/settings/cloud-preset")
+async def get_cloud_preset(project_path: str, request: Request) -> dict[str, Any]:
+    """Return the persisted OpenAI-compatible cloud endpoint defaults.
+
+    The API key is never echoed back; only whether one is configured is
+    reported so the UI can show a masked placeholder.
+    """
+
+    layout = resolve_project(project_path)
+    config = load_config(layout.config_path)
+    models = config.models
+    provider = _provider_for_cloud_url(models.cloud_base_url)
+    stored = _credential_store(request).get(provider) is not None
+    return {
+        "ok": True,
+        "cloud_base_url": models.cloud_base_url,
+        "cloud_credential_provider": provider,
+        "cloud_api_key_configured": stored or bool(models.cloud_api_key),
+        "credential_storage": "operating_system_keyring",
+        "cloud_text_model": models.cloud_text_model,
+        "cloud_vision_model": models.cloud_vision_model,
+    }
+
+
+@router.put("/projects/{project_path:path}/settings/cloud-preset")
+async def update_cloud_preset(
+    project_path: str,
+    body: CloudPresetUpdate,
+    request: Request,
+) -> dict[str, Any]:
+    """Persist non-secrets in YAML and credentials in the OS keyring."""
+
+    layout = resolve_project(project_path)
+    config = load_config(layout.config_path)
+    base_url = (body.cloud_base_url or "").strip() or None
+    provider = _provider_for_cloud_url(base_url or config.models.cloud_base_url)
+    store = _credential_store(request)
+    incoming_key = body.cloud_api_key
+    if incoming_key is not None:
+        credential = incoming_key.get_secret_value().strip()
+        if credential:
+            store.set(provider, credential)
+        else:
+            store.delete(provider)
+    elif config.models.cloud_api_key:
+        # Migrate a legacy project-local secret the next time the preset is
+        # edited, then scrub it from YAML below.
+        store.set(provider, config.models.cloud_api_key)
+    models = config.models.model_copy(
+        update={
+            "cloud_base_url": base_url,
+            "cloud_api_key": None,
+            "cloud_text_model": (body.cloud_text_model or "").strip() or None,
+            "cloud_vision_model": (body.cloud_vision_model or "").strip() or None,
+        }
+    )
+    updated = config.model_copy(update={"models": models})
+    atomic_write_text(layout.config_path, updated.as_yaml())
+    return {
+        "ok": True,
+        "cloud_base_url": models.cloud_base_url,
+        "cloud_credential_provider": provider,
+        "cloud_api_key_configured": store.get(provider) is not None,
+        "credential_storage": "operating_system_keyring",
+        "cloud_text_model": models.cloud_text_model,
+        "cloud_vision_model": models.cloud_vision_model,
+    }

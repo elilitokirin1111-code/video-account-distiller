@@ -26,9 +26,13 @@ content unless the user explicitly authorizes it and `privacy.allow_cloud_model_
 no bundled Phase 3/4 command uploads data. Redact comment identifiers before any authorized future
 provider receives them.
 
-Phase 6 separately defines `VisionModelProvider.analyze(MediaVisionBundle)`. The bundled
-`StructuredVisionFileProvider` only replays local JSON under the `media_vision` key and preserves
-its SHA-256. A custom provider must return strict `MediaVisionAnnotation`, cite existing shot and
-keyframe IDs, expose provider/model names, and remain mockable. No bundled command sends frames to
-a network vision service. Any cloud implementation requires explicit authorization and
+Phase 6 separately defines `VisionModelProvider.analyze(MediaVisionBundle)`.
+`StructuredVisionFileProvider` replays local JSON under `media_vision` and preserves its SHA-256.
+`OllamaVisionProvider` calls only `http://127.0.0.1:11434` or `localhost` and defaults to
+`qwen3-vl:8b`; it rejects remote hosts, TLS URLs, alternate ports, credentials, paths, queries, and
+fragments. It sends bounded base64 keyframes, requests a JSON Schema response, maps frame indexes
+back to immutable shot/keyframe evidence, and validates normal content or Qwen's local `thinking`
+field. A custom provider must return strict `MediaVisionAnnotation`, cite existing IDs, expose
+provider/model names, and remain mockable. No bundled command sends frames to a cloud vision
+service. Any future cloud implementation requires explicit authorization and
 `privacy.allow_cloud_model_upload: true`.

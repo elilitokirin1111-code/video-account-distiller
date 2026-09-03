@@ -1,0 +1,175 @@
+"""Read-only account insight endpoints for people and model workflows."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from fastapi import APIRouter, Request
+
+from video_account_distiller.api.deps import resolve_project
+from video_account_distiller.api.tasks import enqueue_ephemeral_task
+from video_account_distiller.errors import DistillerError, ErrorCode
+from video_account_distiller.growth import AccountGrowthService
+from video_account_distiller.insights import (
+    AnalysisContextService,
+    AnalysisProviderKind,
+    GptAnalysisRequest,
+    GptEvaluationCase,
+    GptEvaluationPreviewRequest,
+    GptEvaluationRunRequest,
+    GptEvaluationService,
+    OpenAIResponsesProvider,
+    RemoteAccountAnalysisService,
+    build_account_analysis_provider,
+    resolve_cloud_credential,
+)
+from video_account_distiller.knowledge import KnowledgeExportService
+
+router = APIRouter()
+
+
+@router.get("/{project_path:path}/accounts/{account_id}/growth")
+async def account_growth(project_path: str, account_id: str) -> dict[str, Any]:
+    layout = resolve_project(project_path)
+    return AccountGrowthService(layout).summarize(account_id=account_id)
+
+
+@router.get("/{project_path:path}/accounts/{account_id}/analysis-context")
+async def account_analysis_context(
+    project_path: str,
+    account_id: str,
+    max_video_analyses: int = 10,
+) -> dict[str, Any]:
+    layout = resolve_project(project_path)
+    return AnalysisContextService(layout).build(
+        account_id=account_id,
+        max_video_analyses=max_video_analyses,
+    )
+
+
+@router.post("/{project_path:path}/accounts/{account_id}/gpt-analysis")
+async def account_gpt_analysis(
+    project_path: str,
+    account_id: str,
+    request: Request,
+    body: GptAnalysisRequest,
+) -> dict[str, Any]:
+    """Run one explicitly authorized cloud analysis with an environment-only key."""
+
+    layout = resolve_project(project_path)
+    options = body.options()
+    RemoteAccountAnalysisService.require_authorization(layout, options)
+    if options.provider is AnalysisProviderKind.OPENAI:
+        executor_name = "openai_executor"
+    elif options.provider is AnalysisProviderKind.DEEPSEEK:
+        executor_name = "deepseek_executor"
+    else:
+        executor_name = "bailian_executor"
+    resolved = resolve_cloud_credential(
+        request.app.state.cloud_credentials,
+        options.provider.value,
+    )
+    if resolved is None:
+        raise DistillerError(
+            ErrorCode.ADAPTER_AUTH,
+            "No saved cloud API credential is available",
+            details={"provider": options.provider.value},
+        )
+    provider = build_account_analysis_provider(
+        options,
+        executor=getattr(request.app.state, executor_name, None),
+        credential=resolved.value,
+        credential_source=resolved.source,
+    )
+    service = RemoteAccountAnalysisService(layout, provider)
+
+    def analyze_and_refresh_knowledge() -> dict[str, Any]:
+        result = service.analyze(account_id=account_id, options=options)
+        knowledge_export = KnowledgeExportService(layout).export_account(
+            account_id=account_id,
+            max_video_analyses=options.max_video_analyses,
+            max_export_bytes=5_000_000,
+        )
+        result["knowledge_export"] = knowledge_export
+        result["outputs"] = [
+            *result.get("outputs", []),
+            knowledge_export["document_path"],
+            knowledge_export["evidence_document_path"],
+        ]
+        return result
+
+    return enqueue_ephemeral_task(
+        request.app.state.tasks,
+        analyze_and_refresh_knowledge,
+        task_type="gpt_account_analysis",
+        resource_class="model",
+    )
+
+
+@router.post("/{project_path:path}/accounts/{account_id}/gpt-analysis/preview")
+async def preview_account_gpt_analysis(
+    project_path: str,
+    account_id: str,
+    body: GptAnalysisRequest,
+) -> dict[str, Any]:
+    """Return the bounded data scope, fingerprints, and price ceiling without a model call."""
+
+    layout = resolve_project(project_path)
+    return RemoteAccountAnalysisService.preview(
+        layout,
+        account_id=account_id,
+        options=body.options(),
+    )
+
+
+@router.post("/{project_path:path}/gpt-evaluations/preview")
+async def preview_gpt_evaluation(
+    project_path: str,
+    body: GptEvaluationPreviewRequest,
+) -> dict[str, Any]:
+    """Preview every fixed-account run and budget without invoking a model."""
+
+    layout = resolve_project(project_path)
+    return GptEvaluationService(layout).preview(body)
+
+
+@router.post("/{project_path:path}/gpt-evaluations/run")
+async def run_gpt_evaluation(
+    project_path: str,
+    request: Request,
+    body: GptEvaluationRunRequest,
+) -> dict[str, Any]:
+    """Enqueue one explicitly confirmed, preview-bound paid evaluation campaign."""
+
+    layout = resolve_project(project_path)
+    evaluator = GptEvaluationService(layout)
+    evaluator.authorize(body)
+    executor = getattr(request.app.state, "openai_executor", None)
+    resolved = resolve_cloud_credential(request.app.state.cloud_credentials, "openai")
+    if resolved is None:
+        raise DistillerError(
+            ErrorCode.ADAPTER_AUTH,
+            "No saved OpenAI API credential is available",
+        )
+    providers = {
+        (case.model, case.reasoning_effort): OpenAIResponsesProvider(
+            model=case.model,
+            reasoning_effort=case.reasoning_effort,
+            executor=executor,
+            credential_loader=lambda: resolved.value,
+            credential_source=resolved.source,
+        )
+        for case in body.suite.cases
+    }
+
+    def _provider(case: GptEvaluationCase, _: int) -> OpenAIResponsesProvider:
+        return providers[(case.model, case.reasoning_effort)]
+
+    service = GptEvaluationService(layout, _provider)
+    return enqueue_ephemeral_task(
+        request.app.state.tasks,
+        service.run,
+        body,
+        task_type="gpt_regression_evaluation",
+        resource_class="model",
+    )

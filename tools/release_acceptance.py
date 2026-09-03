@@ -110,6 +110,8 @@ def run_acceptance(
                 str(project),
                 "--url",
                 "https://www.douyin.com/user/acceptance",
+                "--provider",
+                "tikhub",
                 "--count",
                 "10",
                 "--dry-run",
@@ -196,6 +198,63 @@ def run_acceptance(
             ["distill", "--project", str(project), "--account", account_id, "--json"],
             steps,
         )
+        growth = _run_json(
+            "account-growth",
+            ["account", "growth", "--project", str(project), "--account", account_id, "--json"],
+            steps,
+        )
+        if growth.get("status") != "insufficient_history" or growth.get("snapshot_count") != 1:
+            raise AcceptanceFailure("single-snapshot growth boundary was not preserved")
+        context = _run_json(
+            "account-analysis-context",
+            ["account", "context", "--project", str(project), "--account", account_id, "--json"],
+            steps,
+        )
+        if (
+            context.get("context_version") != "1.0.0"
+            or context.get("account", {}).get("account_id") != account_id
+            or not context.get("analysis_contract")
+        ):
+            raise AcceptanceFailure("bounded GPT analysis context contract was not available")
+        knowledge_export = _run_json(
+            "openkb-knowledge-export",
+            [
+                "knowledge",
+                "openkb",
+                "export",
+                "--project",
+                str(project),
+                "--account",
+                account_id,
+                "--json",
+            ],
+            steps,
+        )
+        if (
+            knowledge_export.get("ok") is not True
+            or knowledge_export.get("manifest", {}).get("account_id") != account_id
+        ):
+            raise AcceptanceFailure("curated OpenKB knowledge export was not available")
+        knowledge_sync_plan = _run_json(
+            "openkb-sync-dry-run",
+            [
+                "knowledge",
+                "openkb",
+                "sync",
+                "--project",
+                str(project),
+                "--account",
+                account_id,
+                "--dry-run",
+                "--json",
+            ],
+            steps,
+        )
+        if (
+            knowledge_sync_plan.get("dry_run") is not True
+            or knowledge_sync_plan.get("would_upload") is not True
+        ):
+            raise AcceptanceFailure("offline OpenKB sync preview contract was not available")
         media_evidence: dict[str, Any] | None = None
         if media is not None:
             media_result = _run_json(
@@ -232,6 +291,18 @@ def run_acceptance(
         _assert_counts(final_status, media_expected=media is not None)
         if not final_validation.get("ok") or not final_doctor.get("ok"):
             raise AcceptanceFailure("final validation or doctor report was not ready")
+        backup_drill = _run_json(
+            "backup-recovery-drill",
+            ["backup", "drill", "--project", str(project), "--json"],
+            steps,
+        )
+        if (
+            backup_drill.get("ok") is not True
+            or backup_drill.get("workspace_scope") != "temporary"
+            or backup_drill.get("workspace_removed") is not True
+            or backup_drill.get("restored_validation_errors") != 0
+        ):
+            raise AcceptanceFailure("isolated backup and rollback drill did not pass")
 
         report = {
             "ok": True,
@@ -247,6 +318,11 @@ def run_acceptance(
             "validation": {
                 "errors": final_validation.get("quality", {}).get("stats", {}).get("errors"),
                 "warnings": final_validation.get("quality", {}).get("stats", {}).get("warnings"),
+            },
+            "backup_recovery": {
+                "verified": backup_drill.get("backup_verified"),
+                "restored": backup_drill.get("restored_to_new_directory"),
+                "workspace_removed": backup_drill.get("workspace_removed"),
             },
             "media": media_evidence,
             "workspace_retained": keep_workspace,

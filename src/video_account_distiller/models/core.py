@@ -177,6 +177,11 @@ class DerivedMetrics(TraceFields):
     robust_z_save_rate: float | None = None
     robust_z_follow_conversion: float | None = None
     robust_z_watch_efficiency: float | None = None
+    robust_z_likes_abs: float | None = None
+    robust_z_comments_abs: float | None = None
+    robust_z_shares_abs: float | None = None
+    robust_z_saves_abs: float | None = None
+    robust_z_interactions_abs: float | None = None
     viral_index_account: float | None = None
     viral_index_peer: float | None = None
     performance_score: float | None = None
@@ -234,7 +239,14 @@ class DataQualityIssue(StrictModel):
 
 class FieldMapping(StrictModel):
     schema_version: str = SCHEMA_VERSION
-    entity: Literal["accounts", "videos", "metrics", "comments", "transcripts"]
+    entity: Literal[
+        "accounts",
+        "videos",
+        "metrics",
+        "comments",
+        "transcripts",
+        "audience_profiles",
+    ]
     platform: Platform
     fields: dict[str, str]
     timezone: str = "UTC"
@@ -243,10 +255,21 @@ class FieldMapping(StrictModel):
 
 class ImportReceipt(StrictModel):
     schema_version: str = SCHEMA_VERSION
-    entity: Literal["accounts", "videos", "metrics", "comments", "transcripts"]
+    entity: Literal[
+        "accounts",
+        "videos",
+        "metrics",
+        "comments",
+        "transcripts",
+        "audience_profiles",
+    ]
     platform: Platform
     source_name: str
     target_id: str | None = None
+    data_source_tier: Literal["public", "authorized_private", "model_inferred", "unknown"] = (
+        "unknown"
+    )
+    authorization_grant_id: str | None = None
     raw_hash: str
     raw_path: str
     staging_path: str | None = None

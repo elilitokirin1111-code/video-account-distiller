@@ -21,8 +21,11 @@ def test_doctor_reports_project_readiness_without_exposing_tokens(
     serialized = json.dumps(report.model_dump(mode="json"))
 
     assert report.ok is True
-    assert report.package_version == "1.0.0"
+    assert report.package_version == "1.1.1"
     assert report.capabilities.core is True
+    assert isinstance(report.capabilities.local_vision, bool)
+    assert isinstance(report.capabilities.mediacrawler_douyin, bool)
+    assert any(item.name == "chrome" for item in report.executables)
     assert report.capabilities.tikhub_douyin is True
     assert report.capabilities.feishu_bitable is True
     assert report.capabilities.google_sheets is True

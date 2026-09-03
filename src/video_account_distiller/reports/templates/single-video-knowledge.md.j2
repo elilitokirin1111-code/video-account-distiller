@@ -1,0 +1,40 @@
+# {{ knowledge.knowledge.knowledge_title }}
+
+> 知识提取模式：只整理视频表达的内容，不执行外部事实核验。
+
+## 内容摘要
+
+{{ knowledge.knowledge.content_summary }}
+
+## 核心结论
+
+{% for item in knowledge.knowledge.core_conclusions %}- {{ item }}
+{% else %}- 暂无可可靠提取的核心结论。
+{% endfor %}
+
+## 知识条目
+
+{% for item in knowledge.knowledge.knowledge_items %}### {{ loop.index }}. {{ item.title }}
+
+- 类型：{{ item.knowledge_type }}
+- 归因：{{ item.attribution }}
+- 内容：{{ item.content }}
+- 证据：{% for ref in item.source_refs %}{{ ref.source_type }}:{% if ref.segment_id %}{{ ref.segment_id }}{% elif ref.observation_id %}{{ ref.observation_id }}{% else %}{{ ref.shot_id }}{% endif %}{% if not loop.last %}；{% endif %}{% else %}无直接引用（模型推断）{% endfor %}
+{% if item.limitations %}- 局限：{{ item.limitations | join('；') }}{% endif %}
+
+{% else %}- 当前材料不足以形成可靠知识条目。
+{% endfor %}
+
+## 适用范围与局限
+
+{% for item in knowledge.knowledge.applicability %}- 适用：{{ item }}
+{% endfor %}
+{% for item in knowledge.knowledge.limitations %}- 局限：{{ item }}
+{% endfor %}
+
+## 表达方式简记
+
+{{ knowledge.knowledge.expression_note.summary }}
+
+{% for item in knowledge.knowledge.expression_note.useful_devices %}- {{ item }}
+{% endfor %}

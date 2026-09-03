@@ -7,14 +7,14 @@ installation, then install into an isolated Python 3.11+ environment:
 
 ```powershell
 uv venv .venv --python 3.11
-uv pip install --python .venv\Scripts\python.exe .\video_account_distiller-1.0.0-py3-none-any.whl
+uv pip install --python .venv\Scripts\python.exe .\video_account_distiller-1.1.1-py3-none-any.whl
 .\.venv\Scripts\python.exe -m video_account_distiller --version
 .\.venv\Scripts\python.exe -m video_account_distiller doctor --json
 ```
 
 On macOS or Linux, replace `.venv\Scripts\python.exe` with `.venv/bin/python`.
 
-The release also contains `video-account-distiller-skill-1.0.0.zip`. Extract its
+The release also contains `video-account-distiller-skill-1.1.1.zip`. Extract its
 `video-account-distiller` directory into `$CODEX_HOME/skills/` when the Codex Agent Skill is needed;
 the Python wheel and Skill archive are versioned together but installed independently.
 
@@ -25,13 +25,37 @@ the Python wheel and Skill archive are versioned together but installed independ
 - installed package and dependency versions;
 - Python and operating-system details;
 - FFmpeg/FFprobe availability;
+- pinned MediaCrawler source plus local `uv`/Node readiness for optional homepage collection;
 - whether collaboration token environment variables are present, never their values;
 - optional project readability, writability, and integrity-validation status.
 
 `ok: true` means the core runtime is usable and, when `--project` is supplied, the project is
 initialized and validates successfully. `capabilities.local_media` may be false without blocking
-the table-analysis core. Feishu and Google capabilities remain false until their token environment
-variables are configured.
+the table-analysis core. `capabilities.mediacrawler_douyin` may be false in a wheel-only install
+because the third-party source is intentionally not relicensed into the wheel. Feishu and Google
+capabilities remain false until their token environment variables are configured.
+
+## Homepage collection runtime
+
+The default TikHub workflow is available from the installed wheel. Set `TIKHUB_API_KEY` locally,
+run a dry-run first, then pass `--confirm-provider-cost` for the real bounded collection. The
+default scope is 20 videos and zero comments.
+
+The optional MediaCrawler workflow requires a source checkout with its pinned Git submodule, or an
+explicit compatible checkout supplied through `MEDIACRAWLER_HOME`:
+
+```bash
+git clone --recurse-submodules \
+  https://github.com/elilitokirin1111-code/video-account-distiller.git
+cd video-account-distiller
+uv sync
+uv run distiller doctor --json
+```
+
+MediaCrawler retains its own non-commercial learning license and is not included in the root wheel.
+Review `THIRD_PARTY_NOTICES.md` before use. The controlled adapter may launch visible Chrome, but
+login and platform verification remain manual; browser session contents are not written to the
+analysis project.
 
 ## First production workflow
 
@@ -46,6 +70,25 @@ variables are configured.
 Raw inputs, prediction records, publications, and prior analyses are immutable. Upgrades do not
 rewrite them automatically.
 
+Create and verify a full project backup outside the project directory:
+
+```powershell
+distiller backup create --project C:\data\project `
+  --output D:\backups\project-before-upgrade.zip --json
+distiller backup verify --archive D:\backups\project-before-upgrade.zip --json
+```
+
+Rollback restores only to a new path and never overwrites the source project:
+
+```powershell
+distiller backup restore --archive D:\backups\project-before-upgrade.zip `
+  --destination C:\data\project-restored --json
+```
+
+The ZIP and `.zip.manifest.json` sidecar must remain together. The archive is not encrypted; store
+it on access-controlled encrypted storage. The full RC checklist is in
+`docs/release-candidate-operations.md`.
+
 ## Release acceptance command
 
 Maintainers can reproduce the installed-wheel workflow with:
@@ -59,7 +102,8 @@ python tools\release_acceptance.py `
 
 Run this script with the Python executable from the environment where the built wheel is installed.
 It creates a temporary Chinese-path project, checks every JSON result, verifies expected tables and
-artifacts, and removes the project unless `--keep-workspace` is supplied.
+artifacts, exercises isolated backup/verify/restore cleanup, and removes the project unless
+`--keep-workspace` is supplied.
 
 ## Optional integrations
 

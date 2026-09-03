@@ -12,7 +12,7 @@ from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.models.core import Platform, StrictModel
 from video_account_distiller.version import COLLABORATION_SCHEMA_VERSION
 
-EntityName = Literal["accounts", "videos", "metrics", "comments"]
+EntityName = Literal["accounts", "videos", "metrics", "comments", "audience_profiles"]
 AuthorizationScope = Literal["read", "write"]
 
 
@@ -79,6 +79,7 @@ class AuthorizedExportManifest(StrictModel):
     data_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     exported_at: datetime
     authorization: AuthorizationGrant
+    data_source_tier: Literal["authorized_private"] = "authorized_private"
 
     @model_validator(mode="after")
     def validate_connector(self) -> AuthorizedExportManifest:
@@ -90,7 +91,7 @@ class AuthorizedExportManifest(StrictModel):
 class RetryPolicy(StrictModel):
     max_retries: int = Field(default=3, ge=0, le=8)
     base_seconds: float = Field(default=0.5, ge=0, le=30)
-    timeout_seconds: int = Field(default=30, ge=1, le=300)
+    timeout_seconds: int = Field(default=30, ge=1, le=1800)
 
 
 class FeishuBitableConfig(StrictModel):

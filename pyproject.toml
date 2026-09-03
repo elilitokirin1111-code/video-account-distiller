@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "video-account-distiller"
-version = "1.0.0"
+version = "1.1.1"
 description = "Offline-first Agent Skill and Python toolkit for evidence-based video account analysis."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -14,6 +14,7 @@ dependencies = [
   "duckdb>=1.3.2,<2",
   "fastapi>=0.115,<1",
   "jinja2>=3.1.6,<4",
+  "keyring>=25,<26",
   "pyarrow>=20,<24",
   "pydantic>=2.11,<3",
   "pyyaml>=6.0.2,<7",
@@ -29,19 +30,28 @@ dependencies = [
 distiller = "video_account_distiller.cli:app"
 distiller-api = "video_account_distiller.api.app:main"
 distiller-web = "video_account_distiller.web.app:main"
+distiller-desktop = "video_account_distiller_desktop.main:main"
+
+[project.optional-dependencies]
+desktop = [
+  "pyside6>=6.8,<7",
+]
 
 [dependency-groups]
 dev = [
+  "httpx2>=2.9,<3",
   "mypy>=1.16,<2",
+  "numpy>=2,<2.5",
   "pytest>=8.4,<9",
   "pytest-cov>=6.2,<8",
   "pytest-socket>=0.7,<1",
+  "pyinstaller>=6.17,<7",
   "ruff>=0.12,<1",
   "types-pyyaml>=6.0.12.20250516",
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/video_account_distiller"]
+packages = ["src/video_account_distiller", "src/video_account_distiller_desktop"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "skills/video-account-distiller/assets/prompts" = "video_account_distiller/features/prompts"
@@ -49,29 +59,51 @@ packages = ["src/video_account_distiller"]
 [tool.hatch.build.targets.sdist]
 include = [
   "/src/video_account_distiller",
+  "/src/video_account_distiller_desktop",
   "/skills/video-account-distiller",
+  "/packaging/windows",
+  "/scripts/build_windows_desktop.ps1",
+  "/tools/build_desktop_icon.py",
   "/tools/release_acceptance.py",
+  "/docs/desktop-user-guide.md",
+  "/docs/system-chain-and-desktop-architecture.md",
   "/docs/production-release.md",
+  "/docs/release-candidate-operations.md",
+  "/docs/public-beta-release.md",
+  "/docs/gpt-evaluation.md",
+  "/docs/product-direction.md",
   "/docs/phase8-account-url-analysis.md",
+  "/docs/account-media-enrichment.md",
+  "/docs/phase8-media-enrichment-acceptance-2026-07-23.md",
+  "/release-evidence/README.md",
+  "/THIRD_PARTY_NOTICES.md",
+  "/.gitmodules",
   "/LICENSE",
   "/README.md",
+  "/启动蒸馏应用.cmd",
+  "/构建Windows桌面版.cmd",
+  "/examples/gpt-evaluation-suite.example.json",
   "/pyproject.toml",
 ]
 
 [tool.ruff]
 target-version = "py311"
 line-length = 100
-extend-exclude = ["docs/planning"]
+extend-exclude = ["docs/planning", "third_party"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/video_account_distiller/cli.py" = ["B008"]
+"src/video_account_distiller/cli_backup.py" = ["B008"]
+"src/video_account_distiller/cli_gpt_evaluation.py" = ["B008"]
+"src/video_account_distiller/cli_release.py" = ["B008"]
 "src/video_account_distiller/api/router_analysis.py" = ["B008"]
 "src/video_account_distiller/api/router_closed_loop.py" = ["B008"]
 "src/video_account_distiller/api/router_reports.py" = ["B008"]
 "src/video_account_distiller/web/**/*.py" = ["E501"]
+"src/video_account_distiller_desktop/**/*.py" = ["E501"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -85,7 +117,7 @@ pretty = true
 files = ["src"]
 
 [[tool.mypy.overrides]]
-module = ["duckdb.*", "pyarrow.*", "numpy", "numpy.*"]
+module = ["duckdb.*", "pyarrow.*", "numpy", "numpy.*", "keyring", "keyring.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

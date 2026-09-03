@@ -114,6 +114,27 @@ class ShotVisualAnnotation(StrictModel):
     summary: str | None = None
     labels: list[str] = Field(default_factory=list)
     dominant_colors: list[str] = Field(default_factory=list)
+    shot_scale: list[str] = Field(
+        default_factory=list,
+        description="Visible shot scale such as 特写, 近景, 中景, 全景, or 远景.",
+    )
+    camera_movement: list[str] = Field(
+        default_factory=list,
+        description="Best-effort camera motion such as 固定机位, 手持, 推镜, 摇镜, or 跟拍.",
+    )
+    camera_angle: list[str] = Field(
+        default_factory=list,
+        description="Concrete viewpoint such as 平视, 俯视, 仰视, or 斜角.",
+    )
+    composition: list[str] = Field(
+        default_factory=list,
+        description="Framing such as 居中构图, 对称构图, or 引导线, excluding shot scale.",
+    )
+    camera: list[str] = Field(default_factory=list)
+    lighting: list[str] = Field(default_factory=list)
+    text_overlay_styles: list[str] = Field(default_factory=list)
+    motion_graphics: list[str] = Field(default_factory=list)
+    branding: list[str] = Field(default_factory=list)
     ocr_observation_ids: list[str] = Field(default_factory=list)
     confidence: float | None = Field(default=None, ge=0, le=1)
 
@@ -164,6 +185,8 @@ class MediaVisionBundle(StrictModel):
     media_hash: str
     shots: list[VisionInputShot]
     keyframes: list[VisionInputKeyframe]
+    source_video_path: str | None = None
+    duration_ms: int | None = Field(default=None, ge=0)
 
 
 class VisionTaskTrace(StrictModel):
@@ -267,5 +290,19 @@ class MediaFeatureRecord(TraceFields):
     rms_dbfs: float | None = None
     ocr_observation_count: int = Field(ge=0)
     visual_annotation_count: int = Field(ge=0)
+    visual_labels: list[str] = Field(default_factory=list)
+    dominant_colors: list[str] = Field(default_factory=list)
+    visual_style_tags: list[str] = Field(default_factory=list)
+    text_overlay_style_tags: list[str] = Field(default_factory=list)
+    motion_graphic_tags: list[str] = Field(default_factory=list)
+    branding_tags: list[str] = Field(default_factory=list)
+    # Craft distillation fields: shooting technique and expression-form tags.
+    shot_scale_tags: list[str] = Field(default_factory=list)
+    camera_movement_tags: list[str] = Field(default_factory=list)
+    camera_angle_tags: list[str] = Field(default_factory=list)
+    composition_tags: list[str] = Field(default_factory=list)
+    lighting_tags: list[str] = Field(default_factory=list)
+    opening_technique_tags: list[str] = Field(default_factory=list)
+    pacing_tags: list[str] = Field(default_factory=list)
     analysis_status: Literal["complete", "degraded"]
     analysis_path: str

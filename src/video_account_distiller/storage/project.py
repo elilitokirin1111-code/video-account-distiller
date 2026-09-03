@@ -71,9 +71,18 @@ class ProjectLayout:
 
     @classmethod
     def initialize(
-        cls, root: Path, *, project_name: str | None = None
+        cls,
+        root: Path,
+        *,
+        project_name: str | None = None,
+        config_template: Path | None = None,
     ) -> tuple[ProjectLayout, bool]:
-        """Create an idempotent project structure without overwriting user files."""
+        """Create an idempotent project structure without overwriting user files.
+
+        When ``config_template`` points at an existing distiller.yaml, the new
+        project inherits its settings (models, media, analysis) so a container
+        project can spawn per-account children with the same local model setup.
+        """
 
         layout = cls(root)
         already_initialized = layout.config_path.exists() and layout.state_path.exists()
@@ -84,7 +93,16 @@ class ProjectLayout:
         name = project_name or layout.root.name
         now = datetime.now(UTC)
         if not layout.config_path.exists():
-            atomic_write_text(layout.config_path, default_config(name).as_yaml())
+            if config_template is not None and config_template.is_file():
+                try:
+                    template = load_config(config_template)
+                    template.project.name = name
+                    config_text = template.as_yaml()
+                except DistillerError:
+                    config_text = default_config(name).as_yaml()
+            else:
+                config_text = default_config(name).as_yaml()
+            atomic_write_text(layout.config_path, config_text)
         if not layout.state_path.exists():
             state = ProjectState(
                 project_id=stable_id("proj_", str(layout.root)),
@@ -105,6 +123,8 @@ class ProjectLayout:
                 "# Copy variable names only; keep real values outside the project.\n"
                 "TIKHUB_API_KEY=\n"
                 "TIKHUB_API_BASE_URL=https://api.tikhub.dev\n"
+                "DASHSCOPE_API_KEY=\n"
+                "DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1\n"
                 "FEISHU_BITABLE_TOKEN=\n"
                 "GOOGLE_SHEETS_TOKEN=\n",
             )

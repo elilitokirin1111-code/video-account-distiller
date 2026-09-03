@@ -30,3 +30,27 @@ This command is text-only analysis. Use the separate Phase 6 `analyze media` wor
 shot rhythm, keyframes, signal-level audio, and schema-cited OCR/visual evidence. Do not backfill
 these fields from transcript guesses. A single video can provide facts and hypotheses but
 cannot establish an account Pattern or validated rule.
+
+## Deep single-video distillation
+
+`distiller analyze video --deep` merges the blind text analysis with any existing local media
+analysis into one `svd_*` reference card: 选材 topic (angle/audience/information increment/memory
+point/topic formula), 表现形式 expression (opening form/subtitle style/packaging/audio/editing),
+拍摄手法 craft (shot scale/camera/composition/lighting/opening/pacing plus deterministic
+per-shot counts), and a 可复制清单 copy checklist with what to avoid. It works on one video from
+an account the user does not follow; it never needs account-level performance bands.
+
+The deep stage is optional: pass `--deep-provider ollama|llamacpp|cloud` with `--deep-model`,
+`--deep-base-url`, `--deep-api-key`, or offline `--deep-output` JSON. Model citations are filtered
+to real `segment_id`/`shot_id` evidence. Without a provider the service degrades visibly
+(`status: degraded`) to deterministic aggregation of blind labels and measured media features;
+`--strict-deep` fails instead. `distiller validate` checks the `svd_*` artifacts and their
+evidence links.
+
+To push the reference card into WeKnora, run
+`distiller knowledge weknora sync-video --project <dir> --video <video-id> --kb-id <id>
+--base-url http://127.0.0.1:8080 --api-key $env:WEKNORA_API_KEY` (or the equivalent
+`POST /api/projects/{project}/knowledge/weknora/videos/{video_id}/sync`). The HTTP analyze route
+(`POST /api/projects/{project}/analyze/video/{video_id}` with `deep: true`) supports
+`deep_provider cloud` with credentials resolved from the workspace credential store, never from the
+request body.
