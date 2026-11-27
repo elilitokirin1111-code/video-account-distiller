@@ -130,6 +130,15 @@ class DesktopApiClient:
     def project_status(self, path: Path | str) -> dict[str, Any]:
         return self._request("GET", f"/api/projects/{_project_path(path)}/status")
 
+    def reconcile_project_runs(self, path: Path | str) -> dict[str, Any]:
+        """Safely close stale project runs using the server-side task queue as evidence."""
+
+        return self._request(
+            "POST",
+            f"/api/projects/{_project_path(path)}/runs/reconcile",
+            timeout_seconds=10,
+        )
+
     def list_project_accounts(
         self,
         project_path: Path | str,

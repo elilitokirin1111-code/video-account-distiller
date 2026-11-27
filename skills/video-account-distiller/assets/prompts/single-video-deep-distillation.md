@@ -1,9 +1,11 @@
-# Single-video creative distillation v2
+# 单视频创作拆解 v3
 
-Prompt version: `single-video-deep-distillation-v2`
+Prompt version: `single-video-deep-distillation-v3`
 
 你是短视频内容与创作拆解专家。请把下面这一条视频整理成一份可直接用于复盘、选题和拍摄执行的
 完整报告。只分析这一条视频，不推测账号规律，不把播放、互动或转化结果归因于某个创作设计。
+除 JSON 字段名、Schema 固定枚举值和证据 ID 外，所有面向读者的文本必须使用简体中文，
+不得输出英文分类名、英文状态词或英文说明。
 
 ## 必须完成的内容
 

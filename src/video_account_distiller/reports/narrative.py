@@ -18,8 +18,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from jinja2 import Environment, StrictUndefined
-
 from video_account_distiller.distillation.pipeline import (
     _latest_comment_analysis,
     _latest_distillation,
@@ -34,6 +32,11 @@ from video_account_distiller.models import (
     MetricSnapshot,
     SingleVideoAnalysis,
     Video,
+)
+from video_account_distiller.report_presentation import (
+    create_report_environment,
+    display_label,
+    display_text,
 )
 from video_account_distiller.sampling.dataset import load_account_dataset
 from video_account_distiller.storage.project import ProjectLayout
@@ -143,7 +146,7 @@ ZH_MAP = {
 
 
 def _zh(value: Any) -> str:
-    return ZH_MAP.get(str(value), str(value))
+    return ZH_MAP.get(str(value), display_text(value))
 
 
 def _pattern_name_zh(value: Any) -> str:
@@ -166,7 +169,7 @@ def _pattern_name_zh(value: Any) -> str:
 
 
 def _translate_known(value: Any) -> str:
-    return _pattern_name_zh(value)
+    return display_text(_pattern_name_zh(value))
 
 
 def _statement_zh(value: str) -> str:
@@ -423,6 +426,7 @@ class NarrativeReportService:
             }
 
         run_id = stable_id("run_dry_", narrative_id)
+        manifest = None
         if not dry_run:
             scope_hashes = (
                 [str(item) for item in distillation.data_scope.values()] if distillation else []
@@ -438,36 +442,61 @@ class NarrativeReportService:
             )
             run_id = manifest.run_id
 
-        payload = self._build_payload(
-            account_id=account_id,
-            distillation=distillation,
-            health=health,
-            enrichment=enrichment,
-            comment_analysis=comment_analysis,
-            rows=rows,
-            bands=bands,
-            account=account,
-        )
-        markdown = self._render(payload)
-        longform_markdown = self._render_longform(payload)
-
-        if not dry_run:
-            output_dir.mkdir(parents=True, exist_ok=True)
-            (output_dir / "narrative.md").write_text(markdown, encoding="utf-8")
-            (output_dir / "longform.md").write_text(
-                longform_markdown,
-                encoding="utf-8",
+        try:
+            payload = self._build_payload(
+                account_id=account_id,
+                distillation=distillation,
+                health=health,
+                enrichment=enrichment,
+                comment_analysis=comment_analysis,
+                rows=rows,
+                bands=bands,
+                account=account,
             )
-            (output_dir / "run_id.txt").write_text(run_id, encoding="utf-8")
-        return {
+            markdown = self._render(payload)
+            longform_markdown = self._render_longform(payload)
+            outputs = [
+                self.project.relative(narrative_path),
+                self.project.relative(longform_path),
+            ]
+
+            if not dry_run:
+                output_dir.mkdir(parents=True, exist_ok=True)
+                narrative_path.write_text(markdown, encoding="utf-8")
+                longform_path.write_text(longform_markdown, encoding="utf-8")
+                (output_dir / "run_id.txt").write_text(run_id, encoding="utf-8")
+        except Exception as exc:
+            if manifest is not None:
+                error = (
+                    f"{exc.code.value}: {exc.message}"
+                    if isinstance(exc, DistillerError)
+                    else f"{type(exc).__name__}: {exc}"
+                )
+                self.project.finish_run(
+                    manifest,
+                    success=False,
+                    errors=[error[:1_000]],
+                )
+            raise
+
+        result = {
             "ok": True,
             "dry_run": dry_run,
             "already_generated": False,
-            "outputs": [
-                self.project.relative(narrative_path),
-                self.project.relative(longform_path),
-            ],
+            "outputs": outputs,
         }
+        if manifest is not None:
+            self.project.finish_run(
+                manifest,
+                success=True,
+                processed_counts={
+                    "accounts": 1,
+                    "videos": len(rows),
+                    "reports": len(outputs),
+                },
+                output_files=outputs,
+            )
+        return result
 
     def _build_payload(
         self,
@@ -615,7 +644,10 @@ class NarrativeReportService:
                 {
                     "name": key,
                     "count": len(items),
-                    "bands": "、".join(str(item.get("band") or "未分层") for item in items),
+                    "bands": "、".join(
+                        display_label(item["band"]) if item.get("band") else "未分层"
+                        for item in items
+                    ),
                     "median_score": round(median_score, 2) if median_score is not None else None,
                 }
             )
@@ -647,7 +679,7 @@ class NarrativeReportService:
             data_health_parts.append(
                 "表现分层为 "
                 + " / ".join(
-                    f"{band} 级 {bands.get(band, 0)} 条"
+                    f"{display_label(band)} {bands.get(band, 0)} 条"
                     for band in ("S", "A", "B", "C", "D")
                     if bands.get(band)
                 )
@@ -680,7 +712,7 @@ class NarrativeReportService:
             {
                 "signal": "账号内相对表现",
                 "status": "可用于决策",
-                "reason": f"{metric_coverage.get('performance_score', 0)} 条视频有表现分，可做 Top/Bottom 对照。",
+                "reason": f"{metric_coverage.get('performance_score', 0)} 条视频有表现分，可做表现前后组对照。",
             },
             {
                 "signal": "点赞与评论绝对量",
@@ -715,14 +747,14 @@ class NarrativeReportService:
         judgments: list[dict[str, Any]] = []
         interaction_facts: list[str] = []
         if top_likes is not None and bottom_likes is not None:
-            fact = f"Top 5 点赞中位数 {_number(top_likes)}，Bottom 5 为 {_number(bottom_likes)}"
+            fact = (
+                f"表现前 5 条点赞中位数 {_number(top_likes)}，表现后 5 条为 {_number(bottom_likes)}"
+            )
             if comparative_ratios["likes"] is not None:
                 fact += f"，相差 {comparative_ratios['likes']:.2f} 倍"
             interaction_facts.append(fact + "。")
         if top_comments is not None and bottom_comments is not None:
-            fact = (
-                f"Top 5 评论中位数 {_number(top_comments)}，Bottom 5 为 {_number(bottom_comments)}"
-            )
+            fact = f"表现前 5 条评论中位数 {_number(top_comments)}，表现后 5 条为 {_number(bottom_comments)}"
             if comparative_ratios["comments"] is not None:
                 fact += f"，相差 {comparative_ratios['comments']:.2f} 倍"
             interaction_facts.append(fact + "。")
@@ -737,8 +769,8 @@ class NarrativeReportService:
                         "高表现作品可能获得了更多初始曝光，绝对互动量随曝光同步放大。",
                         "热点、发布时间、投放或外部事件也可能同时推高点赞和评论。",
                     ],
-                    "falsifier": "补齐播放量后，如果 Top/Bottom 的点赞率、评论率接近，说明当前差距主要来自曝光，而不是内容说服力。",
-                    "decision": "下一轮把 Top 5 当作结构假设库，不把它们直接写成爆款公式；每次只复用一个结构变量，并保留同主题对照。",
+                    "falsifier": "补齐播放量后，如果高低表现组的点赞率、评论率接近，说明当前差距主要来自曝光，而不是内容说服力。",
+                    "decision": "下一轮把表现前 5 条当作结构假设库，不把它们直接写成爆款公式；每次只复用一个结构变量，并保留同主题对照。",
                     "indicator": "优先看点赞率、评论率和有效评论占比，而不是继续只看绝对点赞。",
                     "stop_condition": "连续 3 条复用同一结构后仍未高于账号近 20 条中位水平，就停止把该结构视为可复制优势。",
                     "confidence": "中",
@@ -756,11 +788,11 @@ class NarrativeReportService:
                 {
                     "title": "高表现组混合了不同需求引擎，不能平均成一种爆款公式",
                     "verdict": (
-                        f"Top 5 中有 {dominant_count} 条明确属于“{_zh(dominant_pillar)}”，"
+                        f"表现前 5 条中有 {dominant_count} 条明确属于“{_zh(dominant_pillar)}”，"
                         "同时存在一个语义未分类但评论极高的样本；两者很可能承担不同经营任务。"
                     ),
                     "facts": [
-                        f"明确的主导方向占 Top 5 的 {dominant_count}/5。",
+                        f"明确的主导方向占表现前 5 条的 {dominant_count}/5。",
                         f"《{outlier['title']}》获得 {_number(outlier.get('comments'))} 条评论，"
                         "但当前语义分析未能可靠归类。",
                     ],
@@ -807,7 +839,7 @@ class NarrativeReportService:
                         else "不能从当前时长差异推出机械的秒数配方，应优先检查内容密度与承诺兑现。"
                     ),
                     "facts": [
-                        f"Top 5 时长中位数 {_number(top_duration)} 秒，Bottom 5 为 {_number(bottom_duration)} 秒"
+                        f"表现前 5 条时长中位数 {_number(top_duration)} 秒，表现后 5 条为 {_number(bottom_duration)} 秒"
                         + (
                             f"，前者约为后者的 {comparative_ratios['duration']:.2f} 倍。"
                             if comparative_ratios["duration"] is not None
@@ -865,7 +897,7 @@ class NarrativeReportService:
                         "平台分发波动可能放大了看似不稳定的结果。",
                         "当前只取 20 条，样本窗口可能刚好覆盖特殊事件或季节性题材。",
                     ],
-                    "falsifier": "扩大到 50 条并补齐播放后，如果相似结构仍呈随机分布，就不应继续把现有 Top 样本解释为稳定能力。",
+                    "falsifier": "扩大到 50 条并补齐播放后，如果相似结构仍呈随机分布，就不应继续把现有高表现样本解释为稳定能力。",
                     "decision": "建立发布前假设卡和发布后对照表；每周只沉淀一条被重复验证的规则。",
                     "indicator": "同一结构连续 3 次的表现中位数，以及最差一次是否仍高于账号基线。",
                     "stop_condition": "任何规则只由单条爆款支撑时，不进入团队模板。",
@@ -1008,9 +1040,7 @@ class NarrativeReportService:
     ) -> str:
         template_path = Path(__file__).parent / "templates" / template_name
         try:
-            environment = Environment(
-                undefined=StrictUndefined,
-                autoescape=False,
+            environment = create_report_environment(
                 trim_blocks=True,
                 lstrip_blocks=True,
             )

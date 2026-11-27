@@ -42,7 +42,7 @@ def test_video_fallback_uses_title_when_transcript_is_unusable() -> None:
     assert semantics.primary_pillar_evidence_segment_ids == []
     assert semantics.hook.evidence_segment_ids == []
     assert "metadata_only_semantic_label_requires_review" in semantics.risk_flags
-    assert "content pillar" not in semantics.unknowns
+    assert "内容方向" not in semantics.unknowns
 
 
 def test_video_fallback_does_not_force_a_label_without_a_signal() -> None:
@@ -50,7 +50,7 @@ def test_video_fallback_does_not_force_a_label_without_a_signal() -> None:
 
     assert semantics.primary_pillar == "unknown"
     assert semantics.hook.primary_type == HookType.UNKNOWN
-    assert "content pillar" in semantics.unknowns
+    assert "内容方向" in semantics.unknowns
 
 
 def test_video_fallback_finds_implicit_comment_cta_before_the_final_segment() -> None:

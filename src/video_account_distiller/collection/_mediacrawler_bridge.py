@@ -311,7 +311,10 @@ def _resolve_douyin_short_url(url: str) -> str:
     if host not in ("v.douyin.com", "v.douyin.com."):
         return url
     try:
-        req = Request(url, method="HEAD", headers={"User-Agent": "Mozilla/5.0"})
+        # Douyin short links may redirect to a page that rejects HEAD (404)
+        # while the same link resolves normally with GET. Only inspect the
+        # final URL; the response body is never downloaded.
+        req = Request(url, method="GET", headers={"User-Agent": "Mozilla/5.0"})
         with urlopen(req, timeout=15) as resp:
             resolved = resp.url
         if resolved and resolved != url:

@@ -20,6 +20,7 @@ from video_account_distiller.insights.gpt_analysis import (
     RemoteAccountAnalysisService,
     StrictModel,
 )
+from video_account_distiller.report_presentation import display_label
 from video_account_distiller.storage.project import ProjectLayout
 from video_account_distiller.utils.hashing import sha256_json
 from video_account_distiller.utils.io import (
@@ -213,19 +214,19 @@ def _render_report(result: dict[str, Any]) -> str:
     quality = result["quality"]
     cost = result["cost"]
     lines = [
-        f"# GPT evaluation: {result['suite_id']} / {result['campaign_id']}",
+        f"# GPT 回归评测：{result['suite_id']} / {result['campaign_id']}",
         "",
-        f"- Acceptance status: `{result['acceptance_status']}`",
-        f"- Planned independent runs: {result['counts']['planned_runs']}",
-        f"- Remote calls performed: {result['counts']['remote_calls_performed']}",
-        f"- Cached runs: {result['counts']['cached_runs']}",
-        f"- Citation-complete runs: {quality['citation_complete_runs']}",
-        f"- Evidence-integrity runs: {quality['evidence_integrity_passed_runs']}",
-        f"- Stability-passing cases: {quality['stability_passed_cases']}",
-        f"- Estimated total cost (USD): {cost['total_estimated_usd']}",
-        f"- Approved budget (USD): {cost['approved_budget_usd']}",
+        f"- 验收状态：**{display_label(result['acceptance_status'])}**",
+        f"- 计划独立运行次数：{result['counts']['planned_runs']}",
+        f"- 实际远程调用次数：{result['counts']['remote_calls_performed']}",
+        f"- 缓存复用次数：{result['counts']['cached_runs']}",
+        f"- 引用完整的运行次数：{quality['citation_complete_runs']}",
+        f"- 证据完整性通过次数：{quality['evidence_integrity_passed_runs']}",
+        f"- 稳定性通过的案例数：{quality['stability_passed_cases']}",
+        f"- 预估总费用（美元）：{cost['total_estimated_usd']}",
+        f"- 已批准预算（美元）：{cost['approved_budget_usd']}",
         "",
-        "## Cases",
+        "## 评测案例",
         "",
     ]
     for case in result["cases"]:
@@ -234,19 +235,20 @@ def _render_report(result: dict[str, Any]) -> str:
             [
                 f"### {case['case_id']}",
                 "",
-                f"- Account: `{case['account_id']}`",
-                f"- Stability: `{stability['status']}` "
-                f"(minimum Jaccard: {stability['minimum_finding_jaccard_similarity']})",
-                f"- New/cached runs: {case['remote_calls_performed']}/{case['cached_runs']}",
+                f"- 账号：`{case['account_id']}`",
+                f"- 稳定性：**{display_label(stability['status'])}**"
+                f"（最低 Jaccard 相似度："
+                f"{stability['minimum_finding_jaccard_similarity']}）",
+                f"- 新调用/缓存复用：{case['remote_calls_performed']}/{case['cached_runs']}",
                 "",
             ]
         )
     lines.extend(
         [
-            "## Interpretation",
+            "## 解读说明",
             "",
-            "This report estimates API cost from response usage. The provider invoice remains "
-            "authoritative. Semantic correctness and business usefulness still require review.",
+            "本报告依据响应使用量估算 API 费用，最终费用以服务商账单为准。"
+            "语义正确性与业务可用性仍需人工复核。",
             "",
         ]
     )

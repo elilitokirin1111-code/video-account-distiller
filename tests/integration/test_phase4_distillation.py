@@ -42,7 +42,17 @@ def test_account_distillation_keeps_support_counterexamples_and_knowledge(
     )
     assert all(set(item.evidence_ids) <= evidence_ids for item in distillation.patterns)
     assert distillation.action_recommendations
-    assert "Pattern 与反例" in paths[1].read_text(encoding="utf-8")
+    markdown = paths[1].read_text(encoding="utf-8")
+    assert "规律与反例" in markdown
+    for machine_token in (
+        "unknown",
+        "degraded",
+        "insufficient",
+        "statistical_association",
+        "True",
+        "False",
+    ):
+        assert machine_token not in markdown
     assert (phase4_project.root / "knowledge-base" / "accounts" / f"{account_id}.md").is_file()
     assert all(
         (phase4_project.root / "knowledge-base" / "patterns" / f"{item.pattern_id}.json").is_file()

@@ -99,9 +99,12 @@ def test_desktop_api_client_encodes_project_path_and_surfaces_stable_errors(
 
     assert client.list_tasks() == []
     client.validate_project(tmp_path / "project folder")
+    client.reconcile_project_runs(tmp_path / "project folder")
 
     assert session.calls[1]["url"].endswith("/validate")
     assert "%20" in session.calls[1]["url"]
+    assert session.calls[2]["method"] == "POST"
+    assert session.calls[2]["url"].endswith("/runs/reconcile")
     client.close()
     assert session.closed is True
 

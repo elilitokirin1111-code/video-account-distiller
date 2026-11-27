@@ -8,6 +8,10 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from video_account_distiller.models import SCHEMA_VERSION, DataQualityIssue
+from video_account_distiller.report_presentation import (
+    display_label,
+    display_warning,
+)
 from video_account_distiller.utils.io import atomic_write_json, atomic_write_text
 
 
@@ -35,31 +39,43 @@ class QualityReport(BaseModel):
     def as_markdown(self) -> str:
         """Render a concise auditable quality report."""
 
+        entity_label = display_label(self.entity)
+        if entity_label == self.entity:
+            entity_label = f"数据对象（内部字段 `{self.entity}`）"
         lines = [
-            "# Data quality report",
+            "# 数据质量报告",
             "",
-            f"- Schema version: `{self.schema_version}`",
-            f"- Run ID: `{self.run_id}`",
-            f"- Entity: `{self.entity}`",
-            f"- Input hashes: {', '.join(f'`{value}`' for value in self.input_hashes) or 'none'}",
-            f"- Errors: {self.error_count}",
+            f"- 数据结构版本：`{self.schema_version}`",
+            f"- 运行标识：`{self.run_id}`",
+            f"- 检查对象：{entity_label}",
+            "- 输入哈希：" + ("、".join(f"`{value}`" for value in self.input_hashes) or "无"),
+            f"- 错误数：{self.error_count}",
             "",
-            "## Counts",
+            "## 数量统计",
             "",
         ]
-        lines.extend(f"- {key}: {value}" for key, value in sorted(self.stats.items()))
-        lines.extend(["", "## Issues", ""])
+        for key, value in sorted(self.stats.items()):
+            label = display_label(key)
+            if label == key:
+                label = f"统计项（内部字段 `{key}`）"
+            lines.append(f"- {label}：{value}")
+        lines.extend(["", "## 质量问题", ""])
         if not self.issues:
-            lines.append("No data-quality issues detected.")
+            lines.append("未发现数据质量问题。")
         else:
             for issue in self.issues:
-                location = f" row {issue.row_number}" if issue.row_number is not None else ""
+                severity = display_label(issue.severity)
+                issue_label = display_label(issue.code)
+                if issue_label == issue.code:
+                    issue_label = "数据质量异常"
+                location = f"，第 {issue.row_number} 行" if issue.row_number is not None else ""
                 lines.append(
-                    f"- **{issue.severity.upper()} {issue.code}**{location}: {issue.message}"
+                    f"- **{severity} · {issue_label}**（代码 `{issue.code}`{location}）："
+                    f"{display_warning(issue.message)}"
                 )
         if self.warnings:
-            lines.extend(["", "## Warnings", ""])
-            lines.extend(f"- {warning}" for warning in self.warnings)
+            lines.extend(["", "## 注意事项", ""])
+            lines.extend(f"- {display_warning(warning)}" for warning in self.warnings)
         return "\n".join(lines) + "\n"
 
 

@@ -14,7 +14,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from jinja2 import Environment, StrictUndefined
 from pydantic import BaseModel
 
 from video_account_distiller.config import load_config
@@ -59,12 +58,17 @@ from video_account_distiller.models.video_distillation import (
     VideoCreativeEvaluation,
     VideoExecutiveSummary,
 )
+from video_account_distiller.report_presentation import render_report_template
 from video_account_distiller.storage.parquet import read_models
 from video_account_distiller.storage.project import ProjectLayout
 from video_account_distiller.utils.hashing import sha256_json
 from video_account_distiller.utils.ids import stable_id
 from video_account_distiller.utils.io import atomic_write_json, atomic_write_text, read_json
 from video_account_distiller.utils.lookup import resolve_video
+from video_account_distiller.utils.transcript_text import (
+    clean_transcript_text,
+    has_unreadable_transcript_text,
+)
 
 SINGLE_VIDEO_DISTILLATION_VERSION = "2.0.0"
 
@@ -336,11 +340,15 @@ def _fallback_evaluation(
     semantics = analysis.blind_analysis.semantics
     facts = analysis.blind_analysis.facts
     text_reliable = analysis.status == "complete" and semantics.confidence >= 0.6
+    # A failed auxiliary keyframe or audio probe marks the bundle degraded,
+    # but does not invalidate successful native-video annotations. Score the
+    # visual evidence that actually exists instead of discarding the complete
+    # Qwen vision result because one optional extraction step warned.
     media_reliable = bool(
         media is not None
-        and media.status == "complete"
         and media.vision is not None
         and media.vision_trace.status == "success"
+        and media.vision.shot_annotations
     )
     fact_ids = _deduplicate(
         [segment_id for item in facts.facts for segment_id in item.evidence_segment_ids]
@@ -929,7 +937,7 @@ def _build_bundle(
                 "segment_id": item.segment_id,
                 "start_ms": item.start_ms,
                 "end_ms": item.end_ms,
-                "text": item.text,
+                "text": clean_transcript_text(item.text),
             }
             for item in _transcript_segments(project, video.video_id)
         ],
@@ -1412,6 +1420,13 @@ class SingleVideoDistillationService:
                         if media is not None and not craft.shot_scale
                         else []
                     ),
+                    *(
+                        ["transcript_contains_unreadable_characters"]
+                        if any(
+                            has_unreadable_transcript_text(item.text) for item in transcript_records
+                        )
+                        else []
+                    ),
                 ]
             )
         )
@@ -1475,12 +1490,13 @@ class SingleVideoDistillationService:
             / "templates"
             / "single-video-distillation.md.j2"
         )
-        template = Environment(undefined=StrictUndefined, autoescape=False).from_string(
-            template_path.read_text(encoding="utf-8")
-        )
         atomic_write_text(
             paths[1],
-            template.render(distillation=distillation.model_dump(mode="python")).strip() + "\n",
+            render_report_template(
+                template_path,
+                distillation=distillation.model_dump(mode="python"),
+            ).strip()
+            + "\n",
         )
         atomic_write_json(paths[2], evidence.model_dump(mode="json"))
         atomic_write_json(paths[3], warnings)

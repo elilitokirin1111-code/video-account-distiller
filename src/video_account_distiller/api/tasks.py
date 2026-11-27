@@ -388,6 +388,48 @@ class TaskStore:
                 tasks.append(payload)
         return tasks
 
+    def active_tasks(self) -> TaskList:
+        """Return every task that can still start or currently owns work.
+
+        Unlike :meth:`list`, this recovery-oriented query is deliberately not
+        paginated.  A stale project run may only be reconciled after the whole
+        active queue has been inspected, so silently truncating at the normal
+        task-list limit would be unsafe.
+        """
+
+        active_statuses = (
+            "queued",
+            "pending",
+            "running",
+            "cancelling",
+            "cancel_requested",
+        )
+        placeholders = ",".join("?" for _ in active_statuses)
+        with self._lock, self._connection() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT task_id, payload_json FROM api_tasks
+                WHERE status IN ({placeholders})
+                ORDER BY created_at ASC
+                """,
+                active_statuses,
+            ).fetchall()
+        tasks: list[TaskData] = []
+        for row in rows:
+            try:
+                payload = json.loads(str(row["payload_json"]))
+            except (TypeError, ValueError):
+                payload = None
+            if isinstance(payload, dict):
+                payload.setdefault("task_id", str(row["task_id"]))
+                tasks.append(payload)
+            else:
+                # Keep corrupt/legacy active rows visible as unscoped.  The
+                # reconciler will block rather than mistake them for proof of
+                # project inactivity.
+                tasks.append({"task_id": str(row["task_id"])})
+        return tasks
+
     def list_summaries(
         self,
         *,
@@ -1157,22 +1199,23 @@ def enqueue_ephemeral_task(
     *args: Any,
     task_type: str,
     resource_class: str,
+    task_metadata: TaskData | None = None,
     **kwargs: Any,
 ) -> TaskData:
     """Run a secret-bearing task without serializing its arguments into SQLite."""
 
     task_id = new_run_id()
-    tasks.create(
-        task_id,
-        initial={
-            "task_type": task_type,
-            "resource_class": resource_class,
-            "durable": False,
-            "retryable": False,
-            "stage": "pending",
-            "message": "临时任务已进入当前应用进程；凭据不会持久化",
-        },
-    )
+    initial: TaskData = {
+        "task_type": task_type,
+        "resource_class": resource_class,
+        "durable": False,
+        "retryable": False,
+        "stage": "pending",
+        "message": "临时任务已进入当前应用进程；凭据不会持久化",
+    }
+    if task_metadata is not None:
+        initial["task_metadata"] = task_metadata
+    tasks.create(task_id, initial=initial)
 
     async def _runner() -> None:
         try:

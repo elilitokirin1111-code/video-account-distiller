@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+from email.message import Message
+from io import BytesIO
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError
 
 import pytest
 from pydantic import BaseModel
@@ -11,6 +14,7 @@ from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.features.providers import (
     CloudChatTextProvider,
     LlamaCppTextProvider,
+    ModelSchemaFailure,
     _chat_completions_url,
     _normalize_https_base_url,
 )
@@ -108,6 +112,77 @@ def test_cloud_text_provider_uses_deepseek_switch_for_selected_gateway() -> None
         api_key="sk-test",
     )
     assert bailian._request_options(BaseModel)["enable_thinking"] is True
+
+
+def test_cloud_text_provider_reports_cloud_http_status_instead_of_llamacpp(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Result(BaseModel):
+        ok: bool
+
+    def _raise_rate_limit(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        raise HTTPError(
+            "https://example.invalid/v1/chat/completions",
+            429,
+            "rate limited",
+            Message(),
+            None,
+        )
+
+    monkeypatch.setattr(
+        "video_account_distiller.features.providers.urlopen",
+        _raise_rate_limit,
+    )
+    provider = CloudChatTextProvider(
+        model="qwen3.7-plus",
+        base_url="https://example.invalid/v1",
+        api_key="sk-test",
+    )
+
+    with pytest.raises(
+        ModelSchemaFailure,
+        match=r"^cloud model text request failed: HTTP 429$",
+    ):
+        provider.generate_structured("return JSON", _Result)
+
+
+def test_cloud_text_provider_keeps_safe_provider_code_and_request_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _Result(BaseModel):
+        ok: bool
+
+    def _raise_provider_error(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        body = BytesIO(b'{"error":{"code":"insufficient_quota"}}')
+        headers = Message()
+        headers["x-request-id"] = "req-123"
+        raise HTTPError(
+            "https://example.invalid/v1/chat/completions",
+            403,
+            "forbidden",
+            headers,
+            body,
+        )
+
+    monkeypatch.setattr(
+        "video_account_distiller.features.providers.urlopen",
+        _raise_provider_error,
+    )
+    provider = CloudChatTextProvider(
+        model="qwen3.7-plus",
+        base_url="https://example.invalid/v1",
+        api_key="sk-test",
+    )
+
+    with pytest.raises(ModelSchemaFailure) as exc_info:
+        provider.generate_structured("return JSON", _Result)
+
+    message = str(exc_info.value)
+    assert "HTTP 403" in message
+    assert "code=insufficient_quota" in message
+    assert "request_id=req-123" in message
 
 
 @pytest.mark.parametrize(

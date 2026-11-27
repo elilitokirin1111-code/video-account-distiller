@@ -26,6 +26,11 @@ from video_account_distiller.knowledge.exporter import (
     _safe_source_path,
 )
 from video_account_distiller.models import Video
+from video_account_distiller.report_presentation import (
+    display_label,
+    display_text,
+    display_warning,
+)
 from video_account_distiller.storage.parquet import read_models
 from video_account_distiller.storage.project import ProjectLayout
 from video_account_distiller.utils.hashing import sha256_json
@@ -37,11 +42,30 @@ VAULT_SUBFOLDER = "视频账号蒸馏"
 HUMAN_DIR_NAME = "分析报告"
 MACHINE_DIR_NAME = "AI学习沉淀知识库"
 
+_GPT_REPORT_SPECS: dict[str, tuple[str, str, tuple[str, ...]]] = {
+    "account_health": (
+        "06-云端账号体检.md",
+        "云端账号体检报告",
+        ("云端深度分析", "账号体检"),
+    ),
+    "content_strategy": (
+        "07-云端内容策略.md",
+        "云端内容策略报告",
+        ("云端深度分析", "内容策略"),
+    ),
+    "growth_plan": (
+        "08-云端增长计划.md",
+        "云端增长计划报告",
+        ("云端深度分析", "增长计划"),
+    ),
+}
+_LEGACY_GPT_REPORT_NAME = "06-云端深度分析.md"
+
 _OBSIDIAN_ZH = {
     "high": "高",
     "medium": "中",
     "low": "低",
-    "unknown": "未知",
+    "unknown": "当前资料未明确",
     "observed_fact": "已观察事实",
     "statistical_association": "统计关联",
     "hypothesis": "假设",
@@ -137,7 +161,8 @@ _OBSIDIAN_ZH = {
 
 
 def _zh_text(value: Any) -> str:
-    return _OBSIDIAN_ZH.get(str(value), str(value))
+    text = str(value)
+    return display_text(_OBSIDIAN_ZH.get(text, text))
 
 
 def _pattern_name_zh_obs(value: Any) -> str:
@@ -147,7 +172,7 @@ def _pattern_name_zh_obs(value: Any) -> str:
             text = text.replace(key, translated)
     text = re.sub(r"\s{2,}", " ", text)
     text = re.sub(r"([\u4e00-\u9fff]) ([的与和])", r"\1\2", text)
-    return text
+    return display_text(text)
 
 
 def _effect_zh_obs(pattern: dict[str, Any]) -> str:
@@ -224,15 +249,6 @@ def _wrap_report(
 def _gpt_report_zh(text: str) -> str:
     """Translate common English tokens in a cloud GPT analysis report."""
 
-    classification_zh = {
-        "observed_fact": "已观察事实",
-        "statistical_association": "统计关联",
-        "hypothesis": "假设",
-        "recommendation": "建议",
-        "unknown": "未知",
-    }
-    confidence_zh = {"high": "高", "medium": "中", "low": "低", "unknown": "未知"}
-
     def _evidence_label(ref: str) -> str:
         lowered = ref.casefold()
         if lowered.startswith("context://account"):
@@ -260,20 +276,39 @@ def _gpt_report_zh(text: str) -> str:
         return ref
 
     lines: list[str] = []
+    in_limitations = False
     for line in text.splitlines():
-        if line.startswith("- 类型："):
+        if line.startswith("## "):
+            in_limitations = line in {"## 阅读边界", "## 局限", "## Limitations"}
+            lines.append(display_text(line))
+        elif line.startswith("- 类型："):
             value = line[len("- 类型：") :].strip()
-            lines.append(f"- 类型：{classification_zh.get(value, value)}")
+            lines.append(f"- 类型：{display_label(value)}")
         elif line.startswith("- 置信度："):
             value = line[len("- 置信度：") :].strip()
-            lines.append(f"- 置信度：{confidence_zh.get(value, value)}")
+            lines.append(f"- 置信度：{display_label(value)}")
         elif line.startswith("- 证据：") or line.startswith("- 证据来源："):
             value = line.split("：", 1)[1].strip()
             labels = [_evidence_label(ref.strip()) for ref in value.split(",") if ref.strip()]
             lines.append(f"- 证据来源：{'、'.join(labels)}")
+        elif in_limitations and line.startswith("- "):
+            lines.append(f"- {display_warning(line[2:])}")
         else:
-            lines.append(line)
+            lines.append(display_text(line))
     return "\n".join(lines)
+
+
+def _with_report_title(text: str, title: str) -> str:
+    """Give a generated report a template-specific human-facing title."""
+
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if line.startswith("# "):
+            lines[index] = f"# {title}"
+            break
+    else:
+        lines = [f"# {title}", "", *lines]
+    return "\n".join(lines).rstrip() + "\n"
 
 
 _LEGACY_ZH = {
@@ -321,7 +356,7 @@ def _legacy_report_zh(text: str) -> str:
         result = re.sub(rf"\b{re.escape(key)}\b", value, result)
     result = re.sub(r"evi_[0-9a-f]{6,}", "[证据]", result)
     result = re.sub(r"(-?\d+\.\d{4,})", lambda m: f"{float(m.group(1)):.2f}", result)
-    return result
+    return display_text(result)
 
 
 def _table(headers: list[str], rows: list[list[Any]]) -> str:
@@ -426,6 +461,7 @@ class ObsidianVaultExporter:
         folder_name: str,
         account_id: str,
         gpt_payload: dict[str, Any] | None = None,
+        gpt_report_stems: list[str] | None = None,
         report_stems: list[str] | None = None,
     ) -> str:
         metadata = {
@@ -452,7 +488,10 @@ class ObsidianVaultExporter:
         if report_stems:
             lines.extend(f"- [[{report_stem}]]" for report_stem in report_stems)
             lines.append("")
-        if gpt_payload is not None:
+        if gpt_report_stems:
+            lines.extend(f"- [[{report_stem}]]" for report_stem in gpt_report_stems)
+            lines.append("")
+        elif gpt_payload is not None:
             lines.extend(["- [[06-云端深度分析]]", ""])
         lines.extend(
             [
@@ -468,11 +507,11 @@ class ObsidianVaultExporter:
         )
         return "\n".join(lines).rstrip() + "\n"
 
-    def _latest_gpt_analysis(self, account_id: str) -> dict[str, Any] | None:
+    def _gpt_analysis_candidates(self, account_id: str) -> list[tuple[str, dict[str, Any]]]:
         candidates: list[tuple[str, dict[str, Any]]] = []
         root = self.project.root / "analyses" / "gpt" / account_id
         if not root.is_dir():
-            return None
+            return candidates
         for path in sorted(root.glob("*/analysis.json")):
             try:
                 payload = read_json(path)
@@ -481,9 +520,32 @@ class ObsidianVaultExporter:
             if not isinstance(payload, dict) or not isinstance(payload.get("result"), dict):
                 continue
             candidates.append((str(payload.get("generated_at") or ""), payload))
+        return candidates
+
+    def _latest_gpt_analysis(self, account_id: str) -> dict[str, Any] | None:
+        """Return the latest report overall for callers that rely on legacy behavior."""
+
+        candidates = self._gpt_analysis_candidates(account_id)
         if not candidates:
             return None
         return max(candidates, key=lambda item: (item[0], str(item[1].get("analysis_id") or "")))[1]
+
+    def _latest_gpt_analyses_by_template(self, account_id: str) -> dict[str, dict[str, Any]]:
+        """Return the newest valid cloud analysis independently for each supported template."""
+
+        selected: dict[str, tuple[str, dict[str, Any]]] = {}
+        for generated_at, payload in self._gpt_analysis_candidates(account_id):
+            template = str(payload.get("template") or "").strip()
+            if template not in _GPT_REPORT_SPECS:
+                continue
+            candidate_key = (generated_at, str(payload.get("analysis_id") or ""))
+            current = selected.get(template)
+            if current is None or candidate_key > (
+                current[0],
+                str(current[1].get("analysis_id") or ""),
+            ):
+                selected[template] = (generated_at, payload)
+        return {template: item[1] for template, item in selected.items()}
 
     def _latest_report_path(
         self,
@@ -503,10 +565,17 @@ class ObsidianVaultExporter:
             return None
         return max(candidates, key=lambda path: (path.stat().st_mtime, str(path)))
 
-    def _render_gpt_note(self, payload: dict[str, Any]) -> str:
+    def _render_gpt_note(
+        self,
+        payload: dict[str, Any],
+        *,
+        title: str = "云端深度分析报告",
+        tags: tuple[str, ...] = (),
+    ) -> str:
         result = payload.get("result") or {}
         metadata = {
-            "tags": ["视频账号蒸馏", "云端深度分析"],
+            "tags": ["视频账号蒸馏", "云端深度分析", *tags],
+            "title": title,
             "analysis_id": payload.get("analysis_id"),
             "generated_at": payload.get("generated_at"),
             "provider": payload.get("provider"),
@@ -515,20 +584,20 @@ class ObsidianVaultExporter:
         }
         lines = [
             _frontmatter(metadata),
-            "# 06 · 云端深度分析",
+            f"# {title}",
             "",
             "> 所属账号：[[README]]",
             "",
             f"- 分析 ID：`{payload.get('analysis_id')}`",
             f"- 生成时间：{payload.get('generated_at')}",
-            f"- 服务商：{payload.get('provider')}",
+            f"- 服务商：{display_label(payload.get('provider'))}",
             f"- 模型：{payload.get('returned_model') or payload.get('requested_model')}",
-            f"- 模板：{payload.get('template')}",
-            f"- 推理强度：{payload.get('reasoning_effort')}",
+            f"- 模板：{display_label(payload.get('template'))}",
+            f"- 推理强度：{display_label(payload.get('reasoning_effort'))}",
             "",
             "## 摘要",
             "",
-            str(result.get("executive_summary") or "-"),
+            display_text(result.get("executive_summary") or "-"),
             "",
             "## 主要发现",
             "",
@@ -538,11 +607,11 @@ class ObsidianVaultExporter:
             for finding in findings:
                 lines.extend(
                     [
-                        f"### {finding.get('title')}",
+                        f"### {display_text(finding.get('title'))}",
                         "",
-                        f"- 类型：{finding.get('classification')}",
-                        f"- 置信度：{finding.get('confidence')}",
-                        f"- 结论：{finding.get('statement')}",
+                        f"- 类型：{display_label(finding.get('classification'))}",
+                        f"- 置信度：{display_label(finding.get('confidence'))}",
+                        f"- 结论：{display_text(finding.get('statement'))}",
                         (
                             f"- 证据：{', '.join(finding.get('evidence_refs') or [])}"
                             if finding.get("evidence_refs")
@@ -559,32 +628,36 @@ class ObsidianVaultExporter:
             for card in cards:
                 lines.extend(
                     [
-                        f"### {card.get('title')}",
+                        f"### {display_text(card.get('title'))}",
                         "",
-                        f"- 命题：{card.get('claim')}",
-                        f"- 类型 / 成熟度：{card.get('knowledge_type')} / Level {card.get('maturity_level')}",
-                        f"- 机制：{card.get('mechanism')}",
-                        f"- 竞争解释：{'；'.join(card.get('competing_explanations') or [])}",
-                        f"- 反证条件：{card.get('falsifier')}",
-                        f"- 决策：{card.get('decision')}",
-                        f"- 适用范围：{'；'.join(card.get('scope') or [])}",
-                        f"- 边界条件：{'；'.join(card.get('boundary_conditions') or [])}",
-                        f"- 成功标准：{card.get('success_condition')}",
-                        f"- 停止标准：{card.get('stop_condition')}",
-                        f"- 目标指标：{card.get('target_metric')}",
+                        f"- 命题：{display_text(card.get('claim'))}",
+                        f"- 类型 / 成熟度：{display_label(card.get('knowledge_type'))} / "
+                        f"第 {card.get('maturity_level')} 级",
+                        f"- 机制：{display_text(card.get('mechanism'))}",
+                        f"- 竞争解释：{'；'.join(display_text(item) for item in (card.get('competing_explanations') or []))}",
+                        f"- 反证条件：{display_text(card.get('falsifier'))}",
+                        f"- 决策：{display_text(card.get('decision'))}",
+                        f"- 适用范围：{'；'.join(display_text(item) for item in (card.get('scope') or []))}",
+                        f"- 边界条件：{'；'.join(display_text(item) for item in (card.get('boundary_conditions') or []))}",
+                        f"- 成功标准：{display_text(card.get('success_condition'))}",
+                        f"- 停止标准：{display_text(card.get('stop_condition'))}",
+                        f"- 目标指标：{display_label(card.get('target_metric'))}",
                         f"- 证据：{', '.join(card.get('evidence_refs') or [])}",
                         "",
                     ]
                 )
         else:
-            lines.append("- 本次证据不足，未形成经营知识卡。")
+            lines.append("- 当前资料不足以形成经营知识卡，系统没有强行补写结论。")
         actions = result.get("priority_actions") or []
         lines.extend(["## 优先行动", ""])
         if actions:
             for action in actions:
-                lines.append(f"- **{action.get('priority')}** {action.get('action')}")
+                lines.append(
+                    f"- **{display_label(action.get('priority'))}** "
+                    f"{display_text(action.get('action'))}"
+                )
                 if action.get("rationale"):
-                    lines.append(f"  - 理由：{action.get('rationale')}")
+                    lines.append(f"  - 理由：{display_text(action.get('rationale'))}")
                 if action.get("evidence_refs"):
                     lines.append(f"  - 证据：{', '.join(action.get('evidence_refs'))}")
         else:
@@ -593,20 +666,51 @@ class ObsidianVaultExporter:
         lines.extend(["", "## 实验建议", ""])
         if experiments:
             for experiment in experiments:
-                lines.append(f"- **假设**：{experiment.get('hypothesis')}")
-                lines.append(f"  - 动作：{experiment.get('action')}")
-                lines.append(f"  - 主指标：{experiment.get('primary_metric')}")
-                lines.append(f"  - 观察窗口：{experiment.get('observation_window')}")
+                lines.append(f"- **假设**：{display_text(experiment.get('hypothesis'))}")
+                lines.append(f"  - 动作：{display_text(experiment.get('action'))}")
+                lines.append(f"  - 主指标：{display_label(experiment.get('primary_metric'))}")
+                lines.append(f"  - 观察窗口：{display_text(experiment.get('observation_window'))}")
         else:
             lines.append("- 本次未生成实验建议。")
         limitations = result.get("limitations") or payload.get("limitations") or []
         lines.extend(["", "## 局限", ""])
-        lines.extend(f"- {item}" for item in limitations)
+        lines.extend(f"- {display_warning(item)}" for item in limitations)
         lines.extend(["", "## 溯源", ""])
         lines.append(
             f"- `analyses/gpt/{payload.get('account_id')}/{payload.get('analysis_id')}/analysis.json`"
         )
         return "\n".join(lines).rstrip() + "\n"
+
+    def _render_gpt_export_note(
+        self,
+        *,
+        account_id: str,
+        payload: dict[str, Any],
+        title: str,
+        tags: tuple[str, ...],
+    ) -> str:
+        analysis_id = str(payload.get("analysis_id") or "")
+        report_path = (
+            self.project.root / "analyses" / "gpt" / account_id / analysis_id / "report.md"
+            if analysis_id
+            else None
+        )
+        if report_path is None or not report_path.is_file():
+            return self._render_gpt_note(payload, title=title, tags=tags)
+        report_text = _with_report_title(
+            _gpt_report_zh(report_path.read_text(encoding="utf-8")),
+            title,
+        )
+        return _wrap_report(
+            title,
+            report_text,
+            list(tags),
+            analysis_id=analysis_id,
+            generated_at=payload.get("generated_at"),
+            provider=payload.get("provider"),
+            template=payload.get("template"),
+            model=payload.get("returned_model") or payload.get("requested_model"),
+        )
 
     def _render_account_note(
         self,
@@ -765,7 +869,9 @@ class ObsidianVaultExporter:
         statement = _pattern_name_zh_obs(positioning.get("statement") or "暂无定位描述")
         persona = [_zh_text(item) for item in positioning.get("persona_signals", [])][:3]
         visual = positioning.get("visual_and_audio_identity") or []
-        visual_short = [item.split("；", 1)[0][:24].lstrip("以") for item in visual[:2]]
+        visual_short = [
+            display_text(item).split("；", 1)[0][:24].lstrip("以") for item in visual[:2]
+        ]
         clusters = data.get("content_clusters") or []
         best = max(
             clusters,
@@ -823,10 +929,13 @@ class ObsidianVaultExporter:
                 ),
                 "- 视听风格："
                 + (
-                    "；".join(positioning.get("visual_and_audio_identity", []))
+                    "；".join(
+                        display_text(item)
+                        for item in positioning.get("visual_and_audio_identity", [])
+                    )
                     or "待补充本地视频分析"
                 ),
-                "- 仍未知："
+                "- 当前未覆盖的信息："
                 + ("；".join(_zh_text(item) for item in positioning.get("unknowns", [])) or "无"),
                 "",
                 "## 内容簇深度解读",
@@ -992,7 +1101,7 @@ class ObsidianVaultExporter:
         warnings = data.get("warnings") or []
         if warnings:
             lines.extend(["## 限制与警告", ""])
-            lines.extend(f"- {_zh_text(item)}" for item in warnings)
+            lines.extend(f"- {display_warning(item)}" for item in warnings)
             lines.append("")
         return "\n".join(lines).rstrip() + "\n"
 
@@ -1338,6 +1447,35 @@ class ObsidianVaultExporter:
         vault = self._resolve_vault(vault_path)
         target = vault / VAULT_SUBFOLDER / folder_name
         gpt_payload = self._latest_gpt_analysis(account_id)
+        gpt_payloads = self._latest_gpt_analyses_by_template(account_id)
+        gpt_notes: list[tuple[str, str]] = []
+        for template, (filename, title, gpt_tags) in _GPT_REPORT_SPECS.items():
+            template_payload = gpt_payloads.get(template)
+            if template_payload is None:
+                continue
+            gpt_notes.append(
+                (
+                    filename,
+                    self._render_gpt_export_note(
+                        account_id=account_id,
+                        payload=template_payload,
+                        title=title,
+                        tags=gpt_tags,
+                    ),
+                )
+            )
+        if not gpt_notes and gpt_payload is not None:
+            gpt_notes.append(
+                (
+                    _LEGACY_GPT_REPORT_NAME,
+                    self._render_gpt_export_note(
+                        account_id=account_id,
+                        payload=gpt_payload,
+                        title="云端深度分析报告",
+                        tags=("云端深度分析",),
+                    ),
+                )
+            )
         video_meta = self._video_meta(account_id)
         report_notes: list[tuple[str, str]] = []
         report_specs = [
@@ -1351,7 +1489,7 @@ class ObsidianVaultExporter:
                 ["报告", "长文", "深度解读", "学习"],
             ),
         ]
-        for stem, prefix, filename, tags in report_specs:
+        for stem, prefix, filename, report_tags in report_specs:
             if prefix == "dst":
                 continue
             report_path = self._latest_report_path(account_id, prefix, filename)
@@ -1365,7 +1503,7 @@ class ObsidianVaultExporter:
                         _wrap_report(
                             stem.replace("报告-", ""),
                             report_text,
-                            tags,
+                            report_tags,
                         ),
                     )
                 )
@@ -1417,6 +1555,7 @@ class ObsidianVaultExporter:
                     folder_name=folder_name,
                     account_id=account_id,
                     gpt_payload=gpt_payload,
+                    gpt_report_stems=[name.removesuffix(".md") for name, _ in gpt_notes],
                     report_stems=[name.removesuffix(".md") for name, _ in report_notes],
                 ),
             ),
@@ -1431,31 +1570,8 @@ class ObsidianVaultExporter:
                 ),
             ),
             *report_notes,
+            *gpt_notes,
         ]
-        if gpt_payload is not None:
-            analysis_id = str(gpt_payload.get("analysis_id") or "")
-            gpt_report_path = (
-                self.project.root / "analyses" / "gpt" / account_id / analysis_id / "report.md"
-            )
-            if gpt_report_path.is_file():
-                human_planned.append(
-                    (
-                        "06-云端深度分析.md",
-                        _wrap_report(
-                            "云端深度分析报告",
-                            _gpt_report_zh(gpt_report_path.read_text(encoding="utf-8")),
-                            ["云端深度分析"],
-                            analysis_id=analysis_id,
-                            generated_at=gpt_payload.get("generated_at"),
-                            model=(
-                                gpt_payload.get("returned_model")
-                                or gpt_payload.get("requested_model")
-                            ),
-                        ),
-                    )
-                )
-            else:
-                human_planned.append(("06-云端深度分析.md", self._render_gpt_note(gpt_payload)))
         machine_planned: list[tuple[str, str]] = [
             ("数据与证据附件.md", evidence_document),
             ("03-媒体分析.md", self._render_media_note(payload=payload)),
@@ -1523,6 +1639,15 @@ class ObsidianVaultExporter:
 
         human_dir.mkdir(parents=True, exist_ok=True)
         machine_dir.mkdir(parents=True, exist_ok=True)
+        planned_human_names = {name for name, _text in human_planned}
+        generated_gpt_names = {
+            _LEGACY_GPT_REPORT_NAME,
+            *(filename for filename, _title, _tags in _GPT_REPORT_SPECS.values()),
+        }
+        for obsolete_name in generated_gpt_names.difference(planned_human_names):
+            obsolete_path = human_dir / obsolete_name
+            if obsolete_path.is_file():
+                obsolete_path.unlink()
         written: list[str] = []
         for name, text in human_planned:
             atomic_write_text(human_dir / name, text)

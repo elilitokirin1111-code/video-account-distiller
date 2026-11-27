@@ -7,8 +7,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from jinja2 import Environment, StrictUndefined
-
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.models import (
     AccountDataGapTable,
@@ -26,6 +24,7 @@ from video_account_distiller.models import (
     SampleManifest,
     ScalarStatistic,
 )
+from video_account_distiller.report_presentation import render_report_template
 from video_account_distiller.reports.data_gaps import (
     build_account_data_gap_table,
     data_gap_summary,
@@ -43,6 +42,7 @@ from video_account_distiller.sampling.dataset import (
     load_account_dataset,
 )
 from video_account_distiller.storage.project import ProjectLayout
+from video_account_distiller.utils.content_pillars import infer_video_content_pillar
 from video_account_distiller.utils.ids import stable_id
 from video_account_distiller.utils.io import atomic_write_json, atomic_write_text, read_json
 from video_account_distiller.version import ANALYSIS_SCHEMA_VERSION
@@ -114,8 +114,7 @@ def _performance_band(record: AccountVideoRecord) -> str:
 
 
 def _content_pillar(record: AccountVideoRecord) -> str:
-    value = record.video.content_type
-    return value.strip() if value and value.strip() else "unknown"
+    return infer_video_content_pillar(record.video)[0]
 
 
 def _is_promoted(record: AccountVideoRecord) -> bool:
@@ -322,7 +321,10 @@ def _build_statistics(
         label="account.content_pillars",
         classification="fact",
         value=pillar_counts,
-        calculation="count videos by content_type used as the Phase 2 pillar proxy",
+        calculation=(
+            "count videos by normalized content_type, or conservative inference from public "
+            "title, description, and hashtags when content_type is unusable"
+        ),
         rows=all_video_rows,
     )
     quality_counts = Counter(
@@ -443,9 +445,11 @@ def _report_warnings(dataset: AccountDataset, sample: SampleManifest) -> list[st
         warnings.append("数据包含广告或投流视频，不应将其表现直接解释为内容规律。")
     if any(_is_outlier(record) for record in dataset.records):
         warnings.append("数据包含 Robust Z-score 异常样本，报告保留但单独标记。")
+    if any(infer_video_content_pillar(record.video)[1] for record in dataset.records):
+        warnings.append("部分内容方向由标题、描述和话题标签中的明确关键词推断，建议人工复核。")
     warnings.extend(
         [
-            "Phase 2 使用 content_type 作为内容支柱代理；语义内容支柱将在 Phase 3 标注。",
+            "内容方向优先采用有效 content_type；无效时仅根据公开文本做保守推断。",
             "高、中、低表现差异是统计关联，不代表因果关系或爆款保证。",
             "当前报告仅使用单账号、单平台内部基线，不比较跨平台原始指标。",
         ]
@@ -560,10 +564,9 @@ def _render_markdown(
 ) -> str:
     template_path = Path(__file__).parent / "templates" / "account-health.md.j2"
     try:
-        environment = Environment(undefined=StrictUndefined, autoescape=False)
-        template = environment.from_string(template_path.read_text(encoding="utf-8"))
         return (
-            template.render(
+            render_report_template(
+                template_path,
                 report=report.model_dump(mode="json"),
                 evidence_count=len(evidence.items),
                 data_gaps=data_gaps.model_dump(mode="json"),

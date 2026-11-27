@@ -11,11 +11,11 @@ from jinja2 import Environment, StrictUndefined
 
 from video_account_distiller.errors import DistillerError, ErrorCode
 
-FACT_PROMPT_VERSION = "video-fact-extraction-v1"
-SEMANTIC_PROMPT_VERSION = "video-semantic-labeling-v1"
-COMMENT_INTENT_PROMPT_VERSION = "comment-intent-v1"
-DEEP_DISTILLATION_PROMPT_VERSION = "single-video-deep-distillation-v2"
-KNOWLEDGE_EXTRACTION_PROMPT_VERSION = "single-video-knowledge-extraction-v1"
+FACT_PROMPT_VERSION = "video-fact-extraction-v2"
+SEMANTIC_PROMPT_VERSION = "video-semantic-labeling-v2"
+COMMENT_INTENT_PROMPT_VERSION = "comment-intent-v2"
+DEEP_DISTILLATION_PROMPT_VERSION = "single-video-deep-distillation-v3"
+KNOWLEDGE_EXTRACTION_PROMPT_VERSION = "single-video-knowledge-extraction-v2"
 
 
 def _source_prompt_path(filename: str) -> Path:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -135,8 +136,26 @@ def test_weknora_upload_retries_after_async_delete_duplicate(
     def _get(url: str, *args: Any, **kwargs: Any) -> _Response:
         if url.endswith("/knowledge-bases"):
             return _Response(200, {"data": [{"id": "kb-1", "name": "target"}]}, "")
-        # Knowledge listing: report no distiller-owned docs (nothing to delete),
-        # and after the duplicate-record delete the old id is gone.
+        if upload_attempts and not deleted:
+            return _Response(
+                200,
+                {
+                    "data": [
+                        {
+                            "id": "stale-doc",
+                            "file_name": "report.md",
+                            "channel": "distiller",
+                            "metadata": {
+                                "source": "video-account-distiller",
+                                "account_id": "account-id",
+                                "document_type": "account_operational",
+                            },
+                        }
+                    ],
+                    "total": 1,
+                },
+                "",
+            )
         return _Response(
             200,
             {"data": [], "total": 0},
@@ -185,6 +204,137 @@ def test_weknora_upload_retries_after_async_delete_duplicate(
     assert upload_attempts == [1, 2]
 
 
+@pytest.mark.parametrize(
+    "duplicate",
+    [
+        {
+            "id": "manual-doc",
+            "file_name": "report.md",
+            "channel": "web",
+            "metadata": {
+                "source": "video-account-distiller",
+                "account_id": "account-id",
+                "document_type": "account_operational",
+            },
+        },
+        {
+            "id": "other-account-doc",
+            "file_name": "report.md",
+            "channel": "distiller",
+            "metadata": {
+                "source": "video-account-distiller",
+                "account_id": "another-account",
+                "document_type": "account_operational",
+            },
+        },
+        {
+            "id": "other-document-type",
+            "file_name": "report.md",
+            "channel": "distiller",
+            "metadata": {
+                "source": "video-account-distiller",
+                "account_id": "account-id",
+                "video_id": "vid_manual",
+                "document_type": "creative_learning",
+            },
+        },
+    ],
+    ids=["manual-channel", "other-account", "other-document-type"],
+)
+def test_weknora_duplicate_conflict_never_deletes_unowned_document(
+    project: ProjectLayout,
+    monkeypatch: pytest.MonkeyPatch,
+    duplicate: dict[str, Any],
+) -> None:
+    deleted: list[str] = []
+    upload_attempts: list[int] = []
+
+    def _get(url: str, *args: Any, **kwargs: Any) -> _Response:
+        del args, kwargs
+        if url.endswith("/knowledge-bases"):
+            return _Response(200, {"data": [{"id": "kb-1", "name": "target"}]}, "")
+        if upload_attempts:
+            return _Response(200, {"data": [duplicate], "total": 1}, "")
+        return _Response(200, {"data": [], "total": 0}, "")
+
+    def _delete(url: str, *args: Any, **kwargs: Any) -> _Response:
+        del args, kwargs
+        deleted.append(url)
+        return _Response(200, {"success": True}, "")
+
+    def _post(*args: Any, **kwargs: Any) -> _Response:
+        del args, kwargs
+        upload_attempts.append(len(upload_attempts) + 1)
+        return _Response(
+            409,
+            {
+                "error": {"code": 1000, "message": "duplicate_file"},
+                "data": {"id": duplicate["id"]},
+            },
+            "",
+        )
+
+    monkeypatch.setattr("video_account_distiller.knowledge.weknora.ObsidianVaultExporter", _Export)
+    monkeypatch.setattr(requests, "get", _get)
+    monkeypatch.setattr(requests, "delete", _delete)
+    monkeypatch.setattr(requests, "post", _post)
+
+    result = WeKnoraSyncService(project).sync_account(
+        account_id="account-id",
+        base_url="http://localhost:8080",
+        api_key="sk-test",
+        kb_id="kb-1",
+    )
+
+    assert result["ok"] is False
+    assert deleted == []
+    assert upload_attempts == [1]
+    assert any("为避免误删" in error for error in result["errors"])
+
+
+def test_weknora_account_export_finishes_before_remote_documents_are_touched(
+    project: ProjectLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FailingExport:
+        def __init__(self, _: ProjectLayout) -> None:
+            pass
+
+        def export_account(self, **kwargs: Any) -> dict[str, str]:
+            del kwargs
+            raise RuntimeError("local export failed")
+
+    def _get(url: str, *args: Any, **kwargs: Any) -> _Response:
+        del args, kwargs
+        if url.endswith("/knowledge-bases"):
+            return _Response(200, {"data": [{"id": "kb-1", "name": "target"}]}, "")
+        pytest.fail("本地导出完成前不得读取或删除远端文档")
+
+    monkeypatch.setattr(
+        "video_account_distiller.knowledge.weknora.ObsidianVaultExporter",
+        _FailingExport,
+    )
+    monkeypatch.setattr(requests, "get", _get)
+    monkeypatch.setattr(
+        requests,
+        "delete",
+        lambda *args, **kwargs: pytest.fail("本地导出失败后不得删除远端文档"),
+    )
+    monkeypatch.setattr(
+        requests,
+        "post",
+        lambda *args, **kwargs: pytest.fail("本地导出失败后不得上传文档"),
+    )
+
+    with pytest.raises(RuntimeError, match="local export failed"):
+        WeKnoraSyncService(project).sync_account(
+            account_id="account-id",
+            base_url="http://localhost:8080",
+            api_key="sk-test",
+            kb_id="kb-1",
+        )
+
+
 def test_weknora_sync_replaces_only_distiller_owned_account_documents(
     project: ProjectLayout, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -213,8 +363,19 @@ def test_weknora_sync_replaces_only_distiller_owned_account_documents(
                         "channel": "web",
                         "metadata": {},
                     },
+                    {
+                        "id": "keep-video-knowledge",
+                        "file_name": "知识提炼.md",
+                        "channel": "distiller",
+                        "metadata": {
+                            "source": "video-account-distiller",
+                            "account_id": "account-id",
+                            "video_id": "vid_keep",
+                            "document_type": "video_knowledge",
+                        },
+                    },
                 ],
-                "total": 2,
+                "total": 3,
             },
             "",
         )
@@ -250,11 +411,68 @@ def test_weknora_account_operational_sync_includes_every_latest_creative_report(
 ) -> None:
     _write_svd_fixture(project, "vid_creative")
     uploads: list[dict[str, Any]] = []
+    deleted: list[str] = []
+    monkeypatch.setattr(
+        "video_account_distiller.knowledge.weknora.read_models",
+        lambda *args, **kwargs: [
+            SimpleNamespace(
+                video_id="vid_creative",
+                account_id="acc_test",
+                title="宴会/菜：当天现做？",
+            )
+        ],
+    )
 
     def _get(url: str, *args: Any, **kwargs: Any) -> _Response:
         if url.endswith("/knowledge-bases"):
             return _Response(200, {"data": [{"id": "kb-1", "name": "target"}]}, "")
-        return _Response(200, {"data": [], "total": 0}, "")
+        return _Response(
+            200,
+            {
+                "data": [
+                    {
+                        "id": "old-account-creative",
+                        "file_name": "vid_creative-creative-report.md",
+                        "channel": "distiller",
+                        "metadata": {
+                            "source": "video-account-distiller",
+                            "account_id": "acc_test",
+                            "video_id": "vid_creative",
+                            "document_type": "creative_learning",
+                        },
+                    },
+                    {
+                        "id": "old-single-creative",
+                        "file_name": "single-video-distillation.md",
+                        "channel": "distiller",
+                        "metadata": {
+                            "source": "video-account-distiller",
+                            "account_id": "video:vid_creative",
+                            "video_id": "vid_creative",
+                            "document_type": "creative_learning",
+                        },
+                    },
+                    {
+                        "id": "keep-video-knowledge",
+                        "file_name": "酒店知识提炼.md",
+                        "channel": "distiller",
+                        "metadata": {
+                            "source": "video-account-distiller",
+                            "account_id": "acc_test",
+                            "video_id": "vid_creative",
+                            "document_type": "video_knowledge",
+                        },
+                    },
+                ],
+                "total": 3,
+            },
+            "",
+        )
+
+    def _delete(url: str, *args: Any, **kwargs: Any) -> _Response:
+        del args, kwargs
+        deleted.append(url)
+        return _Response(200, {"success": True}, "")
 
     def _post(url: str, *args: Any, **kwargs: Any) -> _Response:
         uploads.append(kwargs)
@@ -262,6 +480,7 @@ def test_weknora_account_operational_sync_includes_every_latest_creative_report(
 
     monkeypatch.setattr("video_account_distiller.knowledge.weknora.ObsidianVaultExporter", _Export)
     monkeypatch.setattr(requests, "get", _get)
+    monkeypatch.setattr(requests, "delete", _delete)
     monkeypatch.setattr(requests, "post", _post)
 
     result = WeKnoraSyncService(project).sync_account(
@@ -273,16 +492,110 @@ def test_weknora_account_operational_sync_includes_every_latest_creative_report(
 
     assert result["ok"] is True
     assert result["creative_reports"] == 1
-    assert result["degraded_creative_reports"] == 1
+    assert result["uploaded_creative_reports"] == 1
+    assert result["degraded_creative_reports"] == 0
+    assert result["skipped"] == []
+    assert deleted == [
+        "http://localhost:8080/api/v1/knowledge/old-account-creative",
+        "http://localhost:8080/api/v1/knowledge/old-single-creative",
+    ]
     assert len(uploads) == 2
+    account_report = next(item for item in uploads if item["files"]["file"][0] == "report.md")
+    account_metadata = json.loads(account_report["data"]["metadata"])
+    assert account_metadata["document_type"] == "account_operational"
+    assert account_metadata["sync_scope"] == "account"
     creative = next(
         item
         for item in uploads
-        if item["data"]["fileName"].endswith("/vid_creative-creative-report.md")
+        if item["data"]["fileName"].endswith("/宴会菜：当天现做？｜创作拆解.md")
     )
+    assert creative["files"]["file"][0] == "宴会菜：当天现做？｜创作拆解.md"
     metadata = json.loads(creative["data"]["metadata"])
     assert metadata["video_id"] == "vid_creative"
+    assert metadata["video_title"] == "宴会/菜：当天现做？"
     assert metadata["document_type"] == "creative_learning"
+    assert metadata["sync_scope"] == "account"
+
+
+def test_weknora_account_sync_skips_degraded_creative_and_preserves_existing(
+    project: ProjectLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_svd_fixture(project, "vid_degraded", status="degraded")
+    deleted: list[str] = []
+    uploads: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        "video_account_distiller.knowledge.weknora.read_models",
+        lambda *args, **kwargs: [
+            SimpleNamespace(
+                video_id="vid_degraded",
+                account_id="acc_test",
+                title="模型失败时生成的旧报告",
+            )
+        ],
+    )
+
+    def _get(url: str, *args: Any, **kwargs: Any) -> _Response:
+        del args, kwargs
+        if url.endswith("/knowledge-bases"):
+            return _Response(200, {"data": [{"id": "kb-1", "name": "target"}]}, "")
+        return _Response(
+            200,
+            {
+                "data": [
+                    {
+                        "id": "keep-complete-creative",
+                        "file_name": "模型失败时生成的旧报告｜创作拆解.md",
+                        "channel": "distiller",
+                        "metadata": {
+                            "source": "video-account-distiller",
+                            "account_id": "acc_test",
+                            "video_id": "vid_degraded",
+                            "document_type": "creative_learning",
+                        },
+                    }
+                ],
+                "total": 1,
+            },
+            "",
+        )
+
+    def _delete(url: str, *args: Any, **kwargs: Any) -> _Response:
+        del args, kwargs
+        deleted.append(url)
+        return _Response(200, {"success": True}, "")
+
+    def _post(*args: Any, **kwargs: Any) -> _Response:
+        del args
+        uploads.append(kwargs)
+        return _Response(201, {"success": True}, "")
+
+    monkeypatch.setattr("video_account_distiller.knowledge.weknora.ObsidianVaultExporter", _Export)
+    monkeypatch.setattr(requests, "get", _get)
+    monkeypatch.setattr(requests, "delete", _delete)
+    monkeypatch.setattr(requests, "post", _post)
+
+    result = WeKnoraSyncService(project).sync_account(
+        account_id="acc_test",
+        base_url="http://localhost:8080",
+        api_key="sk-test",
+        kb_id="kb-1",
+    )
+
+    assert result["ok"] is True
+    assert result["creative_reports"] == 1
+    assert result["uploaded_creative_reports"] == 0
+    assert result["degraded_creative_reports"] == 1
+    assert result["skipped"] == [
+        {
+            "video_id": "vid_degraded",
+            "title": "模型失败时生成的旧报告",
+            "reason": "最新创作拆解处于降级状态；请先修复模型配置并重新运行深度蒸馏",
+        }
+    ]
+    assert deleted == []
+    assert len(uploads) == 1
+    assert uploads[0]["files"]["file"][0] == "report.md"
 
 
 def test_weknora_requires_an_existing_visible_knowledge_base(
@@ -317,7 +630,12 @@ def test_weknora_requires_an_existing_visible_knowledge_base(
     assert post_calls == []
 
 
-def _write_svd_fixture(project: ProjectLayout, video_id: str) -> None:
+def _write_svd_fixture(
+    project: ProjectLayout,
+    video_id: str,
+    *,
+    status: str = "complete",
+) -> None:
     from datetime import UTC, datetime
 
     from video_account_distiller.models import SingleVideoDistillation
@@ -329,7 +647,7 @@ def _write_svd_fixture(project: ProjectLayout, video_id: str) -> None:
         "account_id": "acc_test",
         "generated_at": "2026-01-01T00:00:00Z",
         "run_id": "run_test",
-        "status": "degraded",
+        "status": status,
         "text_analysis_id": "vta_test",
         "media_analysis_id": None,
         "craft_summary": {
@@ -373,7 +691,9 @@ def _write_svd_fixture(project: ProjectLayout, video_id: str) -> None:
         "unknowns": [],
         "evidence_index_path": "analyses/videos/x/svd_test/evidence-index.json",
         "warnings_path": "analyses/videos/x/svd_test/warnings.json",
-        "warnings": ["deep_model_unavailable_deterministic_fallback"],
+        "warnings": (
+            [] if status == "complete" else ["deep_model_unavailable_deterministic_fallback"]
+        ),
     }
     model = SingleVideoDistillation.model_validate(payload)
     directory = project.root / "analyses" / "videos" / video_id / "svd_test"
@@ -406,12 +726,52 @@ def test_weknora_sync_video_distillation_requires_existing_svd(
     assert "--deep" in str(exc_info.value.details)
 
 
+def test_weknora_sync_video_distillation_refuses_degraded_before_network(
+    project: ProjectLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_svd_fixture(project, "vid_degraded", status="degraded")
+    monkeypatch.setattr(
+        requests,
+        "get",
+        lambda *args, **kwargs: pytest.fail("降级产物不应访问 WeKnora"),
+    )
+
+    with pytest.raises(DistillerError) as exc_info:
+        WeKnoraSyncService(project).sync_video_distillation(
+            video_id="vid_degraded",
+            base_url="http://localhost:8080",
+            api_key="sk-test",
+            kb_id="kb-1",
+        )
+
+    assert exc_info.value.code is ErrorCode.MODEL_UNAVAILABLE
+    assert "降级状态" in exc_info.value.message
+    assert "重新运行深度蒸馏" in exc_info.value.message
+    assert "重新运行" in str(exc_info.value.details["next"])
+
+
 def test_weknora_sync_video_distillation_replaces_owned_video_documents(
     project: ProjectLayout, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _write_svd_fixture(project, "vid_local")
     deleted: list[str] = []
     uploaded_payloads: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        "video_account_distiller.knowledge.weknora.read_models",
+        lambda *args, **kwargs: [
+            SimpleNamespace(
+                video_id="vid_alpha",
+                account_id="acc_test",
+                title="前台：如何应对客诉？",
+            ),
+            SimpleNamespace(
+                video_id="vid_local",
+                account_id="acc_test",
+                title="前台：如何应对客诉？",
+            ),
+        ],
+    )
 
     def _get(url: str, *args: Any, **kwargs: Any) -> _Response:
         if url.endswith("/knowledge-bases"):
@@ -474,9 +834,13 @@ def test_weknora_sync_video_distillation_replaces_owned_video_documents(
     assert deleted == ["http://localhost:8080/api/v1/knowledge/old-video"]
     assert len(uploaded_payloads) == 1
     upload = uploaded_payloads[0]
-    assert upload["data"]["fileName"] == "videos/vid_local/single-video-distillation.md"
+    assert upload["data"]["fileName"] == "videos/vid_local/前台：如何应对客诉？（2）｜创作拆解.md"
+    assert upload["files"]["file"][0] == "前台：如何应对客诉？（2）｜创作拆解.md"
     metadata = json.loads(upload["data"]["metadata"])
     assert metadata["video_id"] == "vid_local"
+    assert metadata["video_title"] == "前台：如何应对客诉？"
+    assert metadata["account_id"] == "acc_test"
+    assert metadata["sync_scope"] == "video"
     assert upload["data"]["channel"] == "distiller"
     file_tuple = upload["files"]["file"]
     file_content = file_tuple[1].read() if hasattr(file_tuple[1], "read") else file_tuple[1]
@@ -484,7 +848,12 @@ def test_weknora_sync_video_distillation_replaces_owned_video_documents(
     assert "单视频深度蒸馏" in file_content.decode("utf-8")
 
 
-def _write_video_knowledge_fixture(project: ProjectLayout, video_id: str) -> None:
+def _write_video_knowledge_fixture(
+    project: ProjectLayout,
+    video_id: str,
+    *,
+    status: str = "complete",
+) -> None:
     from video_account_distiller.models import SingleVideoKnowledgeDistillation
     from video_account_distiller.utils.io import atomic_write_json, atomic_write_text
 
@@ -495,7 +864,7 @@ def _write_video_knowledge_fixture(project: ProjectLayout, video_id: str) -> Non
         "account_id": "acc_test",
         "generated_at": "2026-01-01T00:00:00Z",
         "run_id": "run_test",
-        "status": "degraded",
+        "status": status,
         "knowledge": {
             "knowledge_title": "三个常见问题",
             "content_summary": "视频整理了三个问题。",
@@ -522,6 +891,16 @@ def test_weknora_video_knowledge_does_not_delete_creative_document(
     _write_video_knowledge_fixture(project, "vid_knowledge")
     deleted: list[str] = []
     uploads: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        "video_account_distiller.knowledge.weknora.read_models",
+        lambda *args, **kwargs: [
+            SimpleNamespace(
+                video_id="vid_knowledge",
+                account_id="acc_test",
+                title="酒店宴会菜的三个问题",
+            )
+        ],
+    )
 
     def _get(url: str, *args: Any, **kwargs: Any) -> _Response:
         if url.endswith("/knowledge-bases"):
@@ -579,13 +958,45 @@ def test_weknora_video_knowledge_does_not_delete_creative_document(
 
     assert result["ok"] is True
     assert deleted == ["http://localhost:8080/api/v1/knowledge/old-knowledge"]
+    assert (
+        uploads[0]["data"]["fileName"] == "videos/vid_knowledge/酒店宴会菜的三个问题｜知识提炼.md"
+    )
+    assert uploads[0]["files"]["file"][0] == "酒店宴会菜的三个问题｜知识提炼.md"
     metadata = json.loads(uploads[0]["data"]["metadata"])
     assert metadata["document_type"] == "video_knowledge"
     assert metadata["distillation_mode"] == "knowledge"
     assert metadata["knowledge_id"] == "svk_test"
+    assert metadata["video_title"] == "酒店宴会菜的三个问题"
+    assert metadata["account_id"] == "acc_test"
+    assert metadata["sync_scope"] == "video"
 
 
-def test_weknora_account_video_knowledge_syncs_manifest_documents_individually(
+def test_weknora_sync_video_knowledge_refuses_degraded_before_network(
+    project: ProjectLayout,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_video_knowledge_fixture(project, "vid_degraded", status="degraded")
+    monkeypatch.setattr(
+        requests,
+        "get",
+        lambda *args, **kwargs: pytest.fail("降级产物不应访问 WeKnora"),
+    )
+
+    with pytest.raises(DistillerError) as exc_info:
+        WeKnoraSyncService(project).sync_video_knowledge(
+            video_id="vid_degraded",
+            base_url="http://localhost:8080",
+            api_key="sk-test",
+            kb_id="kb-1",
+        )
+
+    assert exc_info.value.code is ErrorCode.MODEL_UNAVAILABLE
+    assert "降级状态" in exc_info.value.message
+    assert "重新运行知识提炼" in exc_info.value.message
+    assert "重新运行" in str(exc_info.value.details["next"])
+
+
+def test_weknora_account_video_knowledge_syncs_subset_without_deleting_other_videos(
     project: ProjectLayout,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -599,11 +1010,11 @@ def test_weknora_account_video_knowledge_syncs_manifest_documents_individually(
             "account_id": "acc_test",
             "generated_at": "2026-01-01T00:00:00Z",
             "run_id": "run_test",
-            "status": "complete",
-            "requested_count": 1,
-            "eligible_count": 1,
+            "status": "degraded",
+            "requested_count": 2,
+            "eligible_count": 2,
             "completed_count": 1,
-            "degraded_count": 0,
+            "degraded_count": 1,
             "skipped_count": 0,
             "documents": [
                 {
@@ -616,7 +1027,17 @@ def test_weknora_account_video_knowledge_syncs_manifest_documents_individually(
                         "knowledge/accounts/acc_test/video-knowledge/avk_test/"
                         "documents/三个常见问题.md"
                     ),
-                }
+                },
+                {
+                    "video_id": "vid_degraded",
+                    "title": "降级知识",
+                    "knowledge_id": "svk_degraded",
+                    "status": "degraded",
+                    "source_path": "analyses/videos/vid_degraded/knowledge/svk/knowledge.md",
+                    "document_path": (
+                        "knowledge/accounts/acc_test/video-knowledge/avk_test/documents/降级知识.md"
+                    ),
+                },
             ],
         }
     )
@@ -632,6 +1053,7 @@ def test_weknora_account_video_knowledge_syncs_manifest_documents_individually(
     atomic_write_json(manifest_path, manifest.model_dump(mode="json"))
     document_path = project.root / manifest.documents[0].document_path
     atomic_write_text(document_path, "# 三个常见问题\n\n这是本次账号知识清单中的文档。\n")
+    atomic_write_text(project.root / manifest.documents[1].document_path, "# 降级知识\n")
     deleted: list[str] = []
     uploads: list[dict[str, Any]] = []
 
@@ -652,6 +1074,50 @@ def test_weknora_account_video_knowledge_syncs_manifest_documents_individually(
                         },
                     },
                     {
+                        "id": "old-video-knowledge",
+                        "file_name": "video-knowledge.md",
+                        "channel": "distiller",
+                        "metadata": {
+                            "source": "video-account-distiller",
+                            "account_id": "acc_test",
+                            "video_id": "vid_knowledge",
+                            "document_type": "video_knowledge",
+                        },
+                    },
+                    {
+                        "id": "old-stale-video-knowledge",
+                        "file_name": "stale-video-knowledge.md",
+                        "channel": "distiller",
+                        "metadata": {
+                            "source": "video-account-distiller",
+                            "account_id": "acc_test",
+                            "video_id": "vid_not_in_latest_manifest",
+                            "document_type": "video_knowledge",
+                        },
+                    },
+                    {
+                        "id": "keep-degraded-video-knowledge",
+                        "file_name": "降级知识｜知识提炼.md",
+                        "channel": "distiller",
+                        "metadata": {
+                            "source": "video-account-distiller",
+                            "account_id": "acc_test",
+                            "video_id": "vid_degraded",
+                            "document_type": "video_knowledge",
+                        },
+                    },
+                    {
+                        "id": "keep-other-account-same-video",
+                        "file_name": "另一个账号的知识提炼.md",
+                        "channel": "distiller",
+                        "metadata": {
+                            "source": "video-account-distiller",
+                            "account_id": "acc_other",
+                            "video_id": "vid_knowledge",
+                            "document_type": "video_knowledge",
+                        },
+                    },
+                    {
                         "id": "keep-creative-video",
                         "file_name": "single-video-distillation.md",
                         "channel": "distiller",
@@ -663,7 +1129,7 @@ def test_weknora_account_video_knowledge_syncs_manifest_documents_individually(
                         },
                     },
                 ],
-                "total": 2,
+                "total": 6,
             },
             "",
         )
@@ -692,27 +1158,44 @@ def test_weknora_account_video_knowledge_syncs_manifest_documents_individually(
     assert result["ok"] is True
     assert result["document_type"] == "video_knowledge"
     assert result["manifest_id"] == "avk_test"
-    assert deleted == ["http://localhost:8080/api/v1/knowledge/old-account-report"]
-    assert result["uploaded"] == ["accounts/acc_test/videos/三个常见问题.md"]
+    assert deleted == [
+        "http://localhost:8080/api/v1/knowledge/old-video-knowledge",
+    ]
+    assert all("old-stale-video-knowledge" not in url for url in deleted)
+    assert all("keep-other-account-same-video" not in url for url in deleted)
+    assert result["uploaded"] == [
+        "accounts/acc_test/videos/vid_knowledge/三个常见问题｜知识提炼.md"
+    ]
+    assert result["skipped"] == [
+        {
+            "video_id": "vid_degraded",
+            "title": "降级知识",
+            "reason": "最新知识提炼处于降级状态；请先修复模型配置并重新运行知识提炼",
+        }
+    ]
     assert len(uploads) == 1
     upload = uploads[0]
-    assert upload["data"]["fileName"] == "accounts/acc_test/videos/三个常见问题.md"
-    assert upload["files"]["file"][0] == "三个常见问题.md"
+    assert (
+        upload["data"]["fileName"]
+        == "accounts/acc_test/videos/vid_knowledge/三个常见问题｜知识提炼.md"
+    )
+    assert upload["files"]["file"][0] == "三个常见问题｜知识提炼.md"
     metadata = json.loads(upload["data"]["metadata"])
     assert metadata["account_id"] == "acc_test"
     assert metadata["video_id"] == "vid_knowledge"
+    assert metadata["video_title"] == "三个常见问题"
     assert metadata["document_type"] == "video_knowledge"
     assert metadata["manifest_id"] == "avk_test"
+    assert metadata["sync_scope"] == "account"
     file_tuple = upload["files"]["file"]
     file_content = file_tuple[1].read() if hasattr(file_tuple[1], "read") else file_tuple[1]
     assert "这是本次账号知识清单中的文档" in file_content.decode("utf-8")
 
 
-def test_weknora_account_video_knowledge_refuses_degraded_manifest(
+def test_weknora_account_video_knowledge_skips_all_degraded_without_deleting(
     project: ProjectLayout,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from video_account_distiller.errors import DistillerError
     from video_account_distiller.models import AccountVideoKnowledgeManifest
     from video_account_distiller.utils.io import atomic_write_json, atomic_write_text
 
@@ -755,16 +1238,40 @@ def test_weknora_account_video_knowledge_refuses_degraded_manifest(
     )
     atomic_write_json(manifest_path, manifest.model_dump(mode="json"))
     atomic_write_text(project.root / manifest.documents[0].document_path, "# 残缺知识\n")
+    get_urls: list[str] = []
+
+    def _get(url: str, *args: Any, **kwargs: Any) -> _Response:
+        del args, kwargs
+        get_urls.append(url)
+        return _Response(200, {"data": [{"id": "kb-1", "name": "target"}]}, "")
+
+    monkeypatch.setattr(requests, "get", _get)
     monkeypatch.setattr(
         requests,
-        "get",
-        lambda *args, **kwargs: pytest.fail("degraded bundle must be rejected before WeKnora"),
+        "delete",
+        lambda *args, **kwargs: pytest.fail("没有完整新文档时不得删除旧文档"),
+    )
+    monkeypatch.setattr(
+        requests,
+        "post",
+        lambda *args, **kwargs: pytest.fail("降级文档不得上传"),
     )
 
-    with pytest.raises(DistillerError, match="Refusing to sync"):
-        WeKnoraSyncService(project).sync_account_video_knowledge(
-            account_id="acc_test",
-            base_url="http://localhost:8080",
-            api_key="sk-test",
-            kb_id="kb-1",
-        )
+    result = WeKnoraSyncService(project).sync_account_video_knowledge(
+        account_id="acc_test",
+        base_url="http://localhost:8080",
+        api_key="sk-test",
+        kb_id="kb-1",
+    )
+
+    assert result["ok"] is True
+    assert result["uploaded"] == []
+    assert result["replaced"] == []
+    assert result["skipped"] == [
+        {
+            "video_id": "vid_degraded",
+            "title": "残缺知识",
+            "reason": "最新知识提炼处于降级状态；请先修复模型配置并重新运行知识提炼",
+        }
+    ]
+    assert get_urls == ["http://localhost:8080/api/v1/knowledge-bases"]

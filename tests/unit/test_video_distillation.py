@@ -257,6 +257,18 @@ def test_fallback_deep_output_organizes_observables_deterministically() -> None:
     assert insufficient.evaluation.score_confidence == "insufficient"
 
 
+def test_degraded_media_keeps_successful_visual_evidence_scoreable() -> None:
+    media = _media_analysis().model_copy(update={"status": "degraded"})
+
+    output = _fallback_deep_output(_text_analysis(), media, build_craft_summary(media))
+    dimensions = {item.dimension: item for item in output.evaluation.dimensions}
+
+    assert dimensions["visual_craft"].score is not None
+    assert dimensions["pacing"].score is not None
+    assert dimensions["visual_craft"].evidence_shot_ids
+    assert output.evaluation.evidence_coverage >= 0.9
+
+
 def test_score_normalization_replaces_weights_and_recomputes_total() -> None:
     output = _fallback_deep_output(
         _text_analysis(), _media_analysis(), build_craft_summary(_media_analysis())

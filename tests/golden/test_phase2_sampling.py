@@ -14,7 +14,11 @@ def test_phase2_golden_sample_covers_required_strata(phase2_project: ProjectLayo
     assert manifest.population_size == 30
     assert manifest.selected_size == 15
     assert set(manifest.selected_coverage.performance) >= {"S", "A", "B", "C", "D"}
-    assert set(manifest.selected_coverage.content_pillar) == {"food", "room", "service"}
+    assert set(manifest.selected_coverage.content_pillar) == {
+        "客房与住宿",
+        "服务与幕后",
+        "餐饮与菜品",
+    }
     assert set(manifest.selected_coverage.duration) == {
         "long_ge_60s",
         "medium_30_59s",

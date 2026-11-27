@@ -19,12 +19,44 @@ from video_account_distiller.models import (
     AccountVideoKnowledgeManifest,
     SingleVideoDistillation,
     SingleVideoKnowledgeDistillation,
+    Video,
 )
+from video_account_distiller.storage.parquet import read_models
 from video_account_distiller.storage.project import ProjectLayout
+from video_account_distiller.utils.filenames import (
+    readable_document_stem,
+    unique_document_stem,
+)
 from video_account_distiller.utils.io import read_json
 
 DEFAULT_WEKNORA_BASE_URL = "http://127.0.0.1:8080"
 DEFAULT_WEKNORA_KB_NAME = "视频账号蒸馏"
+
+
+def _video_document_name(
+    title: str | None,
+    *,
+    document_label: str,
+    used_stems: set[str] | None = None,
+) -> str:
+    """Build a title-first display name while keeping IDs out of the visible filename."""
+
+    fallback = "未命名视频"
+    stem = (
+        unique_document_stem(title, fallback, used_stems)
+        if used_stems is not None
+        else readable_document_stem(title, fallback)
+    )
+    return f"{stem}｜{document_label}.md"
+
+
+def _creative_video_title(distillation: SingleVideoDistillation) -> str | None:
+    if distillation.executive_summary is not None:
+        title = distillation.executive_summary.one_sentence.strip()
+        if title:
+            return title
+    title = distillation.topic.topic_statement.strip()
+    return title or None
 
 
 def _api_url(base_url: str) -> str:
@@ -75,6 +107,83 @@ def _wait_for_duplicate_clear(
     return False
 
 
+def _knowledge_metadata(item: dict[str, Any]) -> dict[str, Any]:
+    metadata = item.get("metadata")
+    if isinstance(metadata, str):
+        try:
+            metadata = json.loads(metadata)
+        except (TypeError, ValueError):
+            return {}
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _find_knowledge_item(
+    api: str,
+    headers: dict[str, str],
+    kb_id: str,
+    knowledge_id: str,
+) -> dict[str, Any] | None:
+    """Look up one knowledge item without trusting a 409 response's ownership claim."""
+
+    page = 1
+    while True:
+        try:
+            response = requests.get(
+                f"{api}/knowledge-bases/{kb_id}/knowledge",
+                headers=headers,
+                params={"page": page, "page_size": 100},
+                timeout=30,
+            )
+        except requests.RequestException:
+            return None
+        if not response.ok:
+            return None
+        try:
+            payload = response.json()
+        except ValueError:
+            return None
+        items = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(items, list):
+            return None
+        for item in items:
+            if isinstance(item, dict) and str(item.get("id") or "") == knowledge_id:
+                return item
+        total = int(payload.get("total") or page * 100) if isinstance(payload, dict) else 0
+        if page * 100 >= total or len(items) < 100:
+            return None
+        page += 1
+
+
+def _is_owned_duplicate(
+    item: dict[str, Any],
+    *,
+    account_id: str,
+    metadata_extra: dict[str, Any] | None,
+) -> bool:
+    """Only authorize replacement of the same Distiller-owned logical document."""
+
+    metadata = _knowledge_metadata(item)
+    if item.get("channel") != "distiller" or metadata.get("source") != "video-account-distiller":
+        return False
+
+    expected = metadata_extra or {}
+    expected_video_id = str(expected.get("video_id") or "").strip()
+    actual_video_id = str(metadata.get("video_id") or "").strip()
+    allowed_account_ids = {account_id}
+    if expected_video_id:
+        allowed_account_ids.add(f"video:{expected_video_id}")
+    if str(metadata.get("account_id") or "").strip() not in allowed_account_ids:
+        return False
+    if expected_video_id != actual_video_id:
+        return False
+
+    expected_type = str(expected.get("document_type") or "").strip()
+    actual_type = str(metadata.get("document_type") or "").strip()
+    if expected_type == actual_type:
+        return True
+    return not actual_type and expected_type in {"account_operational", "creative_learning"}
+
+
 def _upload_markdown(
     api: str,
     headers: dict[str, str],
@@ -86,14 +195,16 @@ def _upload_markdown(
     errors: list[str],
     upload_name: str | None = None,
     metadata_extra: dict[str, Any] | None = None,
+    content: bytes | None = None,
 ) -> bool:
     """Upload one markdown report, retrying after an async-delete race.
 
     WeKnora deletes documents asynchronously; if an old document with the
     same ``fileName`` was just deleted, the immediate re-upload can still
     collide with the not-yet-removed record and return HTTP 409
-    ``duplicate_file``. In that case delete the colliding record, wait for
-    it to disappear, and retry once.
+    ``duplicate_file``. In that case, verify that the colliding record is the
+    same account's Distiller-owned logical document before deleting it, wait
+    for it to disappear, and retry once.
     """
     display_name = upload_name or path.name
     metadata = {
@@ -105,11 +216,11 @@ def _upload_markdown(
     metadata_json = json.dumps(metadata, ensure_ascii=False)
 
     def _attempt() -> requests.Response:
-        content = path.read_bytes()
+        body = content if content is not None else path.read_bytes()
         return requests.post(
             f"{api}/knowledge-bases/{kb_id}/knowledge/file",
             headers=headers,
-            files={"file": (display_name, content, "text/markdown")},
+            files={"file": (display_name, body, "text/markdown")},
             data={
                 "fileName": relative_name,
                 "metadata": metadata_json,
@@ -135,7 +246,14 @@ def _upload_markdown(
         knowledge_id = (
             str(duplicate_data.get("id") or "").strip() if isinstance(duplicate_data, dict) else ""
         )
-        if knowledge_id:
+        duplicate_item = (
+            _find_knowledge_item(api, headers, kb_id, knowledge_id) if knowledge_id else None
+        )
+        if duplicate_item is not None and _is_owned_duplicate(
+            duplicate_item,
+            account_id=account_id,
+            metadata_extra=metadata_extra,
+        ):
             try:
                 delete_response = requests.delete(
                     f"{api}/knowledge/{knowledge_id}",
@@ -143,9 +261,24 @@ def _upload_markdown(
                     timeout=60,
                 )
                 if delete_response.ok:
-                    _wait_for_duplicate_clear(api, headers, kb_id, knowledge_id)
+                    if not _wait_for_duplicate_clear(api, headers, kb_id, knowledge_id):
+                        errors.append(f"{path.name}: 等待旧的同名文档删除超时，请稍后重试")
+                        return False
+                else:
+                    errors.append(
+                        f"{path.name}: 删除当前账号的旧同名文档失败，"
+                        f"HTTP {delete_response.status_code}"
+                    )
+                    return False
             except requests.RequestException:
-                pass
+                errors.append(f"{path.name}: 删除当前账号的旧同名文档失败，请稍后重试")
+                return False
+        else:
+            errors.append(
+                f"{path.name}: WeKnora 已存在同名文档，但无法确认其属于当前账号的"
+                " Distiller 文档；为避免误删，已保留原文档并取消上传"
+            )
+            return False
         try:
             retry = _attempt()
         except requests.RequestException as exc:
@@ -165,6 +298,50 @@ class WeKnoraSyncService:
 
     def __init__(self, project: ProjectLayout) -> None:
         self.project = project
+
+    def _video_titles(self, account_id: str) -> dict[str, str]:
+        """Load human titles once; stable video IDs remain metadata and storage keys."""
+
+        return {
+            video.video_id: video.title.strip()
+            for video in read_models(self.project.normalized_dir / "videos.parquet", Video)
+            if video.account_id == account_id and video.title and video.title.strip()
+        }
+
+    def _video_document_names(
+        self,
+        account_id: str,
+        *,
+        document_label: str,
+        fallback_titles: dict[str, str | None],
+    ) -> dict[str, tuple[str, str]]:
+        """Assign title-first names deterministically across an account's videos.
+
+        Sorting by the stable backend ID makes duplicate-title suffixes identical
+        whether documents are uploaded one at a time or as an account batch. The
+        ID itself remains metadata/folder state and is never added to the basename.
+        """
+
+        titles = self._video_titles(account_id)
+        for video_id, fallback_title in fallback_titles.items():
+            if video_id in titles:
+                continue
+            normalized = (fallback_title or "").strip()
+            titles[video_id] = normalized or "未命名视频"
+
+        used_stems: set[str] = set()
+        names: dict[str, tuple[str, str]] = {}
+        for video_id in sorted(titles):
+            title = titles[video_id]
+            names[video_id] = (
+                title,
+                _video_document_name(
+                    title,
+                    document_label=document_label,
+                    used_stems=used_stems,
+                ),
+            )
+        return names
 
     def list_knowledge_bases(
         self,
@@ -260,7 +437,7 @@ class WeKnoraSyncService:
         api = _api_url(base_url)
         replaced: list[str] = []
         errors: list[str] = []
-        creative_documents: list[tuple[SingleVideoDistillation, Path]] = []
+        creative_candidates: list[tuple[SingleVideoDistillation, Path]] = []
         for video_root in sorted((self.project.root / "analyses" / "videos").glob("*")):
             if not video_root.is_dir():
                 continue
@@ -269,7 +446,57 @@ class WeKnoraSyncService:
                 continue
             report_path = selected[1].parent / "report.md"
             if report_path.is_file():
-                creative_documents.append((selected[0], report_path))
+                creative_candidates.append((selected[0], report_path))
+        creative_names = self._video_document_names(
+            account_id,
+            document_label="创作拆解",
+            fallback_titles={
+                item.video_id: _creative_video_title(item) for item, _path in creative_candidates
+            },
+        )
+        creative_documents: list[tuple[SingleVideoDistillation, Path]] = []
+        skipped: list[dict[str, str]] = []
+        for distillation, report_path in creative_candidates:
+            video_title, _upload_name = creative_names[distillation.video_id]
+            if distillation.status != "complete":
+                skipped.append(
+                    {
+                        "video_id": distillation.video_id,
+                        "title": video_title,
+                        "reason": "最新创作拆解处于降级状态；请先修复模型配置并重新运行深度蒸馏",
+                    }
+                )
+                continue
+            creative_documents.append((distillation, report_path))
+        creative_video_ids = {item.video_id for item, _path in creative_documents}
+
+        prepared_account_documents: list[tuple[Path, str, bytes]] = []
+        with tempfile.TemporaryDirectory(prefix="distiller-weknora-") as temporary:
+            vault = Path(temporary)
+            export = ObsidianVaultExporter(self.project).export_account(
+                account_id=account_id,
+                vault_path=str(vault),
+                max_video_analyses=max_video_analyses,
+                # The Obsidian bundle includes per-video analysis detail and
+                # pattern notes; a full account distillation routinely exceeds
+                # the 1 MB default, so allow the documented 5 MB ceiling.
+                max_export_bytes=5_000_000,
+            )
+            human_dir = vault / export["account_folder"] / HUMAN_DIR_NAME
+            human_paths = sorted(human_dir.glob("*.md"))
+            if not human_paths:
+                raise DistillerError(
+                    ErrorCode.REPORT_GENERATION,
+                    "账号知识导出没有生成可同步文档；已保留 WeKnora 中的现有内容。",
+                    details={"account_id": account_id},
+                )
+            for path in human_paths:
+                relative_name = (
+                    f"{export['account_folder']}/{HUMAN_DIR_NAME}/{path.name}"
+                ).replace("\\", "/")
+                prepared_account_documents.append(
+                    (Path(path.name), relative_name, path.read_bytes())
+                )
 
         existing: list[dict[str, Any]] = []
         page = 1
@@ -310,11 +537,24 @@ class WeKnoraSyncService:
                     metadata = {}
             if not isinstance(metadata, dict):
                 metadata = {}
-            if (
+            video_id = str(metadata.get("video_id") or "").strip()
+            document_type = str(metadata.get("document_type") or "").strip()
+            metadata_account_id = str(metadata.get("account_id") or "").strip()
+            owned = (
                 item.get("channel") == "distiller"
                 and metadata.get("source") == "video-account-distiller"
-                and metadata.get("account_id") == account_id
-            ):
+            )
+            account_operational = (
+                metadata_account_id == account_id
+                and not video_id
+                and document_type in {"", "account_operational"}
+            )
+            creative_learning = (
+                video_id in creative_video_ids
+                and document_type in {"", "creative_learning"}
+                and metadata_account_id in {account_id, f"video:{video_id}"}
+            )
+            if owned and (account_operational or creative_learning):
                 owned_existing.append(item)
 
         if not errors:
@@ -340,23 +580,9 @@ class WeKnoraSyncService:
                 except requests.RequestException as exc:
                     errors.append(f"删除旧知识 {knowledge_id} 失败: {exc}")
 
-        with tempfile.TemporaryDirectory(prefix="distiller-weknora-") as temporary:
-            vault = Path(temporary)
-            export = ObsidianVaultExporter(self.project).export_account(
-                account_id=account_id,
-                vault_path=str(vault),
-                max_video_analyses=max_video_analyses,
-                # The Obsidian bundle includes per-video analysis detail and
-                # pattern notes; a full account distillation routinely exceeds
-                # the 1 MB default, so allow the documented 5 MB ceiling.
-                max_export_bytes=5_000_000,
-            )
-            human_dir = vault / export["account_folder"] / HUMAN_DIR_NAME
-            uploaded: list[str] = []
-            for path in [] if errors else sorted(human_dir.glob("*.md")):
-                relative_name = (
-                    f"{export['account_folder']}/{HUMAN_DIR_NAME}/{path.name}"
-                ).replace("\\", "/")
+        uploaded: list[str] = []
+        if not errors:
+            for path, relative_name, content in prepared_account_documents:
                 _upload_markdown(
                     api,
                     headers,
@@ -366,31 +592,38 @@ class WeKnoraSyncService:
                     account_id,
                     uploaded,
                     errors,
+                    metadata_extra={
+                        "document_type": "account_operational",
+                        "sync_scope": "account",
+                    },
+                    content=content,
                 )
-            if not errors:
-                for distillation, report_path in creative_documents:
-                    relative_name = (
-                        f"accounts/{account_id}/videos/{distillation.video_id}/"
-                        f"{distillation.video_id}-creative-report.md"
-                    )
-                    _upload_markdown(
-                        api,
-                        headers,
-                        selected_kb_id,
-                        report_path,
-                        relative_name,
-                        account_id,
-                        uploaded,
-                        errors,
-                        upload_name=f"{distillation.video_id}-creative-report.md",
-                        metadata_extra={
-                            "video_id": distillation.video_id,
-                            "distillation_id": distillation.distillation_id,
-                            "document_type": "creative_learning",
-                            "distillation_mode": "creative_learning",
-                            "status": distillation.status,
-                        },
-                    )
+        if not errors:
+            for distillation, report_path in creative_documents:
+                video_title, upload_name = creative_names[distillation.video_id]
+                relative_name = (
+                    f"accounts/{account_id}/videos/{distillation.video_id}/{upload_name}"
+                )
+                _upload_markdown(
+                    api,
+                    headers,
+                    selected_kb_id,
+                    report_path,
+                    relative_name,
+                    account_id,
+                    uploaded,
+                    errors,
+                    upload_name=upload_name,
+                    metadata_extra={
+                        "video_id": distillation.video_id,
+                        "video_title": video_title or "未命名视频",
+                        "distillation_id": distillation.distillation_id,
+                        "document_type": "creative_learning",
+                        "distillation_mode": "creative_learning",
+                        "sync_scope": "account",
+                        "status": distillation.status,
+                    },
+                )
 
         error_code: str | None = None
         message: str | None = None
@@ -410,10 +643,12 @@ class WeKnoraSyncService:
             "kb_name": kb_name,
             "replaced": replaced,
             "uploaded": uploaded,
-            "creative_reports": len(creative_documents),
+            "creative_reports": len(creative_candidates),
+            "uploaded_creative_reports": len(creative_documents),
             "degraded_creative_reports": sum(
-                item.status == "degraded" for item, _path in creative_documents
+                item.status == "degraded" for item, _path in creative_candidates
             ),
+            "skipped": skipped,
             "errors": errors,
             "error_code": error_code,
             "message": message,
@@ -467,6 +702,23 @@ class WeKnoraSyncService:
                 details={"next": "run distiller analyze video --deep before WeKnora sync"},
             )
         distillation, distillation_path = selected
+        if distillation.status != "complete":
+            raise DistillerError(
+                ErrorCode.MODEL_UNAVAILABLE,
+                "当前单视频创作拆解处于降级状态，不能同步到 WeKnora。"
+                "请先修复模型配置并重新运行深度蒸馏，确认产物完整后再同步。",
+                details={
+                    "video_id": video_id,
+                    "distillation_id": distillation.distillation_id,
+                    "status": distillation.status,
+                    "next": "修复模型连接后重新运行单视频深度蒸馏",
+                },
+            )
+        video_title, upload_name = self._video_document_names(
+            distillation.account_id,
+            document_label="创作拆解",
+            fallback_titles={video_id: _creative_video_title(distillation)},
+        )[video_id]
         report_path = distillation_path.parent / "report.md"
         if not report_path.is_file():
             raise DistillerError(
@@ -572,11 +824,12 @@ class WeKnoraSyncService:
             f"document_type: creative_learning\n"
             f"distillation_mode: creative_learning\n"
             f"status: {distillation.status}\n"
+            f"title: {json.dumps(video_title or '未命名视频', ensure_ascii=False)}\n"
             f"type: single-video-distillation\n"
             "---\n\n"
             f"{report_text}"
         )
-        relative_name = f"videos/{video_id}/single-video-distillation.md"
+        relative_name = f"videos/{video_id}/{upload_name}"
         uploaded: list[str] = []
         if not errors:
             with tempfile.NamedTemporaryFile(
@@ -594,15 +847,17 @@ class WeKnoraSyncService:
                     selected_kb_id,
                     temp_path,
                     relative_name,
-                    f"video:{video_id}",
+                    distillation.account_id,
                     uploaded,
                     errors,
-                    upload_name="single-video-distillation.md",
+                    upload_name=upload_name,
                     metadata_extra={
                         "video_id": video_id,
+                        "video_title": video_title or "未命名视频",
                         "distillation_id": distillation.distillation_id,
                         "document_type": "creative_learning",
                         "distillation_mode": "creative_learning",
+                        "sync_scope": "video",
                     },
                 )
             finally:
@@ -680,6 +935,23 @@ class WeKnoraSyncService:
                 details={"next": "run knowledge-mode single-video distillation first"},
             )
         knowledge, knowledge_path = selected
+        if knowledge.status != "complete":
+            raise DistillerError(
+                ErrorCode.MODEL_UNAVAILABLE,
+                "当前单视频知识提炼处于降级状态，不能同步到 WeKnora。"
+                "请先修复模型配置并重新运行知识提炼，确认产物完整后再同步。",
+                details={
+                    "video_id": video_id,
+                    "knowledge_id": knowledge.knowledge_id,
+                    "status": knowledge.status,
+                    "next": "修复模型连接后重新运行单视频知识提炼",
+                },
+            )
+        video_title, upload_name = self._video_document_names(
+            knowledge.account_id,
+            document_label="知识提炼",
+            fallback_titles={video_id: knowledge.knowledge.knowledge_title},
+        )[video_id]
         report_path = knowledge_path.parent / "knowledge.md"
         if not report_path.is_file():
             raise DistillerError(
@@ -772,10 +1044,11 @@ class WeKnoraSyncService:
             "document_type: video_knowledge\n"
             "distillation_mode: knowledge\n"
             f"status: {knowledge.status}\n"
+            f"title: {json.dumps(video_title or '未命名视频', ensure_ascii=False)}\n"
             "---\n\n"
             f"{report_path.read_text(encoding='utf-8')}"
         )
-        relative_name = f"videos/{video_id}/video-knowledge.md"
+        relative_name = f"videos/{video_id}/{upload_name}"
         uploaded: list[str] = []
         if not errors:
             with tempfile.NamedTemporaryFile(
@@ -793,15 +1066,17 @@ class WeKnoraSyncService:
                     selected_kb_id,
                     temp_path,
                     relative_name,
-                    f"video:{video_id}",
+                    knowledge.account_id,
                     uploaded,
                     errors,
-                    upload_name="video-knowledge.md",
+                    upload_name=upload_name,
                     metadata_extra={
                         "video_id": video_id,
+                        "video_title": video_title or "未命名视频",
                         "document_type": "video_knowledge",
                         "knowledge_id": knowledge.knowledge_id,
                         "distillation_mode": "knowledge",
+                        "sync_scope": "video",
                     },
                 )
             finally:
@@ -854,28 +1129,38 @@ class WeKnoraSyncService:
                 f"No account video-knowledge bundle found: {account_id}",
                 details={"next": "run account video knowledge distillation first"},
             )
-        if not selected.documents:
+        if not selected.documents and not selected.skipped:
             raise DistillerError(
                 ErrorCode.INPUT_MISSING,
                 f"Account video-knowledge bundle contains no documents: {account_id}",
                 details={"manifest_id": selected.manifest_id},
             )
-        if selected.status != "complete" or selected.degraded_count or selected.skipped_count:
-            raise DistillerError(
-                ErrorCode.SCHEMA_INVALID,
-                "Refusing to sync an incomplete account video-knowledge bundle",
-                details={
-                    "manifest_id": selected.manifest_id,
-                    "status": selected.status,
-                    "completed_count": selected.completed_count,
-                    "degraded_count": selected.degraded_count,
-                    "skipped_count": selected.skipped_count,
-                    "next": "rerun account video knowledge distillation with a working model",
-                },
-            )
+        skipped: list[dict[str, str]] = [
+            {
+                "video_id": item.video_id,
+                "title": item.title or "未命名视频",
+                "reason": "批量知识蒸馏未生成完整文档；请补齐前置分析或修复模型配置后重新运行",
+            }
+            for item in selected.skipped
+        ]
+        skipped_video_ids = {item["video_id"] for item in skipped}
+        complete_documents = []
+        for document in selected.documents:
+            if document.status == "complete":
+                complete_documents.append(document)
+                continue
+            if document.video_id not in skipped_video_ids:
+                skipped.append(
+                    {
+                        "video_id": document.video_id,
+                        "title": document.title or "未命名视频",
+                        "reason": "最新知识提炼处于降级状态；请先修复模型配置并重新运行知识提炼",
+                    }
+                )
+                skipped_video_ids.add(document.video_id)
         missing_documents = [
             document.document_path
-            for document in selected.documents
+            for document in complete_documents
             if not (self.project.root / document.document_path).is_file()
         ]
         if missing_documents:
@@ -902,6 +1187,22 @@ class WeKnoraSyncService:
                 "WeKnora target knowledge base was not found or is not visible to this API Key",
                 details={"kb_id": selected_kb_id},
             )
+
+        if not complete_documents:
+            return {
+                "ok": True,
+                "kb_id": selected_kb_id,
+                "kb_name": target["name"],
+                "account_id": account_id,
+                "manifest_id": selected.manifest_id,
+                "document_type": "video_knowledge",
+                "uploaded": [],
+                "replaced": [],
+                "skipped": skipped,
+                "errors": [],
+                "error_code": None,
+                "message": None,
+            }
 
         api = _api_url(base_url)
         headers = {"X-API-Key": api_key.strip()}
@@ -937,7 +1238,7 @@ class WeKnoraSyncService:
                 break
             page += 1
 
-        selected_video_ids = {document.video_id for document in selected.documents}
+        selected_video_ids = {document.video_id for document in complete_documents}
         for item in existing:
             metadata = item.get("metadata")
             if isinstance(metadata, str):
@@ -951,12 +1252,14 @@ class WeKnoraSyncService:
                 item.get("channel") == "distiller"
                 and metadata.get("source") == "video-account-distiller"
             )
-            old_account_report = metadata.get("account_id") == account_id
+            metadata_account_id = str(metadata.get("account_id") or "").strip()
+            metadata_video_id = str(metadata.get("video_id") or "").strip()
             old_video_knowledge = (
                 metadata.get("document_type") == "video_knowledge"
-                and metadata.get("video_id") in selected_video_ids
+                and metadata_video_id in selected_video_ids
+                and metadata_account_id in {account_id, f"video:{metadata_video_id}"}
             )
-            if not owned or not (old_account_report or old_video_knowledge):
+            if not owned or not old_video_knowledge:
                 continue
             knowledge_record_id = str(item.get("id") or "").strip()
             if not knowledge_record_id:
@@ -980,10 +1283,17 @@ class WeKnoraSyncService:
                 errors.append(f"删除旧知识 {knowledge_record_id} 失败: {exc}")
 
         if not errors:
-            for document in selected.documents:
+            knowledge_names = self._video_document_names(
+                account_id,
+                document_label="知识提炼",
+                fallback_titles={
+                    document.video_id: document.title for document in complete_documents
+                },
+            )
+            for document in complete_documents:
                 document_path = self.project.root / document.document_path
-                document_name = document_path.name
-                relative_name = f"accounts/{account_id}/videos/{document_name}"
+                video_title, upload_name = knowledge_names[document.video_id]
+                relative_name = f"accounts/{account_id}/videos/{document.video_id}/{upload_name}"
                 _upload_markdown(
                     api,
                     headers,
@@ -993,13 +1303,15 @@ class WeKnoraSyncService:
                     account_id,
                     uploaded,
                     errors,
-                    upload_name=document_name,
+                    upload_name=upload_name,
                     metadata_extra={
                         "video_id": document.video_id,
+                        "video_title": video_title,
                         "document_type": "video_knowledge",
                         "knowledge_id": document.knowledge_id,
                         "manifest_id": selected.manifest_id,
                         "distillation_mode": "knowledge",
+                        "sync_scope": "account",
                     },
                 )
 
@@ -1013,6 +1325,7 @@ class WeKnoraSyncService:
             "document_type": "video_knowledge",
             "uploaded": uploaded,
             "replaced": replaced,
+            "skipped": skipped,
             "errors": errors,
             "error_code": "API_KEY_SCOPE_NOT_ALLOWED" if scope_rejected else None,
             "message": "WeKnora 未能完成全部逐视频知识文档上传。" if errors else None,

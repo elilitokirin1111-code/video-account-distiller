@@ -10,6 +10,7 @@ from video_account_distiller.collection.mediacrawler import (
     MediaCrawlerAccountProvider,
     ProcessResult,
     SubprocessExecutor,
+    _bridge_error,
 )
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.models import (
@@ -17,6 +18,26 @@ from video_account_distiller.models import (
     CollectionProviderKind,
     CollectionSort,
 )
+
+
+@pytest.mark.parametrize(
+    "provider_message",
+    [
+        "DataFetchError: account blocked, ",
+        "Blocked by ArgusSecurityPlugin Uifid Not Found",
+        "Blocked by ArgusSecurityPlugin Signature Not Found",
+    ],
+)
+def test_platform_block_is_reported_before_video_download(provider_message: str) -> None:
+    error = _bridge_error(
+        {"error_code": "browser_or_collection_error", "message": provider_message},
+        2,
+    )
+
+    assert error.code == ErrorCode.MEDIACRAWLER_UNAVAILABLE
+    assert error.details["reason"] == "platform_access_blocked"
+    assert error.details["provider_message"] == provider_message
+    assert "尚未进入下载阶段" in error.message
 
 
 class FixtureProcessExecutor:

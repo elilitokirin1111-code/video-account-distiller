@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any, Protocol, TypeVar
 from urllib.error import HTTPError, URLError
@@ -51,6 +52,42 @@ def _chat_completions_url(base_url: str) -> str:
     if normalized.endswith("/compatible-mode/v1"):
         return f"{normalized}/chat/completions"
     return f"{normalized}/v1/chat/completions"
+
+
+def _safe_http_error_detail(error: HTTPError) -> str:
+    """Keep actionable cloud diagnostics without persisting response messages or prompts."""
+
+    parts = [f"HTTP {error.code}"]
+    response_code: object | None = None
+    request_id: object | None = None
+    try:
+        raw = error.read(65_536)
+        payload = json.loads(raw.decode("utf-8")) if raw else None
+        if isinstance(payload, dict):
+            nested = payload.get("error")
+            if isinstance(nested, dict):
+                response_code = nested.get("code") or nested.get("type")
+                request_id = nested.get("request_id")
+            response_code = response_code or payload.get("code")
+            request_id = request_id or payload.get("request_id") or payload.get("requestId")
+    except (OSError, UnicodeError, json.JSONDecodeError, AttributeError):
+        pass
+    try:
+        header_items = error.headers.items() if error.headers is not None else []
+        headers = {str(key).casefold(): value for key, value in header_items}
+        request_id = request_id or headers.get("x-request-id") or headers.get("request-id")
+    except (AttributeError, TypeError, ValueError):
+        pass
+
+    def safe_token(value: object | None) -> str:
+        token = str(value or "").strip()
+        return token[:80] if re.fullmatch(r"[A-Za-z0-9_.:/-]{1,80}", token) else ""
+
+    if code := safe_token(response_code):
+        parts.append(f"code={code}")
+    if trace_id := safe_token(request_id):
+        parts.append(f"request_id={trace_id}")
+    return "; ".join(parts)
 
 
 class ModelSchemaFailure(Exception):
@@ -385,6 +422,7 @@ class LlamaCppTextProvider(OllamaTextProvider):
     """Local text analysis through a llama.cpp OpenAI-compatible server."""
 
     provider_name = "llamacpp"
+    error_provider_label = "llama.cpp"
 
     @staticmethod
     def _unwrap_structured_payload(parsed: object) -> object:
@@ -462,18 +500,21 @@ class LlamaCppTextProvider(OllamaTextProvider):
             with urlopen(request, timeout=self.timeout_seconds) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
         except (HTTPError, URLError, TimeoutError, UnicodeError, json.JSONDecodeError) as exc:
+            failure = type(exc).__name__
+            if isinstance(exc, HTTPError):
+                failure = _safe_http_error_detail(exc)
             raise ModelSchemaFailure(
-                f"llama.cpp text request failed: {type(exc).__name__}"
+                f"{self.error_provider_label} text request failed: {failure}"
             ) from exc
         if not isinstance(result, dict):
-            raise ModelSchemaFailure("llama.cpp returned a non-dict response")
+            raise ModelSchemaFailure(f"{self.error_provider_label} returned a non-dict response")
         choices = result.get("choices")
         message = choices[0].get("message") if isinstance(choices, list) and choices else None
         raw = message.get("content") if isinstance(message, dict) else None
         if not isinstance(raw, str) or not raw.strip():
             raw = message.get("reasoning_content") if isinstance(message, dict) else None
         if not raw:
-            raise ModelSchemaFailure("llama.cpp returned an empty text response")
+            raise ModelSchemaFailure(f"{self.error_provider_label} returned an empty text response")
         try:
             parsed = json.loads(raw)
         except json.JSONDecodeError:
@@ -483,11 +524,11 @@ class LlamaCppTextProvider(OllamaTextProvider):
                     parsed, _ = json.JSONDecoder().raw_decode(raw[start:])
                 except json.JSONDecodeError as exc:
                     raise ModelSchemaFailure(
-                        f"llama.cpp response is not valid JSON: {raw[:200]}"
+                        f"{self.error_provider_label} response is not valid JSON: {raw[:200]}"
                     ) from exc
             else:
                 raise ModelSchemaFailure(
-                    f"llama.cpp response is not valid JSON: {raw[:200]}"
+                    f"{self.error_provider_label} response is not valid JSON: {raw[:200]}"
                 ) from None
         parsed = self._unwrap_structured_payload(parsed)
         try:
@@ -503,7 +544,7 @@ class LlamaCppTextProvider(OllamaTextProvider):
                 ]
                 payload_type = type(parsed).__name__
                 raise ModelSchemaFailure(
-                    "llama.cpp response failed schema validation: "
+                    f"{self.error_provider_label} response failed schema validation: "
                     f"{compact_errors}; payload_type={payload_type}"
                 ) from exc
 
@@ -512,6 +553,7 @@ class CloudChatTextProvider(LlamaCppTextProvider):
     """Any OpenAI-compatible chat API (DeepSeek, DashScope, OpenAI, etc.)."""
 
     provider_name = "cloud"
+    error_provider_label = "cloud model"
 
     def _request_options(self, response_model: type[BaseModel]) -> dict[str, Any]:
         del response_model

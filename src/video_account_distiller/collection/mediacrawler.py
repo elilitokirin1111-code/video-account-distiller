@@ -391,6 +391,20 @@ def _missing_bridge_details(result: ProcessResult, *, attempts: int) -> dict[str
 def _bridge_error(payload: dict[str, Any], returncode: int) -> DistillerError:
     bridge_code = str(payload.get("error_code") or "unknown")
     message = str(payload.get("message") or "MediaCrawler collection failed")
+    if bridge_code == "browser_or_collection_error" and any(
+        marker in message.casefold()
+        for marker in ("account blocked", "argussecurityplugin", "signature not found")
+    ):
+        return DistillerError(
+            ErrorCode.MEDIACRAWLER_UNAVAILABLE,
+            "抖音拒绝了当前采集请求，视频尚未进入下载阶段。请使用获授权的导出数据或本地视频文件继续分析。",
+            details={
+                "bridge_code": bridge_code,
+                "reason": "platform_access_blocked",
+                "returncode": returncode,
+                "provider_message": message[:MAX_PROCESS_ERROR_CHARS],
+            },
+        )
     if bridge_code == "login_required":
         return DistillerError(
             ErrorCode.BROWSER_LOGIN_REQUIRED,

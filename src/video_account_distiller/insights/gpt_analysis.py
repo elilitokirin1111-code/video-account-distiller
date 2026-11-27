@@ -6,9 +6,10 @@ from __future__ import annotations
 import json
 import os
 import re
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Collection
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal, Protocol, Self
@@ -22,6 +23,7 @@ from video_account_distiller.config import load_config
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.insights.context import AnalysisContextService
 from video_account_distiller.models.collaboration import RetryPolicy
+from video_account_distiller.report_presentation import display_label, display_text
 from video_account_distiller.storage.project import ProjectLayout
 from video_account_distiller.utils.hashing import sha256_json
 from video_account_distiller.utils.ids import stable_id
@@ -41,7 +43,7 @@ DEEPSEEK_API_KEY_ENV = "DEEPSEEK_API_KEY"
 DEEPSEEK_BASE_URL_ENV = "DEEPSEEK_BASE_URL"
 DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com"
 GPT_ANALYSIS_VERSION = "1.4.0"
-GPT_PROMPT_VERSION = "account-learning-playbook-v5"
+GPT_PROMPT_VERSION = "account-learning-playbook-v6"
 GPT_EVALUATION_VERSION = "account-analysis-eval-v2"
 GPT_PRICING_SNAPSHOT = "openai-api-pricing-2026-07-28"
 BAILIAN_PRICING_SNAPSHOT = "aliyun-model-studio-pricing-2026-08-04"
@@ -1401,6 +1403,61 @@ def _used_evidence_refs(analysis: GptAccountAnalysis) -> set[str]:
     return refs
 
 
+_ARTIFACT_REF_ID_PATTERN = re.compile(
+    r"(?<![a-z0-9_])(?:abp|ame|cma|dst|mda|rpt|svd|svk|vta)_[a-z0-9]{12,}"
+)
+
+
+def _canonicalize_evidence_refs(
+    analysis: GptAccountAnalysis,
+    allowed_refs: Collection[str],
+) -> tuple[GptAccountAnalysis, list[dict[str, str]]]:
+    """Repair a path typo only when an exact artifact ID identifies one allowed ref."""
+
+    allowed_ref_set = set(allowed_refs)
+    refs_by_artifact_id: dict[str, list[str]] = {}
+    for allowed_ref in allowed_ref_set:
+        for artifact_id in _ARTIFACT_REF_ID_PATTERN.findall(allowed_ref.casefold()):
+            refs_by_artifact_id.setdefault(artifact_id, []).append(allowed_ref)
+
+    repairs: dict[str, str] = {}
+
+    def normalize(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                key: (
+                    [normalize_ref(item) for item in item_value]
+                    if key == "evidence_refs" and isinstance(item_value, list)
+                    else normalize(item_value)
+                )
+                for key, item_value in value.items()
+            }
+        if isinstance(value, list):
+            return [normalize(item) for item in value]
+        return value
+
+    def normalize_ref(value: Any) -> Any:
+        if not isinstance(value, str) or value in allowed_ref_set:
+            return value
+        artifact_ids = set(_ARTIFACT_REF_ID_PATTERN.findall(value.casefold()))
+        candidates = {
+            candidate
+            for artifact_id in artifact_ids
+            for candidate in refs_by_artifact_id.get(artifact_id, [])
+        }
+        if len(artifact_ids) == 1 and len(candidates) == 1:
+            replacement = next(iter(candidates))
+            repairs[value] = replacement
+            return replacement
+        return value
+
+    payload = normalize(analysis.model_dump(mode="json"))
+    return GptAccountAnalysis.model_validate(payload), [
+        {"original": original, "canonical": canonical}
+        for original, canonical in sorted(repairs.items())
+    ]
+
+
 def _prompt(options: GptAnalysisOptions, allowed_refs: list[str]) -> str:
     refs = "\n".join(f"- {ref}" for ref in allowed_refs)
     focus_instruction = (
@@ -1451,6 +1508,9 @@ def _prompt(options: GptAnalysisOptions, allowed_refs: list[str]) -> str:
         "do not exceed maxLength or maxItems constraints.\n"
         "Never treat unknown, missing, or fallback semantic labels as a content strategy.\n"
         "Never infer missing values, audience demographics, or causal effects.\n"
+        "When quoting a numeric value, copy the serialized source value exactly or round it with "
+        "conventional half-up rounding at the stated precision. Never truncate a value, convert "
+        "units or percentages implicitly, or introduce a newly calculated number.\n"
         "Every finding, imitation playbook, creative extension, action, experiment, and knowledge "
         "card must cite evidence_refs exactly from the allowlist below. Do not invent paths or "
         "identifiers.\n"
@@ -1467,11 +1527,6 @@ def _render_markdown(
     *,
     include_evidence_appendix: bool = True,
 ) -> str:
-    confidence_zh = {
-        "high": "高",
-        "medium": "中",
-        "low": "低",
-    }
     trend_zh = {
         "evidence_backed_recent": "有近期证据支持",
         "evergreen_extension": "常青创意",
@@ -1514,7 +1569,7 @@ def _render_markdown(
         "",
         "## 一页结论",
         "",
-        result.executive_summary,
+        display_text(result.executive_summary),
         "",
         "## 可模仿打法",
         "",
@@ -1523,24 +1578,24 @@ def _render_markdown(
         for index, playbook in enumerate(result.imitation_playbooks, start=1):
             lines.extend(
                 [
-                    f"### {index}. {playbook.title}",
+                    f"### {index}. {display_text(playbook.title)}",
                     "",
-                    f"**学到的东西：** {playbook.learned_insight}",
+                    f"**学到的东西：** {display_text(playbook.learned_insight)}",
                     "",
-                    f"**为什么可能有效：** {playbook.why_it_works}",
+                    f"**为什么可能有效：** {display_text(playbook.why_it_works)}",
                     "",
-                    "**可以模仿：** " + "；".join(playbook.copy_this),
+                    "**可以模仿：** " + "；".join(map(display_text, playbook.copy_this)),
                     "",
-                    "**不要照搬：** " + "；".join(playbook.do_not_copy),
+                    "**不要照搬：** " + "；".join(map(display_text, playbook.do_not_copy)),
                     "",
                     "**落地步骤：**",
                     *[
-                        f"{step_no}. {step}"
+                        f"{step_no}. {display_text(step)}"
                         for step_no, step in enumerate(playbook.adaptation_steps, 1)
                     ],
                     "",
-                    f"**适合：** {'；'.join(playbook.suitable_for)}",
-                    f"**置信度：** {confidence_zh[str(playbook.confidence)]}",
+                    f"**适合：** {'；'.join(map(display_text, playbook.suitable_for))}",
+                    f"**置信度：** {display_label(playbook.confidence)}",
                     "",
                 ]
             )
@@ -1552,15 +1607,22 @@ def _render_markdown(
         for index, idea in enumerate(result.creative_extensions, start=1):
             lines.extend(
                 [
-                    f"### {index}. {idea.title}",
+                    f"### {index}. {display_text(idea.title)}",
                     "",
-                    f"- 来源：{idea.derived_from}",
-                    f"- 创意：{idea.concept}",
+                    f"- 来源：{display_text(idea.derived_from)}",
+                    f"- 创意：{display_text(idea.concept)}",
                     f"- 热点属性：{trend_zh[str(idea.trend_relevance)]}",
-                    *([f"- 热点依据：{idea.trend_basis}"] if idea.trend_basis else []),
+                    *(
+                        [f"- 热点依据：{display_text(idea.trend_basis)}"]
+                        if idea.trend_basis
+                        else []
+                    ),
                     "- 执行：",
-                    *[f"  {step_no}. {step}" for step_no, step in enumerate(idea.execution, 1)],
-                    f"- 风险/边界：{idea.risk_or_boundary}",
+                    *[
+                        f"  {step_no}. {display_text(step)}"
+                        for step_no, step in enumerate(idea.execution, 1)
+                    ],
+                    f"- 风险/边界：{display_text(idea.risk_or_boundary)}",
                     "",
                 ]
             )
@@ -1571,8 +1633,8 @@ def _render_markdown(
     for action in sorted(result.priority_actions, key=lambda item: item.priority):
         lines.extend(
             [
-                f"{action.priority}. {action.action}",
-                f"   - 为什么：{action.rationale}",
+                f"{action.priority}. {display_text(action.action)}",
+                f"   - 为什么：{display_text(action.rationale)}",
             ]
         )
     lines.extend(["", "## 如何验证这些想法", ""])
@@ -1580,10 +1642,10 @@ def _render_markdown(
         for experiment in result.experiments:
             lines.extend(
                 [
-                    f"- 假设：{experiment.hypothesis}",
-                    f"  - 动作：{experiment.action}",
-                    f"  - 主指标：{experiment.primary_metric}",
-                    f"  - 观察窗口：{experiment.observation_window}",
+                    f"- 假设：{display_text(experiment.hypothesis)}",
+                    f"  - 动作：{display_text(experiment.action)}",
+                    f"  - 主指标：{display_text(experiment.primary_metric)}",
+                    f"  - 观察窗口：{display_text(experiment.observation_window)}",
                 ]
             )
     else:
@@ -1591,8 +1653,8 @@ def _render_markdown(
 
     if result.hospitality_transfer:
         transfer = result.hospitality_transfer
-        lines.extend(["", "## 酒旅迁移分析", "", transfer.hospitality_summary, ""])
-        lines.append(f"- 相关度：{transfer.relevance}")
+        lines.extend(["", "## 酒旅迁移分析", "", display_text(transfer.hospitality_summary), ""])
+        lines.append(f"- 相关度：{display_label(transfer.relevance)}")
         for index, hospitality_playbook in enumerate(
             transfer.transferable_playbooks,
             start=1,
@@ -1600,23 +1662,32 @@ def _render_markdown(
             lines.extend(
                 [
                     "",
-                    f"### {index}. {hospitality_playbook.title}",
+                    f"### {index}. {display_text(hospitality_playbook.title)}",
                     "",
-                    f"- 原内容机制：{hospitality_playbook.source_mechanism}",
-                    f"- 生效原因：{hospitality_playbook.why_it_works}",
-                    f"- 酒旅适配：{hospitality_playbook.hospitality_adaptation}",
-                    "- 适用场景：" + ("；".join(hospitality_playbook.suitable_scenarios) or "暂无"),
-                    "- 保留：" + ("；".join(hospitality_playbook.preserve) or "暂无"),
-                    "- 替换：" + ("；".join(hospitality_playbook.replace) or "暂无"),
-                    "- 不迁移：" + ("；".join(hospitality_playbook.do_not_transfer) or "暂无"),
-                    f"- 局限：{'；'.join(hospitality_playbook.limitations)}",
+                    f"- 原内容机制：{display_text(hospitality_playbook.source_mechanism)}",
+                    f"- 生效原因：{display_text(hospitality_playbook.why_it_works)}",
+                    f"- 酒旅适配：{display_text(hospitality_playbook.hospitality_adaptation)}",
+                    "- 适用场景："
+                    + (
+                        "；".join(map(display_text, hospitality_playbook.suitable_scenarios))
+                        or "暂无"
+                    ),
+                    "- 保留："
+                    + ("；".join(map(display_text, hospitality_playbook.preserve)) or "暂无"),
+                    "- 替换："
+                    + ("；".join(map(display_text, hospitality_playbook.replace)) or "暂无"),
+                    "- 不迁移："
+                    + (
+                        "；".join(map(display_text, hospitality_playbook.do_not_transfer)) or "暂无"
+                    ),
+                    f"- 局限：{'；'.join(map(display_text, hospitality_playbook.limitations))}",
                 ]
             )
         lines.extend(["", "**迁移边界：**"])
-        lines.extend(f"- {item}" for item in transfer.limitations)
+        lines.extend(f"- {display_text(item)}" for item in transfer.limitations)
 
     lines.extend(["", "## 阅读边界", ""])
-    lines.extend(f"- {item}" for item in result.limitations)
+    lines.extend(f"- {display_text(item)}" for item in result.limitations)
 
     if include_evidence_appendix:
         lines.extend(["", "<details>", "<summary>证据与严谨分析附录</summary>", ""])
@@ -1624,8 +1695,8 @@ def _render_markdown(
         for finding in result.findings:
             lines.extend(
                 [
-                    f"- **{finding.title}**：{finding.statement}",
-                    f"  - 类型：{finding.classification}；置信度：{confidence_zh[str(finding.confidence)]}",
+                    f"- **{display_text(finding.title)}**：{display_text(finding.statement)}",
+                    f"  - 类型：{display_label(finding.classification)}；置信度：{display_label(finding.confidence)}",
                     f"  - 证据：{'、'.join(_evidence_label(ref) for ref in finding.evidence_refs)}",
                 ]
             )
@@ -1633,11 +1704,12 @@ def _render_markdown(
         for card in result.knowledge_cards:
             lines.extend(
                 [
-                    f"- **{card.title}**：{card.claim}",
-                    f"  - 机制：{card.mechanism}",
-                    f"  - 竞争解释：{'；'.join(card.competing_explanations)}",
-                    f"  - 反证：{card.falsifier}",
-                    f"  - 成功/停止：{card.success_condition} / {card.stop_condition}",
+                    f"- **{display_text(card.title)}**：{display_text(card.claim)}",
+                    f"  - 机制：{display_text(card.mechanism)}",
+                    f"  - 竞争解释：{'；'.join(map(display_text, card.competing_explanations))}",
+                    f"  - 反证：{display_text(card.falsifier)}",
+                    "  - 成功/停止："
+                    f"{display_text(card.success_condition)} / {display_text(card.stop_condition)}",
                     f"  - 证据：{'、'.join(_evidence_label(ref) for ref in card.evidence_refs)}",
                 ]
             )
@@ -1769,7 +1841,41 @@ def _prepare_analysis_context(
 
 
 def _numeric_tokens(value: str) -> set[str]:
-    return set(re.findall(r"\d+(?:\.\d+)?%?", value))
+    normalized = re.sub(r"(?<=\d)\s*[-–—]\s*(?=\d)", " ", value)
+    normalized = re.sub(r"(?<=%)\s*[-–—]\s*(?=\d)", " ", normalized)
+    return set(re.findall(r"(?<![\w.])[-+]?\d+(?:\.\d+)?%?", normalized))
+
+
+def _numeric_claim_supported(token: str, context_tokens: set[str]) -> bool:
+    """Accept exact values and faithful decimal rounding of supplied evidence."""
+
+    if token in context_tokens:
+        return True
+    is_percent = token.endswith("%")
+    raw = token.removesuffix("%")
+    if "." not in raw:
+        return False
+    decimal_places = len(raw.rsplit(".", 1)[1])
+    try:
+        claimed = Decimal(raw)
+    except InvalidOperation:
+        return False
+    quantum = Decimal(1).scaleb(-decimal_places)
+    for candidate in context_tokens:
+        if candidate.endswith("%") != is_percent:
+            continue
+        candidate_raw = candidate.removesuffix("%")
+        if "." not in candidate_raw:
+            continue
+        if len(candidate_raw.rsplit(".", 1)[1]) <= decimal_places:
+            continue
+        try:
+            rounded = Decimal(candidate_raw).quantize(quantum, rounding=ROUND_HALF_UP)
+        except InvalidOperation:
+            continue
+        if rounded == claimed:
+            return True
+    return False
 
 
 def _finding_fingerprints(analysis: GptAccountAnalysis) -> set[str]:
@@ -1843,7 +1949,9 @@ def _evaluate_analysis(
         if finding.classification not in {"observed_fact", "statistical_association"}:
             continue
         claim_numbers = _numeric_tokens(f"{finding.title} {finding.statement}")
-        unsupported = sorted(claim_numbers.difference(context_numbers))
+        unsupported = sorted(
+            token for token in claim_numbers if not _numeric_claim_supported(token, context_numbers)
+        )
         if unsupported:
             unsupported_numeric_claims.append(
                 {
@@ -2162,6 +2270,11 @@ class RemoteAccountAnalysisService:
                 instructions=prepared.instructions,
                 context_json=prepared.context_json,
             )
+            normalized_analysis, evidence_ref_repairs = _canonicalize_evidence_refs(
+                provider_result.analysis,
+                prepared.allowed_refs,
+            )
+            provider_result = replace(provider_result, analysis=normalized_analysis)
             used_refs = _used_evidence_refs(provider_result.analysis)
             invalid_refs = sorted(used_refs.difference(prepared.allowed_refs))
             if invalid_refs:
@@ -2237,6 +2350,7 @@ class RemoteAccountAnalysisService:
                     "usage": provider_result.usage,
                     "output_hash": output_hash,
                     "estimated_cost": _usage_cost(options.model, provider_result.usage),
+                    "evidence_ref_repairs": evidence_ref_repairs,
                 },
                 "privacy": {
                     "redacted_keys": sorted(_CLOUD_REDACTED_KEYS),

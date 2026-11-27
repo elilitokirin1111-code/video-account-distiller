@@ -114,7 +114,7 @@ class ProjectLayout:
         if not layout.status_path.exists():
             atomic_write_text(
                 layout.status_path,
-                "# Distiller project status\n\nRun `distiller status --project .` to refresh.\n",
+                "# 蒸馏项目状态\n\n运行 `distiller status --project .` 刷新状态。\n",
             )
         secrets_example = layout.root / ".distiller-secrets.example"
         if not secrets_example.exists():

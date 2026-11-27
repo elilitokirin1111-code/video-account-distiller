@@ -73,16 +73,16 @@
 {% endif %}
 
 {% if top_rows or bottom_rows %}
-### 高热度视频盘点（Top 5）
+### 高热度视频盘点（表现前 5 条）
 
 {% for row in top_rows %}
-- **{{ row.title[:40] }}**（`{{ row.short_id }}`，{{ row.band or '未分层' }}级，表现分 {{ row.score | round(2) if row.score is not none else '暂无' }}）：{{ row.extra_tags_display or '无标签' }}；点赞 {{ '{:,}'.format(row.likes) if row.likes is not none else '?' }}、评论 {{ '{:,}'.format(row.comments) if row.comments is not none else '?' }}、分享 {{ '{:,}'.format(row.shares) if row.shares is not none else '?' }}、收藏 {{ '{:,}'.format(row.saves) if row.saves is not none else '?' }}{% if row.pillar %}；内容方向：{{ row.pillar | zh }}{% endif %}{% if row.hook_type %}；钩子：{{ row.hook_type | zh }}{% endif %}{% if row.duration_seconds %}；时长 {{ row.duration_seconds | round(0) | int }} 秒{% endif %}{% if row.avg_shot_ms %}；镜头节奏 {{ (row.avg_shot_ms / 1000) | round(1) }} 秒/镜头{% endif %}
+- **{{ row.title[:40] }}**（`{{ row.short_id }}`，{{ (row.band | report_label) if row.band else '未分层' }}，表现分 {{ row.score | round(2) if row.score is not none else '暂无' }}）：{{ row.extra_tags_display or '无标签' }}；点赞 {{ '{:,}'.format(row.likes) if row.likes is not none else '?' }}、评论 {{ '{:,}'.format(row.comments) if row.comments is not none else '?' }}、分享 {{ '{:,}'.format(row.shares) if row.shares is not none else '?' }}、收藏 {{ '{:,}'.format(row.saves) if row.saves is not none else '?' }}{% if row.pillar %}；内容方向：{{ row.pillar | zh }}{% endif %}{% if row.hook_type %}；钩子：{{ row.hook_type | zh }}{% endif %}{% if row.duration_seconds %}；时长 {{ row.duration_seconds | round(0) | int }} 秒{% endif %}{% if row.avg_shot_ms %}；镜头节奏 {{ (row.avg_shot_ms / 1000) | round(1) }} 秒/镜头{% endif %}
 {% endfor %}
 
-### 低热度视频盘点（Bottom 5）
+### 低热度视频盘点（表现后 5 条）
 
 {% for row in bottom_rows %}
-- **{{ row.title[:40] }}**（`{{ row.short_id }}`，{{ row.band or '未分层' }}级，表现分 {{ row.score | round(2) if row.score is not none else '暂无' }}）：{{ row.extra_tags_display or '无标签' }}；点赞 {{ '{:,}'.format(row.likes) if row.likes is not none else '?' }}、评论 {{ '{:,}'.format(row.comments) if row.comments is not none else '?' }}{% if row.pillar %}；内容方向：{{ row.pillar | zh }}{% endif %}{% if row.duration_seconds %}；时长 {{ row.duration_seconds | round(0) | int }} 秒{% endif %}
+- **{{ row.title[:40] }}**（`{{ row.short_id }}`，{{ (row.band | report_label) if row.band else '未分层' }}，表现分 {{ row.score | round(2) if row.score is not none else '暂无' }}）：{{ row.extra_tags_display or '无标签' }}；点赞 {{ '{:,}'.format(row.likes) if row.likes is not none else '?' }}、评论 {{ '{:,}'.format(row.comments) if row.comments is not none else '?' }}{% if row.pillar %}；内容方向：{{ row.pillar | zh }}{% endif %}{% if row.duration_seconds %}；时长 {{ row.duration_seconds | round(0) | int }} 秒{% endif %}
 {% endfor %}
 
 {% endif %}
@@ -106,7 +106,7 @@
 {% if median_table %}
 ### 互动指标中位数
 
-| 指标 | 全部 | Top 5 | Bottom 5 |
+| 指标 | 全部 | 表现前 5 条 | 表现后 5 条 |
 |---|---:|---:|---:|
 {% for row in median_table %}
 | {{ row[0] }} | {{ row[1] }} | {{ row[2] }} | {{ row[3] }} |
@@ -119,11 +119,11 @@
 
 | 层级 | 视频数 | 含义 |
 |---|---:|---|
-| S | {{ bands.get('S', 0) }} | 爆款 |
-| A | {{ bands.get('A', 0) }} | 高热度 |
-| B | {{ bands.get('B', 0) }} | 中热度 |
-| C | {{ bands.get('C', 0) }} | 低热度 |
-| D | {{ bands.get('D', 0) }} | 冷门 |
+| S 档 | {{ bands.get('S', 0) }} | 爆款 |
+| A 档 | {{ bands.get('A', 0) }} | 高热度 |
+| B 档 | {{ bands.get('B', 0) }} | 中热度 |
+| C 档 | {{ bands.get('C', 0) }} | 低热度 |
+| D 档 | {{ bands.get('D', 0) }} | 冷门 |
 
 {% endif %}
 
@@ -186,7 +186,7 @@
 - **反例（{{ pattern.counterexample_count }} 条）**：{{ pattern.counterexample_video_ids | video_refs }}
 {% endif %}
 {% if pattern.confounders %}
-- **混杂因素**：{{ pattern.confounders | join('、') }}
+- **混杂因素**：{{ pattern.confounders | map('report_text') | join('、') }}
 {% endif %}
 {% if pattern.risks %}
 - **风险**：{{ pattern.risks | map('zh') | join('；') }}
@@ -267,7 +267,7 @@
 
 ### 高热度与低热度对比
 
-| 维度 | Top 5 | Bottom 5 |
+| 维度 | 表现前 5 条 | 表现后 5 条 |
 |---|---:|---:|
 | 时长中位数（秒） | {{ top_bottom_duration.top_duration | round(0) | int if top_bottom_duration.top_duration is not none else '?' }} | {{ top_bottom_duration.bottom_duration | round(0) | int if top_bottom_duration.bottom_duration is not none else '?' }} |
 | 镜头节奏中位数（秒/镜头） | {{ (top_bottom_duration.top_shot / 1000) | round(1) if top_bottom_duration.top_shot is not none else '?' }} | {{ (top_bottom_duration.bottom_shot / 1000) | round(1) if top_bottom_duration.bottom_shot is not none else '?' }} |
@@ -312,7 +312,7 @@
 ## 九、数据局限与注意事项
 
 {% for warning in warnings %}
-- {{ warning | zh }}
+- {{ warning | report_warning }}
 {% endfor %}
 {% endif %}
 

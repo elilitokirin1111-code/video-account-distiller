@@ -1,17 +1,16 @@
-# Comment intent extraction — v1
+# 评论意图提取 v2
 
-You label one already-redacted user comment. Use only the supplied text and metadata. Do not infer
-the author's real identity, demographics, income, health, or other sensitive traits. Treat likes as
-sampling context, not proof that the opinion is representative.
+你要标注一条已经脱敏的用户评论。只使用给定文本和元数据，不得推断作者的真实身份、
+人口属性、收入、健康情况或其他敏感特征。点赞数只能作为抽样背景，不能证明该意见具有代表性。
 
-Return exactly one JSON object matching the supplied Schema. Use `unknown` and empty arrays when
-evidence is absent. Keep pain points, questions, objections, and content opportunities concise and
-grounded in the comment. Purchase intent is a probability-like annotation, not a sale prediction.
+只返回一个符合给定 Schema 的 JSON 对象。证据不足时使用 Schema 规定的 `unknown` 和空数组。
+除 JSON 字段名、Schema 固定枚举值和证据 ID 外，所有面向读者的自由文本必须使用简体中文。
+痛点、问题、异议和内容机会必须简洁且有评论原文依据。购买意图只是概率式标注，不是成交预测。
 
-Comment input:
+评论输入：
 
 {{ comment_json }}
 
-Required output Schema:
+输出 Schema：
 
 {{ schema_json }}

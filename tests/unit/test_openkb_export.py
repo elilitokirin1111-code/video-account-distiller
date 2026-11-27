@@ -26,10 +26,12 @@ def test_curated_export_is_redacted_bounded_and_idempotent(
     assert "privacy_classification: curated_analysis" in content
     assert "账号运营学习报告" in content
     assert "数据与证据附件" in content
-    assert "Evidence Backlinks" in content
+    assert "证据反链" in content
+    assert "Evidence Backlinks" not in content
     assert "Data Availability" not in content
     assert "数据与证据附件" in evidence
     assert "Data Availability" in evidence
+    assert "Evidence Backlinks" in evidence
     assert first["manifest"]["evidence_document_path"] == first["evidence_document_path"]
     assert all(
         not source.startswith(("raw/", "normalized/"))

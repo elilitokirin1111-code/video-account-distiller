@@ -151,4 +151,4 @@ def test_craft_distillation_report_and_knowledge_profile_include_craft(
     profile_md = (
         phase4_project.root / "knowledge-base" / "accounts" / f"{account_id}.md"
     ).read_text(encoding="utf-8")
-    assert "Craft signature:" in profile_md
+    assert "招牌拍摄与表达风格：" in profile_md

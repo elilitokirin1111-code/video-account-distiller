@@ -9,7 +9,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, TypeVar, cast
 
-from jinja2 import Environment, StrictUndefined
 from pydantic import BaseModel
 
 from video_account_distiller.config import load_config
@@ -53,12 +52,17 @@ from video_account_distiller.models import (
     VideoPerformanceContext,
     VideoSemanticAnnotation,
 )
+from video_account_distiller.report_presentation import render_report_template
 from video_account_distiller.storage.parquet import read_models
 from video_account_distiller.storage.project import ProjectLayout
 from video_account_distiller.utils.hashing import sha256_file, sha256_json
 from video_account_distiller.utils.ids import stable_id
 from video_account_distiller.utils.io import atomic_write_json, atomic_write_text, read_json
 from video_account_distiller.utils.lookup import resolve_video
+from video_account_distiller.utils.transcript_text import (
+    clean_transcript_text,
+    has_unreadable_transcript_text,
+)
 
 ANALYSIS_VERSION = "1.3.1"
 ResponseT = TypeVar("ResponseT", bound=BaseModel)
@@ -316,7 +320,7 @@ def _fallback_facts(bundle: BlindVideoBundle) -> VideoFactExtraction:
         character_count=sum(len(segment.text) for segment in segments),
         facts=facts[:20],
         explicit_cta_texts=cta_texts[:10],
-        unknowns=["named entities and implied claims were not inferred in fallback mode"],
+        unknowns=["回退模式未推断命名实体和隐含主张"],
     )
 
 
@@ -610,10 +614,10 @@ def _fallback_semantics(bundle: BlindVideoBundle) -> VideoSemanticAnnotation:
             ),
         ],
         unknowns=[
-            *([] if primary_pillar != "unknown" else ["content pillar"]),
-            *([] if audience_tasks else ["audience task"]),
-            *([] if narrative_type != "unknown" else ["narrative type"]),
-            "visual and audio features",
+            *([] if primary_pillar != "unknown" else ["内容方向"]),
+            *([] if audience_tasks else ["受众任务"]),
+            *([] if narrative_type != "unknown" else ["叙事类型"]),
+            "画面与声音特征",
         ],
         confidence=confidence,
     )
@@ -783,7 +787,7 @@ class VideoAnalysisService:
                     segment_id=item.segment_id,
                     start_ms=item.start_ms,
                     end_ms=item.end_ms,
-                    text=item.text,
+                    text=clean_transcript_text(item.text),
                     speaker=item.speaker,
                 )
                 for item in transcript_segments
@@ -793,6 +797,7 @@ class VideoAnalysisService:
         _assert_blind_payload(bundle_payload)
         blind_bundle_hash = sha256_json(bundle_payload)
         valid_segment_ids = {item.segment_id for item in transcript_segments}
+        fallback_facts = _fallback_facts(bundle)
 
         def validate_facts(value: VideoFactExtraction, valid_ids: set[str]) -> None:
             _validate_fact_evidence(value, valid_ids)
@@ -802,9 +807,9 @@ class VideoAnalysisService:
             value.character_count = sum(len(item.text) for item in bundle.transcript_segments)
             all_texts = [item.text for item in bundle.transcript_segments]
             if value.opening_text and not any(value.opening_text in text for text in all_texts):
-                raise ModelSchemaFailure("opening_text is not observable in the transcript")
+                value.opening_text = fallback_facts.opening_text
             if value.closing_text and not any(value.closing_text in text for text in all_texts):
-                raise ModelSchemaFailure("closing_text is not observable in the transcript")
+                value.closing_text = fallback_facts.closing_text
 
         fact_prompt = render_prompt(
             "video-fact-extraction.md",
@@ -820,7 +825,7 @@ class VideoAnalysisService:
             max_attempts=attempts,
             valid_segment_ids=valid_segment_ids,
             validator=validate_facts,
-            fallback=_fallback_facts(bundle),
+            fallback=fallback_facts,
             strict_model=effective_strict_model,
         )
         semantic_prompt = render_prompt(
@@ -1063,6 +1068,14 @@ class VideoAnalysisService:
                         )
                         else []
                     ),
+                    *(
+                        ["transcript_contains_unreadable_characters"]
+                        if any(
+                            has_unreadable_transcript_text(item.text)
+                            for item in transcript_segments
+                        )
+                        else []
+                    ),
                 ]
             )
         )
@@ -1118,12 +1131,10 @@ class VideoAnalysisService:
         template_path = (
             Path(__file__).resolve().parents[1] / "reports" / "templates" / "video-analysis.md.j2"
         )
-        template = Environment(undefined=StrictUndefined, autoescape=False).from_string(
-            template_path.read_text(encoding="utf-8")
-        )
         atomic_write_text(
             output_paths[1],
-            template.render(
+            render_report_template(
+                template_path,
                 analysis=analysis.model_dump(mode="python"),
                 segment_evidence=segment_to_evidence,
             ).strip()

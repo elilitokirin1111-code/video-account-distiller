@@ -13,6 +13,28 @@ import pytest
 from video_account_distiller.collection import _mediacrawler_bridge as bridge
 
 
+def test_short_video_url_uses_get_redirect_without_reading_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class RedirectResponse:
+        url = "https://www.douyin.com/video/7643604287247310666?previous_page=web_code_link"
+
+        def __enter__(self) -> RedirectResponse:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    def fake_urlopen(request: Any, *, timeout: int) -> RedirectResponse:
+        assert request.get_method() == "GET"
+        assert timeout == 15
+        return RedirectResponse()
+
+    monkeypatch.setattr(bridge, "urlopen", fake_urlopen)
+    resolved = bridge._resolve_douyin_short_url("https://v.douyin.com/dB4ewYqL1sw/")
+    assert bridge._video_id_from_url(resolved) == "7643604287247310666"
+
+
 def _run_immediate(coroutine: Any) -> Any:
     try:
         coroutine.send(None)

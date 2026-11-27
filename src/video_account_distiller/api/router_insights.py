@@ -103,6 +103,7 @@ async def account_gpt_analysis(
         analyze_and_refresh_knowledge,
         task_type="gpt_account_analysis",
         resource_class="model",
+        task_metadata={"project_path": str(layout.root)},
     )
 
 
@@ -172,4 +173,5 @@ async def run_gpt_evaluation(
         body,
         task_type="gpt_regression_evaluation",
         resource_class="model",
+        task_metadata={"project_path": str(layout.root)},
     )

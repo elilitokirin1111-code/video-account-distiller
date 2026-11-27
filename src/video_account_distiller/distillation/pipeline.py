@@ -10,8 +10,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from jinja2 import Environment, StrictUndefined
-
 from video_account_distiller.benchmarking import (
     AccountBenchmarkProfileService,
     rank_account_profiles,
@@ -43,6 +41,7 @@ from video_account_distiller.models import (
     SingleVideoDistillation,
     TransferMatrixItem,
 )
+from video_account_distiller.report_presentation import display_text, render_report_template
 from video_account_distiller.sampling.dataset import (
     AccountDataset,
     AccountVideoRecord,
@@ -794,10 +793,7 @@ def _build_patterns(
 
 def _render(template_name: str, **context: Any) -> str:
     path = Path(__file__).resolve().parents[1] / "reports" / "templates" / template_name
-    template = Environment(undefined=StrictUndefined, autoescape=False).from_string(
-        path.read_text(encoding="utf-8")
-    )
-    return template.render(**context).strip() + "\n"
+    return render_report_template(path, **context).strip() + "\n"
 
 
 class AccountDistillationService:
@@ -1226,20 +1222,20 @@ class AccountDistillationService:
             if not pattern_path.exists():
                 atomic_write_json(pattern_path, pattern.model_dump(mode="json"))
         profile_path = self.project.root / "knowledge-base" / "accounts" / f"{account_id}.md"
-        craft_lines = craft_profile.signature_style or ["unknown"]
+        craft_lines = craft_profile.signature_style or ["暂无可靠判断"]
         atomic_write_text(
             profile_path,
             "\n".join(
                 [
-                    f"# Account profile: {account_id}",
+                    f"# 账号知识档案：{account_id}",
                     "",
                     positioning.statement,
                     "",
-                    f"Latest distillation: `{relative[0]}`",
-                    f"Observed focus: {', '.join(focus) or 'unknown'}",
-                    f"Audience needs: {', '.join(need_names) or 'unknown'}",
-                    f"Public account stage: {public_account_stage}",
-                    f"Craft signature: {'；'.join(craft_lines)}",
+                    f"最新运营蒸馏：`{relative[0]}`",
+                    f"已观察内容方向：{'、'.join(map(display_text, focus)) or '暂无可靠判断'}",
+                    f"观众需求：{'、'.join(map(display_text, need_names)) or '暂无可靠判断'}",
+                    f"公开可见账号阶段：{display_text(public_account_stage)}",
+                    f"招牌拍摄与表达风格：{'；'.join(map(display_text, craft_lines))}",
                     "",
                 ]
             ),

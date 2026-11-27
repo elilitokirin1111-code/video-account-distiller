@@ -206,6 +206,15 @@ def test_evaluation_campaign_is_independent_retry_safe_and_audited(
     assert first["cost"]["total_estimated_usd"] == 0.002
     for relative in first["outputs"]:
         assert (normalized_project.root / relative).is_file()
+    report_path = normalized_project.root / next(
+        relative for relative in first["outputs"] if relative.endswith("report.md")
+    )
+    markdown = report_path.read_text(encoding="utf-8")
+    assert "# GPT 回归评测" in markdown
+    assert "验收状态：**通过**" in markdown
+    assert "稳定性：**通过**" in markdown
+    assert "Acceptance status" not in markdown
+    assert "## Interpretation" not in markdown
 
     audit_path = normalized_project.root / first["cases"][0]["runs"][0]["outputs"][1]
     audit: Any = read_json(audit_path)

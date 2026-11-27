@@ -8,8 +8,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from jinja2 import Environment, StrictUndefined
-
 from video_account_distiller.config import load_config
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.features.prompts import (
@@ -38,6 +36,7 @@ from video_account_distiller.models import (
     ModelTaskTrace,
     Video,
 )
+from video_account_distiller.report_presentation import render_report_template
 from video_account_distiller.storage.parquet import read_models
 from video_account_distiller.storage.project import ProjectLayout
 from video_account_distiller.utils.hashing import sha256_file, sha256_json
@@ -788,10 +787,10 @@ class CommentAnalysisService:
         template_path = (
             Path(__file__).resolve().parents[1] / "reports" / "templates" / "comment-analysis.md.j2"
         )
-        template = Environment(undefined=StrictUndefined, autoescape=False).from_string(
-            template_path.read_text(encoding="utf-8")
+        atomic_write_text(
+            paths[1],
+            render_report_template(template_path, analysis=analysis.model_dump(mode="python")),
         )
-        atomic_write_text(paths[1], template.render(analysis=analysis.model_dump(mode="python")))
         state = self.project.load_state()
         state.last_comment_analysis_at = datetime.now(UTC)
         self.project.save_state(state)

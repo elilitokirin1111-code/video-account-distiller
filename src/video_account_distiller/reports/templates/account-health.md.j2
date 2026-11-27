@@ -3,21 +3,21 @@
 > 报告 ID：`{{ report.report_id }}`<br>
 > 运行 ID：`{{ report.run_id }}`<br>
 > 账号 ID：`{{ report.account_id }}`<br>
-> 平台：`{{ report.data_scope.platform }}`<br>
-> Schema：`{{ report.schema_version }}`
+> 平台：`{{ report.data_scope.platform | report_label }}`<br>
+> 数据结构版本：`{{ report.schema_version }}`
 
 ## 执行摘要
 
 {% for finding in report.findings %}
-- **{{ finding.title }}**：{{ finding.statement }}<br>
-  分类：`{{ finding.classification }}`；置信度：`{{ finding.confidence }}`；证据：{% for evidence_id in finding.evidence_ids %}`{{ evidence_id }}`{% if not loop.last %}、{% endif %}{% endfor %}
+- **{{ finding.title | report_text }}**：{{ finding.statement | report_text }}<br>
+  分类：{{ finding.classification | report_label }}；置信度：{{ finding.confidence | report_label }}；证据：{% for evidence_id in finding.evidence_ids %}`{{ evidence_id }}`{% if not loop.last %}、{% endif %}{% endfor %}
 {% endfor %}
 
 ## 数据范围与质量
 
 - 视频总数：{{ report.data_scope.population_size }}
 - 有指标快照的视频：{{ report.data_scope.metric_video_count }}
-- 观察期：{{ report.data_scope.period_start or "未知" }} 至 {{ report.data_scope.period_end or "未知" }}
+- 观察期：{{ report.data_scope.period_start or "未提供" }} 至 {{ report.data_scope.period_end or "未提供" }}
 - 原始输入哈希数：{{ report.data_scope.input_hashes | length }}
 - 证据条目数：{{ evidence_count }}
 
@@ -25,7 +25,7 @@
 ### 警告
 
 {% for warning in report.warnings %}
-- {{ warning }}
+- {{ warning | report_warning }}
 {% endfor %}
 {% endif %}
 
@@ -34,23 +34,23 @@
 | 字段 | 来源层级 | 状态 | 可用记录 | 观测来源 | 证据反链 |
 |---|---|---|---:|---|---|
 {% for row in data_gaps.rows %}
-| {{ row.label }} (`{{ row.field }}`) | `{{ row.source_tier }}` | {{ "可用" if row.availability == "available" else "未知" }} | {{ row.available_records }}/{{ row.total_records }} | {% if row.observed_source_tiers %}{{ row.observed_source_tiers | join(", ") }}{% else %}未知{% endif %} | {% if row.evidence_refs %}{% for evidence in row.evidence_refs %}`{{ evidence.table }}:{{ evidence.record_id }}`{% if not loop.last %}、{% endif %}{% endfor %}{% else %}无{% endif %} |
+| {{ row.label }} | {{ row.source_tier | report_label }} | {% if row.available_records == 0 %}未采集{% else %}{{ row.availability | report_label }}{% endif %} | {{ row.available_records }}/{{ row.total_records }} | {% if row.observed_source_tiers %}{{ row.observed_source_tiers | map("report_label") | join("、") }}{% else %}未提供{% endif %} | {% if row.evidence_refs %}{% for evidence in row.evidence_refs %}`{{ evidence.table }}:{{ evidence.record_id }}`{% if not loop.last %}、{% endif %}{% endfor %}{% else %}无直接记录{% endif %} |
 {% endfor %}
 
-未导入或不可观测字段统一显示为“未知”，不会以 0 代替。完整机器表见 `data-gaps.json`。
+“未采集”表示当前导入源没有提供该字段，并非模型分析失败。播放、完播、转粉、点击、线索、订单和收入等数据需要从平台创作者后台或已授权的数据接口补充；系统不会把缺失值按 0 计算。完整机器表见 `data-gaps.json`。
 
 ## 账号基础统计
 
 | 指标 | 数值 | 证据 |
 |---|---:|---|
-| 当前粉丝数 | {{ report.statistics.follower_count_current.value if report.statistics.follower_count_current.value is not none else "未知" }} | `{{ report.statistics.follower_count_current.evidence_id }}` |
-| 周发布频率 | {{ report.statistics.publishing_frequency_weekly.value if report.statistics.publishing_frequency_weekly.value is not none else "未知" }} | `{{ report.statistics.publishing_frequency_weekly.evidence_id }}` |
-| 发布间隔中位数（天） | {{ report.statistics.publication_gap_days.median if report.statistics.publication_gap_days.median is not none else "未知" }} | `{{ report.statistics.publication_gap_days.evidence_id }}` |
-| 视频时长中位数（秒） | {{ report.statistics.duration_seconds.median if report.statistics.duration_seconds.median is not none else "未知" }} | `{{ report.statistics.duration_seconds.evidence_id }}` |
-| 播放中位数 | {{ report.statistics.views.median if report.statistics.views.median is not none else "未知" }} | `{{ report.statistics.views.evidence_id }}` |
-| 互动率中位数 | {{ report.statistics.engagement_rate_by_view.median if report.statistics.engagement_rate_by_view.median is not none else "未知" }} | `{{ report.statistics.engagement_rate_by_view.evidence_id }}` |
-| 完播效率中位数 | {{ report.statistics.completion_efficiency.median if report.statistics.completion_efficiency.median is not none else "未知" }} | `{{ report.statistics.completion_efficiency.evidence_id }}` |
-| 高表现命中率 | {{ report.statistics.high_performance_rate.value if report.statistics.high_performance_rate.value is not none else "未知" }} | `{{ report.statistics.high_performance_rate.evidence_id }}` |
+| 当前粉丝数 | {{ report.statistics.follower_count_current.value if report.statistics.follower_count_current.value is not none else "未采集" }} | `{{ report.statistics.follower_count_current.evidence_id }}` |
+| 周发布频率 | {{ report.statistics.publishing_frequency_weekly.value if report.statistics.publishing_frequency_weekly.value is not none else "未采集" }} | `{{ report.statistics.publishing_frequency_weekly.evidence_id }}` |
+| 发布间隔中位数（天） | {{ report.statistics.publication_gap_days.median if report.statistics.publication_gap_days.median is not none else "未采集" }} | `{{ report.statistics.publication_gap_days.evidence_id }}` |
+| 视频时长中位数（秒） | {{ report.statistics.duration_seconds.median if report.statistics.duration_seconds.median is not none else "未采集" }} | `{{ report.statistics.duration_seconds.evidence_id }}` |
+| 播放中位数 | {{ report.statistics.views.median if report.statistics.views.median is not none else "未采集" }} | `{{ report.statistics.views.evidence_id }}` |
+| 互动率中位数 | {{ report.statistics.engagement_rate_by_view.median if report.statistics.engagement_rate_by_view.median is not none else "未采集" }} | `{{ report.statistics.engagement_rate_by_view.evidence_id }}` |
+| 完播效率中位数 | {{ report.statistics.completion_efficiency.median if report.statistics.completion_efficiency.median is not none else "未采集" }} | `{{ report.statistics.completion_efficiency.evidence_id }}` |
+| 高表现命中率 | {{ report.statistics.high_performance_rate.value if report.statistics.high_performance_rate.value is not none else "未采集" }} | `{{ report.statistics.high_performance_rate.evidence_id }}` |
 | 最长连续低表现 | {{ report.statistics.longest_low_streak.value }} | `{{ report.statistics.longest_low_streak.evidence_id }}` |
 | 投流/广告视频 | {{ report.statistics.promoted_video_count.value }} | `{{ report.statistics.promoted_video_count.evidence_id }}` |
 | 异常视频 | {{ report.statistics.outlier_video_count.value }} | `{{ report.statistics.outlier_video_count.evidence_id }}` |
@@ -58,27 +58,27 @@
 ## 表现分层
 
 {% for band, count in report.statistics.performance_bands.counts.items() %}
-- {{ band }}：{{ count }}
+- {{ band | report_label }}：{{ count }}
 {% endfor %}
 
 证据：`{{ report.statistics.performance_bands.evidence_id }}`
 
 ## 内容支柱代理分布
 
-Phase 2 使用导入字段 `content_type` 作为内容支柱代理。
+当前版本使用导入的“内容类型”字段作为内容支柱代理。
 
 {% for pillar, count in report.statistics.content_pillars.counts.items() %}
-- {{ pillar }}：{{ count }}
+- {{ pillar | report_label }}：{{ count }}
 {% endfor %}
 
 证据：`{{ report.statistics.content_pillars.evidence_id }}`
 
 ## 高中低表现对照
 
-| 组别 | Bands | 视频数 | 播放中位数 | 互动率中位数 | 完播效率中位数 | 证据 |
+| 组别 | 表现等级 | 视频数 | 播放中位数 | 互动率中位数 | 完播效率中位数 | 证据 |
 |---|---|---:|---:|---:|---:|---|
 {% for cohort in [report.comparison.high, report.comparison.middle, report.comparison.low] %}
-| {{ cohort.cohort }} | {{ cohort.bands | join(", ") }} | {{ cohort.video_count }} | {{ cohort.metrics.views.median if cohort.metrics.views.median is not none else "未知" }} | {{ cohort.metrics.engagement_rate_by_view.median if cohort.metrics.engagement_rate_by_view.median is not none else "未知" }} | {{ cohort.metrics.completion_efficiency.median if cohort.metrics.completion_efficiency.median is not none else "未知" }} | `{{ cohort.evidence_id }}` |
+| {{ cohort.cohort | report_label }}表现组 | {{ cohort.bands | map("report_label") | join("、") }} | {{ cohort.video_count }} | {{ cohort.metrics.views.median if cohort.metrics.views.median is not none else "未采集" }} | {{ cohort.metrics.engagement_rate_by_view.median if cohort.metrics.engagement_rate_by_view.median is not none else "未采集" }} | {{ cohort.metrics.completion_efficiency.median if cohort.metrics.completion_efficiency.median is not none else "未采集" }} | `{{ cohort.evidence_id }}` |
 {% endfor %}
 
 ## 分层样本

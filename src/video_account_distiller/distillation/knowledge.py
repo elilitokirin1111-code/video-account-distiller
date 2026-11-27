@@ -8,7 +8,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from jinja2 import Environment, StrictUndefined
 from pydantic import BaseModel
 
 from video_account_distiller.config import load_config
@@ -45,14 +44,19 @@ from video_account_distiller.models import (
     VideoKnowledgeItem,
 )
 from video_account_distiller.models.video_distillation import KnowledgeItemType
+from video_account_distiller.report_presentation import render_report_template
 from video_account_distiller.storage.parquet import read_models
 from video_account_distiller.storage.project import ProjectLayout
 from video_account_distiller.utils.hashing import sha256_json
 from video_account_distiller.utils.ids import stable_id
 from video_account_distiller.utils.io import atomic_write_json, atomic_write_text, read_json
 from video_account_distiller.utils.lookup import resolve_video
+from video_account_distiller.utils.transcript_text import (
+    clean_transcript_text,
+    has_unreadable_transcript_text,
+)
 
-SINGLE_VIDEO_KNOWLEDGE_VERSION = "1.1.0"
+SINGLE_VIDEO_KNOWLEDGE_VERSION = "1.2.0"
 
 
 def _fact_type(category: str) -> KnowledgeItemType:
@@ -90,7 +94,7 @@ def _fallback_knowledge(
                     segment_id=segment.segment_id,
                     start_ms=segment.start_ms,
                     end_ms=segment.end_ms,
-                    excerpt=segment.text[:500],
+                    excerpt=clean_transcript_text(segment.text)[:500],
                 )
             )
         contextual_content = fact.text
@@ -113,7 +117,9 @@ def _fallback_knowledge(
         group_size = max(1, math.ceil(len(remaining) / available_slots))
         for offset in range(0, len(remaining), group_size):
             group = remaining[offset : offset + group_size]
-            content = "\n".join(item.text.strip() for item in group if item.text.strip()).strip()
+            content = "\n".join(
+                clean_transcript_text(item.text).strip() for item in group if item.text.strip()
+            ).strip()
             if not content:
                 continue
             first_sentence = re.split(r"[。！？!?；;\n]", content, maxsplit=1)[0].strip()
@@ -138,7 +144,7 @@ def _fallback_knowledge(
                             segment_id=item.segment_id,
                             start_ms=item.start_ms,
                             end_ms=item.end_ms,
-                            excerpt=item.text[:500],
+                            excerpt=clean_transcript_text(item.text)[:500],
                         )
                         for item in group[:8]
                     ],
@@ -155,14 +161,14 @@ def _fallback_knowledge(
                 knowledge_type="knowledge_point",
                 attribution="video_statement",
                 title="视频开场信息",
-                content=first.text,
+                content=clean_transcript_text(first.text),
                 source_refs=[
                     KnowledgeSourceRef(
                         source_type="transcript",
                         segment_id=first.segment_id,
                         start_ms=first.start_ms,
                         end_ms=first.end_ms,
-                        excerpt=first.text[:500],
+                        excerpt=clean_transcript_text(first.text)[:500],
                     )
                 ],
                 limitations=["确定性降级仅保留转写内容，未进行模型归纳"],
@@ -174,7 +180,14 @@ def _fallback_knowledge(
     return SingleVideoKnowledgeOutput(
         knowledge_title=(
             video_title
-            or next((item.text for item in segments if len(item.text.strip()) >= 12), None)
+            or next(
+                (
+                    clean_transcript_text(item.text)
+                    for item in segments
+                    if len(item.text.strip()) >= 12
+                ),
+                None,
+            )
             or analysis.blind_analysis.facts.opening_text
             or "单视频知识提取"
         )[:200],
@@ -422,15 +435,22 @@ class SingleVideoKnowledgeService:
         ]
         fallback = _fallback_knowledge(analysis, segments, video.title)
         craft = build_craft_summary(media)
+        provider_name = provider.provider_name if provider is not None else "none"
+        provider_model = provider.model_name if provider is not None else "none"
+        provider_base_url = str(getattr(provider, "base_url", "") or "") or None
         seed = {
             "video_id": video.video_id,
             "mode": "knowledge",
             "version": SINGLE_VIDEO_KNOWLEDGE_VERSION,
+            "prompt_version": KNOWLEDGE_EXTRACTION_PROMPT_VERSION,
             "text_analysis_id": analysis.analysis_id,
             "media_analysis_id": media.analysis_id if media else None,
             "fallback": fallback.model_dump(mode="json"),
-            "provider": deep_provider,
-            "model": deep_model,
+            "provider": provider_name,
+            "model": provider_model,
+            "base_url": provider_base_url,
+            "requested_provider": deep_provider,
+            "requested_model": deep_model,
             "provider_input_hash": (
                 provider.input_hash if isinstance(provider, StructuredFileProvider) else None
             ),
@@ -515,6 +535,11 @@ class SingleVideoKnowledgeService:
                         if media is None
                         else []
                     ),
+                    *(
+                        ["transcript_contains_unreadable_characters"]
+                        if any(has_unreadable_transcript_text(item.text) for item in segments)
+                        else []
+                    ),
                     *trace.errors,
                 ]
             )
@@ -587,12 +612,13 @@ class SingleVideoKnowledgeService:
             / "templates"
             / "single-video-knowledge.md.j2"
         )
-        template = Environment(undefined=StrictUndefined, autoescape=False).from_string(
-            template_path.read_text(encoding="utf-8")
-        )
         atomic_write_text(
             paths[1],
-            template.render(knowledge=artifact.model_dump(mode="python")).strip() + "\n",
+            render_report_template(
+                template_path,
+                knowledge=artifact.model_dump(mode="python"),
+            ).strip()
+            + "\n",
         )
         atomic_write_json(paths[2], evidence.model_dump(mode="json"))
         atomic_write_json(paths[3], warnings)

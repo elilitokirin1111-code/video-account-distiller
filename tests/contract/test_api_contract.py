@@ -48,7 +48,7 @@ def test_health_openapi_and_missing_task_contract(tmp_path: Path) -> None:
         assert health.status_code == 200
         assert _json(health) == {
             "status": "ok",
-            "version": "1.1.1",
+            "version": "1.1.2",
             "features": {"account_video_knowledge": "1"},
         }
 

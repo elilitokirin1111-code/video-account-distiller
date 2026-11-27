@@ -115,9 +115,9 @@ def _render_learning_document(
             f"- [查看数据与证据附件](./{evidence_document_name})",
             "- 主报告用于人查看和学习；统计明细、结构化知识卡、反证及证据路径保留在附件中。",
             "",
-            "## Evidence Backlinks",
+            "## 证据反链",
             "",
-            f"- [Evidence document](./{evidence_document_name})",
+            f"- [证据附件](./{evidence_document_name})",
             "",
         ]
     )

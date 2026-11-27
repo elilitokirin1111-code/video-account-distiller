@@ -22,7 +22,13 @@ from video_account_distiller.insights import (
     RemoteAccountAnalysisService,
     render_account_learning_report,
 )
-from video_account_distiller.insights.gpt_analysis import GPT_ANALYSIS_VERSION, ProviderAnalysis
+from video_account_distiller.insights.gpt_analysis import (
+    GPT_ANALYSIS_VERSION,
+    ProviderAnalysis,
+    _canonicalize_evidence_refs,
+    _numeric_claim_supported,
+    _numeric_tokens,
+)
 from video_account_distiller.storage.project import ProjectLayout
 from video_account_distiller.utils.ids import stable_id
 from video_account_distiller.utils.io import atomic_write_text, read_json
@@ -114,6 +120,39 @@ def _analysis(evidence_ref: str = "context://account") -> GptAccountAnalysis:
     )
 
 
+def test_numeric_claim_support_accepts_faithful_rounding_but_not_new_numbers() -> None:
+    context = _numeric_tokens('{"performance_score":1.4567910776129356,"ratio":0.8627244150168236}')
+
+    assert _numeric_claim_supported("1.46", context) is True
+    assert _numeric_claim_supported("0.86", context) is True
+    assert _numeric_claim_supported("1.45", context) is False
+    assert _numeric_claim_supported("86%", context) is False
+    assert _numeric_tokens("覆盖率 94%-100%，低值 -1.16") == {"94%", "100%", "-1.16"}
+
+
+def test_evidence_ref_canonicalization_repairs_only_unique_exact_artifact_ids() -> None:
+    canonical = "analyses/videos/vid_full/vta_829bb7f82985e9a0f626/analysis.json"
+    typo = "analyses/videos/vid_short/vta_829bb7f82985e9a0f626/analysis.json"
+    analysis = _analysis(typo)
+
+    repaired, repairs = _canonicalize_evidence_refs(
+        analysis,
+        {canonical, "context://growth", "context://data-availability"},
+    )
+
+    assert repaired.findings[0].evidence_refs == [canonical]
+    assert repaired.imitation_playbooks[0].evidence_refs == [canonical]
+    assert repaired.knowledge_cards[0].evidence_refs == [canonical]
+    assert repairs == [{"original": typo, "canonical": canonical}]
+
+    untouched, no_repairs = _canonicalize_evidence_refs(
+        _analysis("invented://evidence"),
+        {canonical, "context://growth", "context://data-availability"},
+    )
+    assert untouched.findings[0].evidence_refs == ["invented://evidence"]
+    assert no_repairs == []
+
+
 def test_learning_report_prioritizes_transferable_playbooks_and_creative_extensions() -> None:
     report = render_account_learning_report({"result": _analysis().model_dump(mode="json")})
 
@@ -151,7 +190,7 @@ def test_hospitality_focus_appends_independent_transfer_section() -> None:
     report = render_account_learning_report({"result": payload})
 
     assert "## 酒旅迁移分析" in report
-    assert "相关度：low" in report
+    assert "相关度：低" in report
     assert "未经证实的数据" in report
     assert report.index("## 酒旅迁移分析") > report.index("## 如何验证这些想法")
 

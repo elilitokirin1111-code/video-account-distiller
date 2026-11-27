@@ -17,5 +17,5 @@ def test_legacy_report_translation_preserves_markdown_structure() -> None:
     translated = _legacy_report_zh(source)
 
     assert "# 账号体检报告\n\n- 数据范围" in translated
-    assert "  分类：fact" in translated
+    assert "  分类：事实" in translated
     assert "| 字段 | 值 |\n| --- | --- |\n| 粉丝 | 100 |" in translated

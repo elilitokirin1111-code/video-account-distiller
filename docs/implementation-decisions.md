@@ -1031,6 +1031,21 @@ requirements from later phases.
   Whisper remains authoritative for audio because Qwen visual video input does not consume the
   audio track.
 
+## ID-104 — Report platform collection blocks at the correct pipeline stage
+
+- **Decision:** Map MediaCrawler's `account blocked`, ArgusSecurityPlugin, and missing signature
+  responses to a clear collection-stage error. Preserve the provider text in structured details
+  and direct the user to authorized exports or local video files.
+- **Reason:** These responses occur before the downloader receives a video URL. Retrying downloads
+  or asking for another login cannot resolve them, and the application must not generate substitute
+  platform security headers or signatures.
+
+## ID-105 — Resolve Douyin share links with a normal page request
+
+- **Decision:** Follow `v.douyin.com` redirects with GET and inspect only the final URL.
+- **Reason:** A valid share link can lead to a video page that returns 404 for HEAD but 200 for GET.
+  This fixes video ID resolution without changing the subsequent platform detail request.
+
 
 
 

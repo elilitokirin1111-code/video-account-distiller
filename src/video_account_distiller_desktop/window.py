@@ -1720,6 +1720,7 @@ class DistillerMainWindow(QMainWindow):
             self._clear_sync_accounts()
             self.refresh_bundles()
             self.refresh_sync_accounts()
+            self.refresh_services()
 
     def initialize_project(self) -> None:
         try:
@@ -1733,6 +1734,7 @@ class DistillerMainWindow(QMainWindow):
             self.settings.project_path = str(path)
             self.save_settings(silent=True)
             self.refresh_sync_accounts()
+            self.refresh_services()
             QMessageBox.information(
                 self,
                 "项目已就绪",
@@ -1786,6 +1788,12 @@ class DistillerMainWindow(QMainWindow):
             "whisper_model": self.whisper_model.text().strip() or "base",
             "vision_provider": None if vision == "none" else vision,
             "vision_model": self.vision_model.text().strip() or "qwen3-vl-8b",
+            # The semantic pass is what turns transcripts into topic, hook,
+            # structure, audience and CTA evidence. Reuse the selected cloud
+            # route instead of silently falling back to provider="none".
+            "text_provider": (
+                "cloud" if vision == "cloud" or knowledge_provider == "cloud" else None
+            ),
             "ollama_base_url": self.ollama_url.text().strip() or "http://127.0.0.1:11434",
             "cloud_credential_provider": str(self.cloud_provider.currentData()),
             "cloud_base_url": self.cloud_url.text().strip() or None,
@@ -1989,6 +1997,10 @@ class DistillerMainWindow(QMainWindow):
         if self._service_busy:
             return
         self._service_busy = True
+        try:
+            reconciliation_project: Path | None = self._project()
+        except Exception:  # The service page also works before a project is selected.
+            reconciliation_project = None
         ollama_url = (
             self.ollama_url.text().strip()
             if hasattr(self, "ollama_url")
@@ -2000,18 +2012,29 @@ class DistillerMainWindow(QMainWindow):
             else self.settings.weknora_base_url
         )
 
-        def check() -> tuple[list[Any], dict[str, Any]]:
+        def check() -> tuple[list[Any], dict[str, Any], dict[str, Any] | None]:
+            reconciliation: dict[str, Any] | None = None
+            if reconciliation_project is not None:
+                try:
+                    reconciliation = self.client.reconcile_project_runs(reconciliation_project)
+                except DesktopApiError:
+                    # Run maintenance must never hide otherwise healthy local
+                    # services (including during an in-place version handoff).
+                    reconciliation = None
             return (
                 self.supervisor.statuses(
                     ollama_base_url=ollama_url or "http://127.0.0.1:11434",
                     weknora_base_url=weknora_url or "http://127.0.0.1:8080",
                 ),
                 self.client.task_queue_status(),
+                reconciliation,
             )
 
         def done(value: object) -> None:
             self._service_busy = False
-            statuses, queue = value if isinstance(value, tuple) else ([], {})
+            statuses, queue, reconciliation = (
+                value if isinstance(value, tuple) and len(value) == 3 else ([], {}, None)
+            )
             for status in statuses:
                 labels = self.service_labels.get(status.name)
                 if labels:
@@ -2050,6 +2073,10 @@ class DistillerMainWindow(QMainWindow):
                 if isinstance(limits, dict)
                 else ""
             )
+            if isinstance(reconciliation, dict):
+                reconciled = reconciliation.get("reconciled_run_ids")
+                if isinstance(reconciled, list) and reconciled:
+                    self.footer.setText(f"已安全收口 {len(reconciled)} 条历史运行记录")
 
         def failed(exc: Exception) -> None:
             self._service_busy = False

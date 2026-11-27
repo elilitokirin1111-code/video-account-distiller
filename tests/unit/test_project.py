@@ -12,6 +12,9 @@ def test_project_init_is_idempotent_and_does_not_overwrite(tmp_path: Path) -> No
     root = tmp_path / "research"
     layout, existing = ProjectLayout.initialize(root, project_name="first")
     assert existing is False
+    status = layout.status_path.read_text(encoding="utf-8")
+    assert "# 蒸馏项目状态" in status
+    assert "Run `distiller status" not in status
     layout.config_path.write_text("project:\n  name: custom\n", encoding="utf-8")
     _, existing = ProjectLayout.initialize(root, project_name="second")
     assert existing is True

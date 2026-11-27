@@ -6,7 +6,51 @@ changes.
 
 ## Unreleased
 
-No changes are assigned after the staged `1.1.1` candidate yet.
+No changes are assigned after the staged `1.1.2` candidate yet.
+
+## 1.1.2 — 2026-09-03 (staged; not published)
+
+Package, Skill, desktop application, and Windows installer versions move together to `1.1.2`.
+Existing project data remains outside the installation directory, and the Windows installer keeps
+the stable AppId for an in-place upgrade.
+
+### Added
+
+- A centralized Chinese presentation layer for human-readable Markdown reports. JSON, YAML
+  frontmatter, evidence IDs, and machine enums remain stable for integrations.
+- Safe reconciliation for stale project run manifests, with active-task checks and conservative
+  age thresholds.
+- Title-first, collision-safe document naming for per-video WeKnora knowledge and creative reports.
+- Separate account-health, content-strategy, and growth-plan documents in Obsidian and WeKnora,
+  each selected independently from the newest valid cloud analysis for that template.
+
+### Changed
+
+- Desktop account workflows now pass the selected cloud text provider to video text analysis,
+  comment intent analysis, per-video knowledge extraction, and creative breakdown instead of
+  silently using deterministic fallbacks.
+- Content-pillar inference now ignores scores and status words, normalizes common English labels to
+  Chinese, and shares one rule set between sampling and reporting.
+- Successful native-video or keyframe annotations continue to contribute visual scores even when an
+  optional keyframe or audio step is incomplete.
+- Knowledge prompts give exact transcript, visual, and OCR reference shapes and handle unreadable or
+  extremely short transcripts without promoting unsupported text to facts.
+- Report wording distinguishes fields that were not supplied by the platform source from analysis
+  failures, and translates internal evidence paths such as media craft and transcript fields.
+
+### Fixed
+
+- Narrative report runs now finish as success or failure instead of remaining permanently `running`.
+- Account video-knowledge manifests invalidate when a child document is regenerated or changes
+  status, preventing an old degraded state from remaining visible.
+- WeKnora sync skips degraded artifacts, preserves older complete documents, scopes replacements to
+  the exact account/video/type, exports locally before remote deletion, and refuses to delete
+  unverified duplicate documents.
+- Cloud HTTP errors identify the cloud provider and retain only safe status/code/request metadata;
+  local llama.cpp wording no longer leaks into cloud failures.
+- User-facing quality, evaluation, media, account, narrative, Obsidian, and single-video reports no
+  longer expose raw `unknown`, `degraded`, provider names, severity codes, or other English status
+  tokens where a Chinese label is available.
 
 ## 1.1.1 — 2026-09-03 (staged; not published)
 

@@ -10,7 +10,6 @@ from pydantic import BaseModel
 import video_account_distiller.distillation.video as video_distillation_module
 from video_account_distiller.distillation.account_knowledge import (
     AccountVideoKnowledgeService,
-    _title_document_stem,
 )
 from video_account_distiller.distillation.knowledge import SingleVideoKnowledgeService
 from video_account_distiller.distillation.video import SingleVideoDistillationService
@@ -29,6 +28,7 @@ from video_account_distiller.models import (
 )
 from video_account_distiller.storage.parquet import read_models
 from video_account_distiller.storage.project import ProjectLayout
+from video_account_distiller.utils.filenames import readable_document_stem
 from video_account_distiller.utils.io import read_json
 from video_account_distiller.validation import validate_project
 
@@ -307,6 +307,9 @@ def test_single_video_deep_distillation_full_chain_with_model(
     report = (phase3_project.root / result["outputs"][1]).read_text(encoding="utf-8")
     assert "## 执行摘要" in report
     assert "## 综合评判" in report
+    assert "生成状态：**完整生成**" in report
+    assert "| 选题 |" in report
+    assert "评分置信度：高" in report
     assert "## 完整创作结构拆解" in report
     assert "## 优势、短板与优先改进" in report
     assert "## 选材（为什么值得做）" in report
@@ -314,6 +317,7 @@ def test_single_video_deep_distillation_full_chain_with_model(
     assert "## 拍摄手法（怎么拍）" in report
     assert "## 可复制清单" in report
     assert "镜头级画像" in report
+    assert "score_confidence" not in report
 
     repeated = SingleVideoDistillationService(phase3_project).distill(
         video_id="p2-01", model_output=deep_file
@@ -343,6 +347,10 @@ def test_single_video_deep_distillation_degrades_without_model(
     assert distillation.evaluation.score_basis == "provisional_rule_score"
     assert distillation.media_analysis_id is None
     assert any("缺少本地媒体分析" in item for item in distillation.unknowns)
+    report = (phase3_project.root / result["outputs"][1]).read_text(encoding="utf-8")
+    assert "生成状态：**部分环节未完成（已保留有效结果）**" in report
+    assert "deep_model_unavailable_deterministic_fallback" not in report
+    assert "深度模型未成功启用" in report
     assert validate_project(phase3_project, persist=False).error_count == 0
 
 
@@ -470,6 +478,15 @@ def test_single_video_knowledge_mode_uses_isolated_artifact_paths(
     assert all(f"knowledge/{artifact.knowledge_id}/" in path for path in result["outputs"])
     assert all((phase3_project.root / path).is_file() for path in result["outputs"])
     assert "external_fact_check_not_performed" in artifact.warnings
+    markdown = (phase3_project.root / result["outputs"][1]).read_text(encoding="utf-8")
+    assert "生成状态：**部分环节未完成（已保留有效结果）**" in markdown
+    assert any(
+        f"- 类型：{label}" in markdown
+        for label in ("事实", "知识点", "方法", "案例", "数据", "建议")
+    )
+    assert "- 归因：视频原文陈述" in markdown
+    assert "external_fact_check_not_performed" not in markdown
+    assert "尚未对其中的事实执行外部核验" in markdown
 
     repeated = SingleVideoKnowledgeService(phase3_project).distill(video_id="p2-01")
     assert repeated["already_generated"] is True
@@ -515,7 +532,10 @@ def test_account_video_knowledge_creates_one_import_document_per_eligible_video(
     assert "# " in document
     assert document_path.parent.name == "documents"
     assert document_path.stem != manifest.documents[0].video_id
-    assert document_path.stem == _title_document_stem(target.title, target.video_id)
+    assert document_path.stem == readable_document_stem(target.title, "未命名视频")
+    index_markdown = (document_path.parent.parent / "README.md").read_text(encoding="utf-8")
+    assert "部分环节未完成（已保留有效结果）" in index_markdown
+    assert "| degraded |" not in index_markdown
 
     repeated = service.distill(account_id=account_id, provider="none")
     assert repeated["already_generated"] is True

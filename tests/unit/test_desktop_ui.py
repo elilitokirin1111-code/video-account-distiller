@@ -77,6 +77,7 @@ def test_native_window_builds_secret_free_knowledge_workflow_payload(tmp_path: P
     assert payload["distill_video_knowledge"] is True
     assert payload["vision_provider"] == "cloud"
     assert payload["vision_model"] == "qwen3.7-plus"
+    assert payload["text_provider"] == "cloud"
     assert payload["video_knowledge_provider"] == "cloud"
     assert payload["video_knowledge_model"] == "deepseek-v4-flash"
     assert payload["cloud_credential_provider"] == "bailian"

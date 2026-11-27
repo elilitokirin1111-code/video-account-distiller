@@ -10,8 +10,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from jinja2 import Environment, StrictUndefined
-
 from video_account_distiller.config import load_config
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.metrics.calculations import robust_z_scores, safe_divide
@@ -42,6 +40,7 @@ from video_account_distiller.models import (
     Video,
 )
 from video_account_distiller.models.analysis import EvidenceClassification
+from video_account_distiller.report_presentation import render_report_template
 from video_account_distiller.sampling.dataset import (
     AccountVideoRecord,
     load_account_dataset,
@@ -143,10 +142,7 @@ _RISK_PATTERNS = {
 
 def _render(template_name: str, **context: Any) -> str:
     path = Path(__file__).resolve().parents[1] / "reports" / "templates" / template_name
-    template = Environment(undefined=StrictUndefined, autoescape=False).from_string(
-        path.read_text(encoding="utf-8")
-    )
-    return template.render(**context).strip() + "\n"
+    return render_report_template(path, **context).strip() + "\n"
 
 
 def _source(table: str, record: Any) -> EvidenceSource:
