@@ -2,81 +2,107 @@
 
 Use this workflow only for a user-approved public Douyin homepage.
 
-## Guardrails
+## Profiles and provider choice
 
-1. Accept only an HTTPS `douyin.com` URL.
-2. Use `distiller account analyze --dry-run --json` first.
-3. Show the maximum Provider calls and confirm that TikHub may charge for them.
-4. Keep `TIKHUB_API_KEY` in the local environment. Never print, persist, or request it in chat.
-5. Add `--confirm-provider-cost` only after approval.
-6. Never use browser state, Cookie, login automation, CAPTCHA handling, direct page scraping, or
-   risk-control evasion.
+`standard` is the default: TikHub, 20 homepage videos, latest order, no comments. TikHub is a paid
+API, so keep `TIKHUB_API_KEY` in the environment, preview first, and require
+`--confirm-provider-cost` for execution.
 
-The fixed allowed API bases are `https://api.tikhub.dev` for mainland China and
-`https://api.tikhub.io` elsewhere. Do not add an arbitrary base URL.
+`comprehensive` means all Provider-exposed homepage videos up to the 1,000-page/20,000-video
+emergency guards, plus at most 20 top-level comments from each of three sampled videos. It does not
+mean every comment, replies, deleted content, fan profiles, private creator metrics, or unlimited
+media download.
 
-## Run
+`owned` keeps public collection bounded while signaling that authorized platform exports or
+official table/API connectors will be imported separately. The public Provider cannot supply
+completion, watch time, conversion, revenue, traffic-source, or fan-demographic data.
+
+Use `mediacrawler` only for the declared personal, non-commercial research workflow. It uses the
+repository-pinned sidecar and a visible dedicated browser profile. The user performs login or
+platform verification manually. Never invoke proxy, stealth, automatic-login, slider/CAPTCHA, or
+risk-control-evasion features.
+
+## Preview and run
+
+Dry-run performs no network access, browser launch, or project writes:
 
 ```bash
 uv run distiller account analyze --project <dir> --url <url> \
-  --count 10 --sort latest --dry-run --json
+  --profile standard --max-provider-calls 10 --dry-run --json
+```
 
+Review these fields:
+
+- `collection_scope`: requested video/comment limits and emergency termination.
+- `provider_calls`: maximum endpoint calls before execution.
+- `budget`: whether the explicit hard ceiling is sufficient.
+- `billing`: maximum potentially chargeable calls.
+- `capabilities`: available evidence and fields that are not guaranteed.
+
+Execute TikHub only after approval:
+
+```bash
 uv run distiller account analyze --project <dir> --url <url> \
-  --count 10 --sort latest --confirm-provider-cost --json
-
+  --profile standard --max-provider-calls 10 \
+  --confirm-provider-cost --json
 uv run distiller validate --project <dir> --json
 ```
 
-Use `--sort popular` only when the user requests a popularity-oriented sample. Counts are 1–100;
-the default 10 matches a quick benchmark scan.
-
-Comment text is disabled by default. When the user needs pain-point, objection, or demand analysis,
-preview a bounded sample first:
+For comprehensive planning:
 
 ```bash
 uv run distiller account analyze --project <dir> --url <url> \
-  --count 20 --comments-per-video 20 --comment-video-limit 3 --dry-run --json
+  --profile comprehensive --dry-run --json
 ```
 
-This adds at most one comment call for each sampled video. The Provider selects already-collected
-videos by visible comment count and reads only the first top-level comment page. After cost and
-retention approval, replace `--dry-run` with `--confirm-provider-cost`.
+The potentially large plan must be narrowed with `--count`, `--comments-per-video`, and
+`--comment-video-limit`, or explicitly bounded with `--max-provider-calls`, before execution.
 
-## Interpret
+For the optional local research sidecar:
 
-The command returns:
+```bash
+uv run distiller account analyze --project <dir> --url <url> \
+  --provider mediacrawler --count 20 --dry-run --json
+```
 
-- public account profile and internal `acc_*` ID;
-- public videos and visible interaction snapshots;
-- optional public top-level comments from a bounded high-comment-video sample;
-- immutable Provider response and per-entity import quality;
-- normalized Parquet and account-local robust metrics;
-- account-health and distillation artifacts.
+The first run may prepare the sidecar and open Chrome. Keep it visible and let the user complete
+login. `MEDIACRAWLER_BROWSER_CHANNEL=msedge` selects a dedicated Edge profile.
+`MEDIACRAWLER_LOGIN_TIMEOUT_SECONDS` may be 30–900 and
+`MEDIACRAWLER_PROCESS_TIMEOUT_SECONDS` may be 60–3,600; never use timeout changes to evade controls.
 
-Public homepage data usually lacks completion rate, average watch time, follower count at
-publication, full comment coverage/reply trees, traffic source, audience composition, and
-promotion truth. Preserve these as unknown. Do not substitute current followers for
-publication-time followers.
+## Interpret coverage
 
-Expect `comment_analysis_missing` when comment sampling is disabled or yields no usable rows, and
-expect low semantic-coverage warnings until the user adds subtitles or local video analysis.
-Describe the initial output as quantitative homepage distillation, not full creative-semantic
-learning. Raw comment pages may contain public identifiers; canonical rows retain only author
-hashes and analysis uses the existing direct-identifier redaction pipeline.
+The execution result includes `coverage`:
+
+- Video status states whether the requested limit was reached, the Provider was exhausted, or an
+  emergency guard stopped collection.
+- Comment status always says `bounded_top_level_sample_not_full_comment_universe`.
+- Account snapshot flags show whether follower, following, total-like, and video-count values were
+  observed.
+- Warnings expose degraded comment/detail calls and missing public fields.
+
+Repeated collection preserves earlier raw batches and normalized account snapshots. Use
+`distiller account growth` only after at least two time-separated snapshots. Missing metrics remain
+unknown; never substitute zero.
+
+Homepage collection is metadata-only by default. Actual media processing requires separate
+approval and a bounded `--media-limit <1-10>` with MediaCrawler retained detail evidence, or a later
+`distiller account enrich-media` run. Keep signed URLs inside raw evidence and all media/transcript
+processing local unless the user separately approves remote processing.
 
 ## Failure handling
 
-- `E_PROFILE_URL_INVALID`: request a valid public Douyin homepage URL.
-- `E_PROVIDER_COST_CONFIRMATION_REQUIRED`: return to dry-run and obtain approval.
-- `E_ADAPTER_AUTH`: inspect only the presence of `TIKHUB_API_KEY`; never expose its value.
-- `E_RATE_LIMIT`: preserve bounded retry behavior and retry later.
-- `E_ADAPTER_RESPONSE`: retain no invented data; update only the Provider mapping when a documented
-  payload changes.
+- `E_PROFILE_URL_INVALID`: request a valid public HTTPS Douyin homepage.
+- `E_COLLECTION_BUDGET_EXCEEDED`: reduce scope or approve a higher call ceiling.
+- `E_PROVIDER_COST_CONFIRMATION_REQUIRED`: review dry-run billing and obtain approval.
+- `E_MEDIACRAWLER_UNAVAILABLE`: initialize the sidecar and inspect `distiller doctor --json`.
+- `E_BROWSER_LOGIN_REQUIRED`: rerun and let the user complete visible login.
+- `E_COLLECTION_TIMEOUT`: reduce scope or inspect the visible browser; do not evade controls.
+- `E_ADAPTER_AUTH`: inspect token presence without printing its value.
+- `E_RATE_LIMIT`: stop and retry later; never bypass a limit.
+- `E_ADAPTER_RESPONSE`: preserve no invented data; repair only the Provider mapping.
 
-If only the optional comment endpoint fails, expect
-`comment_collection_degraded:<E_* code>` in collection warnings. Stop further comment calls, keep
-the valid account/video/metric batch, and describe the result as quantitative-only rather than
-discarding the successful core collection.
-
-For first live acceptance, use 10 videos, validate the project, manually compare three public posts,
-and verify that outputs and Git contain no credential or authorization header.
+If optional comments fail, keep the valid account/video/metric batch and report the
+`comment_collection_degraded:<E_* code>` warning. For live acceptance, validate the project,
+manually compare at least three public posts, and confirm Git/logs contain no credentials or
+browser-session material.

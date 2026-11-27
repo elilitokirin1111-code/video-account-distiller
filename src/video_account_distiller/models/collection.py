@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, overload
+from typing import Any, Literal, overload
 from urllib.parse import urlparse
 
 from pydantic import Field, field_validator, model_validator
@@ -12,10 +12,14 @@ from pydantic import Field, field_validator, model_validator
 from video_account_distiller.models.core import StrictModel
 from video_account_distiller.version import COLLECTION_SCHEMA_VERSION
 
+HOMEPAGE_PAGE_SAFETY_LIMIT = 1000
+HOMEPAGE_VIDEO_SAFETY_LIMIT = 20_000
+
 
 class CollectionProviderKind(StrEnum):
     """Supported authorized account collection providers."""
 
+    MEDIACRAWLER = "mediacrawler"
     TIKHUB = "tikhub"
 
 
@@ -45,11 +49,18 @@ class AccountCollectionRequest(StrictModel):
 
     schema_version: str = COLLECTION_SCHEMA_VERSION
     profile_url: str = Field(min_length=1, max_length=2048)
-    count: int = Field(default=10, ge=1, le=100)
+    count: int | None = Field(
+        default=None,
+        ge=1,
+        le=HOMEPAGE_VIDEO_SAFETY_LIMIT,
+        description=(
+            "Optional video limit. None collects every homepage video exposed by the provider."
+        ),
+    )
     sort: CollectionSort = CollectionSort.LATEST
-    provider: CollectionProviderKind = CollectionProviderKind.TIKHUB
-    comments_per_video: int = Field(default=0, ge=0, le=20)
-    comment_video_limit: int = Field(default=3, ge=1, le=10)
+    provider: CollectionProviderKind = CollectionProviderKind.MEDIACRAWLER
+    comments_per_video: int = Field(default=10, ge=0, le=20)
+    comment_video_limit: int = Field(default=3, ge=1, le=20_000)
 
     @field_validator("profile_url")
     @classmethod
@@ -169,6 +180,41 @@ class ProviderRawPage(StrictModel):
     payload: dict[str, Any]
 
     @field_validator("fetched_at")
+    @classmethod
+    def require_timezone(cls, value: datetime) -> datetime:
+        return _timezone_aware(value)
+
+
+class ProviderDriftSeverity(StrEnum):
+    """Severity assigned to one provider response contract observation."""
+
+    WARNING = "warning"
+    ERROR = "error"
+
+
+class ProviderDriftIssue(StrictModel):
+    """One stable, secret-free provider response contract observation."""
+
+    endpoint: str = Field(min_length=1)
+    severity: ProviderDriftSeverity
+    code: str = Field(min_length=1)
+    message: str = Field(min_length=1)
+
+
+class ProviderDriftReport(StrictModel):
+    """Versioned response-shape report retained beside an immutable provider batch."""
+
+    schema_version: str = "1.0"
+    provider: CollectionProviderKind
+    contract_version: str = Field(min_length=1)
+    checked_at: datetime
+    status: Literal["pass", "warn", "fail"]
+    ok: bool
+    schema_fingerprint: str = Field(min_length=64, max_length=64)
+    endpoints: dict[str, int]
+    issues: list[ProviderDriftIssue] = Field(default_factory=list)
+
+    @field_validator("checked_at")
     @classmethod
     def require_timezone(cls, value: datetime) -> datetime:
         return _timezone_aware(value)

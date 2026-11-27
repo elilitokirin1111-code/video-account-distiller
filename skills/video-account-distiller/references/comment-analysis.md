@@ -12,6 +12,12 @@ Group comments by a stable primary-intent priority, not by opaque cluster number
 cluster return frequency, intensity, covered videos, representative comment IDs, opportunities,
 and an `evi_*` item resolving to normalized comments and raw hashes.
 
+The reusable account benchmark profile aggregates sentiment and intent counts, question/pain/
+objection/spam rates, purchase-intent mean, comment-like count coverage/total/median, need
+clusters, top redacted questions, pain points, objections, and content opportunities. Keep the
+source `cma_*` artifact hash in profile provenance so a later labeling version creates a new
+profile instead of silently replacing history.
+
 Always warn that visible/exported commenters are not all viewers. Pinning, platform ranking,
 deletions, export limits, and controversy can bias the sample. A frequent comment is an opportunity
 signal, not proof of market size or purchase conversion.

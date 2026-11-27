@@ -31,6 +31,7 @@ class EvidenceSource(StrictModel):
         "derived_metrics",
         "transcripts",
         "comments",
+        "media_features",
     ]
     record_id: str
     source_record_id: str

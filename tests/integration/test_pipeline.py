@@ -70,6 +70,7 @@ def test_complete_offline_pipeline_is_idempotent(tmp_path: Path, fixtures_dir: P
         "metrics": 6,
         "comments": 3,
         "transcripts": 0,
+        "audience_profiles": 0,
     }
 
     account_id = stable_id("acc_", "douyin", "hotel-demo")

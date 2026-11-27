@@ -30,6 +30,8 @@ class CommentIntent(StrEnum):
     REQUEST_LINK = "request_link"
     PURCHASE_INTENT = "purchase_intent"
     SHARE_EXPERIENCE = "share_experience"
+    SUGGESTION = "suggestion"
+    KNOWLEDGE_CONTRIBUTION = "knowledge_contribution"
     QUESTION_EVIDENCE = "question_evidence"
     PRICE_OBJECTION = "price_objection"
     FEATURE_OBJECTION = "feature_objection"
@@ -163,6 +165,7 @@ class Pattern(StrictModel):
         "posting_time",
         "comment_trigger",
         "conversion",
+        "craft",
         "failure",
     ]
     name: str
@@ -204,8 +207,55 @@ class AccountPositioning(StrictModel):
     observed_content_focus: list[str]
     audience_need_clusters: list[str]
     persona_signals: list[str]
+    visual_and_audio_identity: list[str] = Field(default_factory=list)
     confidence: Literal["low", "medium", "high"]
     evidence_ids: list[str]
+    unknowns: list[str] = Field(default_factory=list)
+
+
+class CraftTagSummary(StrictModel):
+    """One shooting-technique or expression-form tag with its video coverage."""
+
+    schema_version: str = DISTILLATION_SCHEMA_VERSION
+    tag: str
+    video_count: int = Field(ge=1)
+    video_ids: list[str] = Field(min_length=1)
+    coverage: float = Field(ge=0, le=1)
+
+    @model_validator(mode="after")
+    def validate_count(self) -> CraftTagSummary:
+        if self.video_count != len(set(self.video_ids)):
+            raise ValueError("video_count must equal unique video_ids")
+        return self
+
+
+class CraftEditingRhythm(StrictModel):
+    """Deterministic editing-rhythm summary over analyzed media."""
+
+    schema_version: str = DISTILLATION_SCHEMA_VERSION
+    analyzed_with_shots: int = Field(ge=0)
+    median_shot_duration_ms: float | None = Field(default=None, ge=0)
+    pace_label: str | None = None
+    shot_count_median: float | None = Field(default=None, ge=0)
+
+
+class CraftProfile(StrictModel):
+    """Account-level distillation of visible shooting techniques and expression forms.
+
+    Categories aggregate per-video craft tags deterministically. Each summary's
+    coverage is relative to the category denominator stored in
+    `category_denominators` (vision-annotated media for visual categories, all
+    shot-bearing media for pacing). Tags come from the local vision model and
+    remain observations, not causal rules.
+    """
+
+    schema_version: str = DISTILLATION_SCHEMA_VERSION
+    analyzed_media_count: int = Field(ge=0)
+    annotated_media_count: int = Field(ge=0)
+    categories: dict[str, list[CraftTagSummary]] = Field(default_factory=dict)
+    category_denominators: dict[str, int] = Field(default_factory=dict)
+    editing_rhythm: CraftEditingRhythm | None = None
+    signature_style: list[str] = Field(default_factory=list)
     unknowns: list[str] = Field(default_factory=list)
 
 
@@ -215,7 +265,7 @@ class AccountDistillation(StrictModel):
     account_id: str
     generated_at: datetime
     run_id: str
-    data_scope: dict[str, int | str | None]
+    data_scope: dict[str, int | float | str | None]
     positioning: AccountPositioning
     content_clusters: list[ContentCluster]
     comment_need_clusters: list[CommentNeedCluster]
@@ -226,6 +276,7 @@ class AccountDistillation(StrictModel):
     noncopyable_factors: list[str]
     action_recommendations: list[str]
     experiment_plan: list[str]
+    craft_profile: CraftProfile | None = None
     evidence_index_path: str
     warnings_path: str
     warnings: list[str] = Field(default_factory=list)
@@ -251,6 +302,79 @@ class TransferMatrixItem(StrictModel):
     evidence_ids: list[str] = Field(min_length=1)
 
 
+class InteractionBenchmarkSummary(StrictModel):
+    metric_video_count: int = Field(ge=0)
+    totals: dict[str, int]
+    medians_per_video: dict[str, float | None]
+    interaction_mix: dict[str, float | None]
+    median_interactions_per_video: float | None = Field(default=None, ge=0)
+    interactions_per_1000_followers: float | None = Field(default=None, ge=0)
+    unavailable_fields: list[str] = Field(default_factory=list)
+
+
+class CommentContentBenchmarkSummary(StrictModel):
+    comment_count: int = Field(ge=0)
+    video_count: int = Field(ge=0)
+    sentiment_counts: dict[str, int]
+    intent_counts: dict[str, int]
+    comment_like_count_coverage: float | None = Field(default=None, ge=0, le=1)
+    comment_like_total: int | None = Field(default=None, ge=0)
+    comment_like_median: float | None = Field(default=None, ge=0)
+    question_rate: float | None = Field(default=None, ge=0, le=1)
+    pain_point_rate: float | None = Field(default=None, ge=0, le=1)
+    objection_rate: float | None = Field(default=None, ge=0, le=1)
+    purchase_intent_mean: float | None = Field(default=None, ge=0, le=1)
+    spam_rate: float | None = Field(default=None, ge=0, le=1)
+    need_clusters: list[str] = Field(default_factory=list)
+    top_questions: list[str] = Field(default_factory=list)
+    top_pain_points: list[str] = Field(default_factory=list)
+    top_objections: list[str] = Field(default_factory=list)
+    top_content_opportunities: list[str] = Field(default_factory=list)
+
+
+class ContentInteractionSummary(StrictModel):
+    feature_name: str
+    feature_value: str
+    video_count: int = Field(ge=1)
+    source_video_ids: list[str] = Field(min_length=1)
+    medians_per_video: dict[str, float | None]
+    limitations: list[str] = Field(default_factory=lambda: ["descriptive_association_only"])
+
+
+class AccountBenchmarkProfile(StrictModel):
+    schema_version: str = DISTILLATION_SCHEMA_VERSION
+    profile_id: str
+    account_id: str
+    platform: str
+    generated_at: datetime
+    run_id: str
+    source_distillation_id: str
+    account_snapshot_at: datetime
+    latest_metric_snapshot_at: datetime | None = None
+    follower_count: int | None = Field(default=None, ge=0)
+    sampled_video_count: int = Field(ge=1)
+    analyzed_video_count: int = Field(ge=0)
+    analyzed_media_count: int = Field(ge=0)
+    interactions: InteractionBenchmarkSummary
+    comment_content: CommentContentBenchmarkSummary
+    content_interactions: list[ContentInteractionSummary] = Field(default_factory=list)
+    content_pillars: list[str] = Field(default_factory=list)
+    visual_and_audio_identity: list[str] = Field(default_factory=list)
+    craft_identity: CraftProfile | None = None
+    input_hashes: list[str]
+    warnings: list[str] = Field(default_factory=list)
+
+
+class AccountRankingEntry(StrictModel):
+    account_id: str
+    rank: int = Field(ge=1)
+    composite_score: float = Field(ge=0, le=100)
+    dimension_scores: dict[str, float | None]
+    raw_indicators: dict[str, float | None]
+    data_coverage: float = Field(ge=0, le=1)
+    limitations: list[str] = Field(default_factory=list)
+
+
 class BenchmarkComparison(StrictModel):
     schema_version: str = DISTILLATION_SCHEMA_VERSION
     comparison_id: str
@@ -258,6 +382,9 @@ class BenchmarkComparison(StrictModel):
     benchmark_account_ids: list[str] = Field(min_length=1)
     generated_at: datetime
     run_id: str
+    profiles: list[AccountBenchmarkProfile] = Field(default_factory=list)
+    rankings: list[AccountRankingEntry] = Field(default_factory=list)
+    ranking_basis: list[str] = Field(default_factory=list)
     transfer_matrix: list[TransferMatrixItem]
     recommended_experiments: list[str]
     evidence_index_path: str

@@ -15,6 +15,7 @@ runner = CliRunner()
 def test_phase4_commands_expose_help() -> None:
     for command in (
         ["analyze", "comments", "--help"],
+        ["account", "benchmark-profile", "--help"],
         ["distill", "--help"],
         ["compare", "--help"],
     ):
@@ -79,6 +80,26 @@ def test_comparison_dry_run_emits_transfer_matrix(
     assert compared.exit_code == 0
     payload = json.loads(compared.stdout)
     assert payload["comparison"]["transfer_matrix"]
+    assert len(payload["comparison"]["profiles"]) == 2
+    assert len(payload["comparison"]["rankings"]) == 2
+
+    profiled = runner.invoke(
+        app,
+        [
+            "account",
+            "benchmark-profile",
+            "--project",
+            str(phase4_benchmark_project.root),
+            "--account",
+            benchmark_id,
+            "--dry-run",
+            "--json",
+        ],
+    )
+    assert profiled.exit_code == 0
+    profile_payload = json.loads(profiled.stdout)
+    assert profile_payload["profile"]["interactions"]["totals"]["likes"] > 0
+    assert profile_payload["profile"]["comment_content"]["comment_count"] == 3
 
 
 def test_comment_strict_mode_uses_stable_model_errors(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import time
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
@@ -23,6 +24,8 @@ from video_account_distiller.common.http_utils import (
 )
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.models import (
+    HOMEPAGE_PAGE_SAFETY_LIMIT,
+    HOMEPAGE_VIDEO_SAFETY_LIMIT,
     AccountCollectionBatch,
     AccountCollectionRequest,
     CollectedAccount,
@@ -39,8 +42,39 @@ from video_account_distiller.utils.hashing import hash_text
 TIKHUB_BASE_URLS = {"https://api.tikhub.dev", "https://api.tikhub.io"}
 RESOLVE_PATH = "/api/v1/douyin/web/get_sec_user_id"
 PROFILE_PATH = "/api/v1/douyin/app/v3/handler_user_profile"
-POSTS_PATH = "/api/v1/douyin/app/v3/fetch_user_post_videos"
+VIDEO_DETAIL_PATH = "/api/v1/douyin/web/fetch_one_video"
 COMMENTS_PATH = "/api/v1/douyin/web/fetch_video_comments"
+POSTS_PATHS = {
+    "web": "/api/v1/douyin/web/fetch_user_post_videos",
+    "app-v3": "/api/v1/douyin/app/v3/fetch_user_post_videos",
+}
+
+_VIDEO_URL_ID_PATTERNS = (
+    re.compile(r"(?:video|note)/(\d{5,})"),
+    re.compile(r"[?&]modal_id=(\d{5,})"),
+    re.compile(r"[?&]aweme_id=(\d{5,})"),
+)
+
+
+def resolve_video_id_from_url(url: str) -> str:
+    """Extract a Douyin aweme id from a standard single-video URL.
+
+    Short share links (v.douyin.com) cannot be resolved without a network
+    request; the caller is asked to open the link and paste the full address.
+    """
+    cleaned = url.strip()
+    for pattern in _VIDEO_URL_ID_PATTERNS:
+        match = pattern.search(cleaned)
+        if match is not None:
+            return match.group(1)
+    raise DistillerError(
+        ErrorCode.PROFILE_URL_INVALID,
+        "Could not resolve a Douyin video id from the URL",
+        details={
+            "url": cleaned,
+            "next": "打开短链后复制完整视频地址（https://www.douyin.com/video/<id>）再重试",
+        },
+    )
 
 
 class AccountCollectionProvider(Protocol):
@@ -278,6 +312,7 @@ def _map_post(
     *,
     platform_account_id: str,
     fetched_at: datetime,
+    metric_source: str,
 ) -> tuple[CollectedVideo, CollectedMetricSnapshot] | None:
     video_id = _text(post.get("aweme_id") or post.get("item_id") or post.get("id"))
     if video_id is None:
@@ -290,6 +325,19 @@ def _map_post(
         duration_ms = _nonnegative_int(video_object.get("duration"))
     statistics = _nested(post, "statistics")
     music = _nested(post, "music")
+    views = _nonnegative_int(statistics.get("play_count"))
+    likes = _nonnegative_int(statistics.get("digg_count"))
+    comments = _nonnegative_int(statistics.get("comment_count"))
+    shares = _nonnegative_int(statistics.get("share_count"))
+    saves = _nonnegative_int(_first_present(statistics, ("collect_count", "favorite_count")))
+    favorites = _nonnegative_int(statistics.get("collect_count"))
+    if views == 0 and any(
+        value is not None and value > 0 for value in (likes, comments, shares, saves, favorites)
+    ):
+        # Douyin's public Web payload can expose a zero play_count while
+        # simultaneously exposing substantial interactions. That combination
+        # means the view count is unavailable, not that the video had no views.
+        views = None
     share_url = _text(post.get("share_url"))
     if share_url is None:
         share_url = f"https://www.douyin.com/video/{video_id}"
@@ -315,13 +363,13 @@ def _map_post(
     metric = CollectedMetricSnapshot(
         video_id=video_id,
         snapshot_at=fetched_at,
-        views=_nonnegative_int(statistics.get("play_count")),
-        likes=_nonnegative_int(statistics.get("digg_count")),
-        comments=_nonnegative_int(statistics.get("comment_count")),
-        shares=_nonnegative_int(statistics.get("share_count")),
-        saves=_nonnegative_int(_first_present(statistics, ("collect_count", "favorite_count"))),
-        favorites=_nonnegative_int(statistics.get("collect_count")),
-        metric_source="tikhub:douyin-app-v3",
+        views=views,
+        likes=likes,
+        comments=comments,
+        shares=shares,
+        saves=saves,
+        favorites=favorites,
+        metric_source=metric_source,
     )
     return video, metric
 
@@ -369,6 +417,7 @@ class TikHubAccountProvider:
         *,
         executor: HttpExecutor | None = None,
         base_url: str | None = None,
+        posts_api_mode: str | None = None,
         retry: RetryPolicy | None = None,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
@@ -380,8 +429,19 @@ class TikHubAccountProvider:
                 "TikHub base URL must use an approved API host",
                 details={"allowed": sorted(TIKHUB_BASE_URLS)},
             )
+        selected_posts_api_mode = (
+            posts_api_mode or os.environ.get("TIKHUB_DOUYIN_POSTS_MODE") or "web"
+        )
+        if selected_posts_api_mode not in POSTS_PATHS:
+            raise DistillerError(
+                ErrorCode.SCHEMA_INVALID,
+                "TikHub Douyin posts API mode must be web or app-v3",
+                details={"allowed": sorted(POSTS_PATHS)},
+            )
         self.executor = executor or UrllibHttpExecutor()
         self.base_url = selected
+        self.posts_api_mode = selected_posts_api_mode
+        self.posts_path = POSTS_PATHS[selected_posts_api_mode]
         self.retry = retry or RetryPolicy()
         self.sleep = sleep
 
@@ -437,19 +497,32 @@ class TikHubAccountProvider:
         metrics: list[CollectedMetricSnapshot] = []
         seen: set[str] = set()
         cursor = 0
-        sort_type = 0 if request.sort == CollectionSort.LATEST else 1
-        while len(videos) < request.count:
-            page_size = min(20, request.count - len(videos))
+        sort_parameter = "filter_type" if self.posts_api_mode == "web" else "sort_type"
+        if request.sort == CollectionSort.LATEST:
+            sort_value = 0
+        elif self.posts_api_mode == "web":
+            sort_value = 3
+        else:
+            sort_value = 1
+        collection_warnings: list[str] = []
+        page_count = 0
+        seen_cursors = {cursor}
+        while request.count is None or len(videos) < request.count:
+            if page_count >= HOMEPAGE_PAGE_SAFETY_LIMIT:
+                collection_warnings.append("homepage_page_safety_limit_reached")
+                break
+            page_size = 20 if request.count is None else min(20, request.count - len(videos))
             post_page = self._get(
-                POSTS_PATH,
+                self.posts_path,
                 {
                     "sec_user_id": platform_account_id,
                     "max_cursor": cursor,
                     "count": page_size,
-                    "sort_type": sort_type,
+                    sort_parameter: sort_value,
                 },
                 fetched_at=fetched_at,
             )
+            page_count += 1
             pages.append(post_page)
             data = _provider_data(post_page.payload)
             items = _first_list(data, ("aweme_list", "items", "videos"))
@@ -458,14 +531,20 @@ class TikHubAccountProvider:
                     item,
                     platform_account_id=platform_account_id,
                     fetched_at=fetched_at,
+                    metric_source=f"tikhub:douyin-{self.posts_api_mode}",
                 )
                 if mapped is None or mapped[0].platform_video_id in seen:
                     continue
                 seen.add(mapped[0].platform_video_id)
                 videos.append(mapped[0])
                 metrics.append(mapped[1])
-                if len(videos) >= request.count:
+                if (request.count is not None and len(videos) >= request.count) or len(
+                    videos
+                ) >= HOMEPAGE_VIDEO_SAFETY_LIMIT:
                     break
+            if request.count is None and len(videos) >= HOMEPAGE_VIDEO_SAFETY_LIMIT:
+                collection_warnings.append("homepage_video_safety_limit_reached")
+                break
             container = _first_mapping(data, ("has_more", "max_cursor", "cursor")) or {}
             has_more = _boolean(container.get("has_more")) is True
             next_cursor = _nonnegative_int(
@@ -473,8 +552,9 @@ class TikHubAccountProvider:
                 if "max_cursor" in container
                 else container.get("cursor")
             )
-            if not has_more or not items or next_cursor is None or next_cursor == cursor:
+            if not has_more or not items or next_cursor is None or next_cursor in seen_cursors:
                 break
+            seen_cursors.add(next_cursor)
             cursor = next_cursor
         comments: list[CollectedComment] = []
         sampled_comment_videos = 0
@@ -524,8 +604,8 @@ class TikHubAccountProvider:
                     accepted_for_video += 1
                 if accepted_for_video == 0:
                     videos_without_comments += 1
-        warnings = comment_warnings
-        if len(videos) < request.count:
+        warnings = collection_warnings + comment_warnings
+        if request.count is not None and len(videos) < request.count:
             warnings.append("provider_returned_fewer_videos_than_requested")
         if any(metric.views is None for metric in metrics):
             warnings.append("some_public_view_counts_are_missing")
@@ -549,6 +629,117 @@ class TikHubAccountProvider:
             warnings=warnings,
         )
 
+    def collect_video(
+        self,
+        url: str,
+        *,
+        comments_per_video: int = 0,
+    ) -> AccountCollectionBatch:
+        """Collect one public Douyin video detail and optional top-level comments.
+
+        The returned batch carries exactly one video. The account row is derived
+        from the detail's author object when present; otherwise a minimal
+        placeholder account is used so the single video can flow through the
+        existing import and normalization kernel.
+        """
+        fetched_at = datetime.now(UTC)
+        video_id = resolve_video_id_from_url(url)
+        detail_page = self._get(
+            VIDEO_DETAIL_PATH,
+            {"aweme_id": video_id},
+            fetched_at=fetched_at,
+        )
+        detail_data = _provider_data(detail_page.payload)
+        detail = _first_mapping(detail_data, ("aweme_id", "item_id", "statistics", "video"))
+        if detail is None:
+            raise DistillerError(
+                ErrorCode.ADAPTER_RESPONSE,
+                "Provider video detail did not contain a recognizable Douyin video object",
+            )
+        author = _first_mapping(
+            detail.get("author"),
+            ("sec_uid", "uid", "unique_id", "nickname"),
+        ) or _first_mapping(detail, ("sec_uid", "unique_id", "nickname"))
+        platform_account_id = (
+            _text((author or {}).get("sec_uid") or (author or {}).get("uid"))
+            or f"video-owner-{video_id}"
+        )
+        if author is not None:
+            account = _map_profile(
+                author,
+                platform_account_id=platform_account_id,
+                profile_url=url,
+                fetched_at=fetched_at,
+            )
+        else:
+            account = CollectedAccount(
+                platform_account_id=platform_account_id,
+                display_name="单视频采集",
+                profile_url=url,
+                snapshot_at=fetched_at,
+            )
+        mapped = _map_post(
+            detail,
+            platform_account_id=platform_account_id,
+            fetched_at=fetched_at,
+            metric_source="tikhub:douyin-fetch-one-video",
+        )
+        if mapped is None:
+            raise DistillerError(
+                ErrorCode.ADAPTER_RESPONSE,
+                "Provider video detail did not map to a public video",
+                details={"video_id": video_id},
+            )
+        video, metric = mapped
+        pages = [detail_page]
+        comments: list[CollectedComment] = []
+        warnings: list[str] = []
+        if comments_per_video > 0:
+            try:
+                comment_page = self._get(
+                    COMMENTS_PATH,
+                    {
+                        "aweme_id": video_id,
+                        "cursor": 0,
+                        "count": comments_per_video,
+                    },
+                    fetched_at=fetched_at,
+                )
+            except DistillerError as exc:
+                warnings.append(f"comment_collection_degraded:{exc.code.value}")
+            else:
+                pages.append(comment_page)
+                seen: set[str] = set()
+                for item in _first_list(
+                    _provider_data(comment_page.payload),
+                    ("comments", "comment_list", "items"),
+                )[:comments_per_video]:
+                    mapped_comment = _map_comment(
+                        item,
+                        video_id=video_id,
+                        platform_account_id=platform_account_id,
+                    )
+                    if mapped_comment is None or mapped_comment.platform_comment_id in seen:
+                        continue
+                    seen.add(mapped_comment.platform_comment_id)
+                    comments.append(mapped_comment)
+                if not comments:
+                    warnings.append("provider_returned_no_usable_public_comments")
+        if metric.views is None:
+            warnings.append("public_view_count_is_missing")
+        return AccountCollectionBatch(
+            provider=CollectionProviderKind.TIKHUB,
+            profile_url=url,
+            platform_account_id=platform_account_id,
+            fetched_at=fetched_at,
+            account=account,
+            videos=[video],
+            metrics=[metric],
+            comments=comments,
+            raw_pages=pages,
+            warnings=warnings,
+        )
+
 
 def build_account_provider(
     kind: CollectionProviderKind,
@@ -557,6 +748,12 @@ def build_account_provider(
 ) -> AccountCollectionProvider:
     """Build one account provider behind a stable CLI-facing factory."""
 
+    if kind == CollectionProviderKind.MEDIACRAWLER:
+        from video_account_distiller.collection.mediacrawler import (
+            MediaCrawlerAccountProvider,
+        )
+
+        return MediaCrawlerAccountProvider()
     if kind == CollectionProviderKind.TIKHUB:
         return TikHubAccountProvider(executor=executor)
     raise DistillerError(
@@ -568,7 +765,7 @@ def build_account_provider(
 def build_collection_request(
     *,
     profile_url: str,
-    count: int,
+    count: int | None = None,
     sort: CollectionSort,
     provider: CollectionProviderKind,
     comments_per_video: int = 0,

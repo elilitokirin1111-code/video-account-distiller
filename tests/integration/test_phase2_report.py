@@ -3,7 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from video_account_distiller.models import AccountHealthReport, EvidenceIndex, SampleManifest
+from video_account_distiller.models import (
+    AccountDataGapTable,
+    AccountHealthReport,
+    EvidenceIndex,
+    SampleManifest,
+)
 from video_account_distiller.reports import ReportService
 from video_account_distiller.status import project_status
 from video_account_distiller.storage.project import ProjectLayout
@@ -61,9 +66,35 @@ def test_account_health_report_outputs_are_traceable_and_idempotent(
     referenced.update(item.evidence_id for item in sample.selected)
     assert referenced <= evidence_ids
     assert report.data_scope.population_size == 30
-    assert report.statistics.content_pillars.counts == {"food": 10, "room": 10, "service": 10}
-    assert "账号体检报告" in output_paths[1].read_text(encoding="utf-8")
+    assert report.statistics.content_pillars.counts == {
+        "客房与住宿": 10,
+        "服务与幕后": 10,
+        "餐饮与菜品": 10,
+    }
+    markdown = output_paths[1].read_text(encoding="utf-8")
+    assert "账号体检报告" in markdown
+    assert "数据来源与缺口" in markdown
+    assert "已授权私有数据" in markdown
+    assert "公开数据" in markdown
+    for machine_token in (
+        "unknown",
+        "degraded",
+        "insufficient",
+        "statistical_association",
+        "True",
+        "False",
+    ):
+        assert machine_token not in markdown
     assert report.warnings
+    gaps = AccountDataGapTable.model_validate(read_json(output_paths[4]))
+    rows = {row.field: row for row in gaps.rows}
+    assert rows["metric.views"].availability == "available"
+    assert rows["metric.views"].observed_source_tiers == ["public"]
+    assert rows["metric.completion_rate"].source_tier == "authorized_private"
+    assert rows["metric.completion_rate"].observed_source_tiers == ["public"]
+    assert rows["metric.orders"].availability == "unknown"
+    assert rows["metric.orders"].available_records == 0
+    assert rows["metric.orders"].evidence_refs == []
 
     repeated = service.generate_account_health(account_id=account_id, sample_size=15)
     assert repeated["already_generated"] is True
@@ -82,7 +113,10 @@ def test_account_health_report_outputs_are_traceable_and_idempotent(
         "sample_manifests": 1,
         "account_health_reports": 1,
         "video_analyses": 0,
+        "gpt_analyses": 0,
         "media_analyses": 0,
+        "media_enrichments": 0,
+        "benchmark_profiles": 0,
         "comment_analyses": 0,
         "account_distillations": 0,
         "benchmark_comparisons": 0,

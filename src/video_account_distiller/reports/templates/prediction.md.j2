@@ -1,25 +1,25 @@
 # 发布前预测：{{ candidate.title }}
 
-- Prediction ID: `{{ prediction.prediction_id }}`
-- Candidate ID: `{{ prediction.candidate_id }}`
-- Score: {{ "%.2f"|format(score.total_score) }}/100
-- Target age: T+{{ prediction.target_snapshot_age_hours }}h
-- Confidence: {{ prediction.confidence_band }} ({{ "%.2f"|format(prediction.confidence) }})
-- Immutable: `{{ prediction.immutable }}`
-- Run: `{{ prediction.run_id }}`
+- 预测标识：`{{ prediction.prediction_id }}`
+- 内容候选标识：`{{ prediction.candidate_id }}`
+- 评分：{{ "%.2f"|format(score.total_score) }}/100
+- 目标观察时间：发布后 {{ prediction.target_snapshot_age_hours }} 小时
+- 置信度：{{ prediction.confidence_band | report_label }}（{{ "%.2f"|format(prediction.confidence) }}）
+- 是否不可变更：{{ prediction.immutable | report_label }}
+- 运行标识：`{{ prediction.run_id }}`
 
 ## 账号内预测区间
 
 | 指标 | P25 | P50 | P75 |
 |---|---:|---:|---:|
 {% for name, interval in prediction.target_metrics.items() -%}
-| {{ name }} | {{ interval.p25 }} | {{ interval.p50 }} | {{ interval.p75 }} |
+| {{ name | report_label }} | {{ interval.p25 }} | {{ interval.p50 }} | {{ interval.p75 }} |
 {% endfor %}
 
 ## 正向因素
 
 {% for item in prediction.positive_factors -%}
-- {{ item }}
+- {{ item | report_text }}
 {% else -%}
 - 暂无高分因素。
 {% endfor %}
@@ -27,7 +27,7 @@
 ## 负向因素
 
 {% for item in prediction.negative_factors -%}
-- {{ item }}
+- {{ item | report_text }}
 {% else -%}
 - 暂无明显低分项。
 {% endfor %}
@@ -35,14 +35,14 @@
 ## 不确定因素与假设
 
 {% for item in prediction.uncertainties -%}
-- 不确定：{{ item }}
+- 不确定：{{ item | report_text }}
 {% endfor %}
 {% for item in prediction.assumptions -%}
-- 假设：{{ item }}
+- 假设：{{ item | report_text }}
 {% endfor %}
 
 本区间来自同账号历史分布，不承诺结果，也不与其他平台的原始播放量直接比较。
 
 {% for warning in prediction.warnings -%}
-- `{{ warning }}`
+- {{ warning | report_warning }}
 {% endfor %}

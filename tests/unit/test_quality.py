@@ -20,9 +20,20 @@ def test_quality_report_renders_machine_and_markdown() -> None:
         input_hashes=["a" * 64],
         stats={"accepted_rows": 0},
         issues=[issue],
+        warnings=["Dry run: no project files or state were changed."],
     )
     assert report.error_count == 1
-    assert report.as_dict()["schema_version"] == "0.1.0"
+    machine = report.as_dict()
+    assert machine["schema_version"] == "0.1.0"
+    assert machine["issues"][0]["severity"] == "error"
+    assert machine["issues"][0]["code"] == "schema_invalid"
+    assert machine["issues"][0]["message"] == "negative views"
     markdown = report.as_markdown()
-    assert "negative views" in markdown
+    assert "# 数据质量报告" in markdown
+    assert "错误 · 数据结构校验失败" in markdown
+    assert "代码 `schema_invalid`" in markdown
+    assert "统计项（内部字段" not in markdown
+    assert "本次为预检" in markdown
+    assert "negative views" not in markdown
+    assert "ERROR" not in markdown
     assert "run_test" in markdown

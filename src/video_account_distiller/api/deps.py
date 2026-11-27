@@ -52,6 +52,13 @@ def distiller_error_to_http(exc: DistillerError) -> HTTPException:
         "E_ADAPTER_RESPONSE": 502,
         "E_PROFILE_URL_INVALID": 400,
         "E_PROVIDER_COST_CONFIRMATION_REQUIRED": 402,
+        "E_COLLECTION_BUDGET_EXCEEDED": 422,
+        "E_GPT_EVALUATION_BUDGET_EXCEEDED": 422,
+        "E_PROJECT_MIGRATION_CONFIRMATION_REQUIRED": 409,
+        "E_PROJECT_MIGRATION_UNSUPPORTED": 422,
+        "E_PUBLIC_BETA_GATE_FAILED": 409,
+        "E_TASK_INTERRUPTED": 409,
+        "E_TASK_QUEUE_FULL": 429,
         "E_INTERNAL": 500,
     }
     status = status_map.get(exc.code.value, 500)

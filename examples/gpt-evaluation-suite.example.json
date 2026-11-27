@@ -1,0 +1,18 @@
+{
+  "version": "gpt-evaluation-suite-v1",
+  "suite_id": "hotel-account-regression",
+  "description": "Replace the placeholder account IDs with a reviewed fixed-account regression set.",
+  "max_total_cost_usd": 2.0,
+  "stability_threshold": 0.6,
+  "cases": [
+    {
+      "case_id": "account-health-primary",
+      "account_id": "acc_replace_with_real_local_account_id",
+      "model": "gpt-5.6-terra",
+      "template": "account_health",
+      "reasoning_effort": "low",
+      "max_video_analyses": 10,
+      "runs_per_case": 2
+    }
+  ]
+}

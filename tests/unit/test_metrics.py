@@ -54,3 +54,4 @@ def test_performance_bands() -> None:
     assert performance_band(25, scores) == "C"
     assert performance_band(0, scores) == "D"
     assert performance_band(None, scores) is None
+    assert performance_band(0, [0.0, 0.0, 0.0]) == "B"

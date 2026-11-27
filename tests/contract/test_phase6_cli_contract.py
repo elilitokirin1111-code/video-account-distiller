@@ -25,6 +25,8 @@ def test_phase6_command_exposes_help() -> None:
     help_text = ANSI_ESCAPE.sub("", result.stdout)
     assert "--strict-media" in help_text
     assert "--vision-output" in help_text
+    assert "--vision-provider" in help_text
+    assert "--strict-vision" in help_text
 
 
 def test_media_dry_run_is_json_and_does_not_write_analysis(

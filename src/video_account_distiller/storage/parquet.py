@@ -36,4 +36,9 @@ def read_models(path: Path, model_type: type[ModelT]) -> list[ModelT]:
 
     if not path.is_file():
         return []
-    return [model_type.model_validate(row) for row in pq.read_table(path).to_pylist()]
+    # These stores are always concrete single files. ``pq.read_table`` routes
+    # through the dataset layer, which imports pandas and may query Windows WMI
+    # during platform detection. Reading the file directly avoids that
+    # unrelated dependency path and is materially faster for repeated lookups.
+    table = pq.ParquetFile(path).read()
+    return [model_type.model_validate(row) for row in table.to_pylist()]

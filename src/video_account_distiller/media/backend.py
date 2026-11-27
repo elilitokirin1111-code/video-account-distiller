@@ -3,16 +3,94 @@
 from __future__ import annotations
 
 import atexit
+import contextlib
 import json
+import os
 import re
 import shutil
 import subprocess
+import sys
+import threading
+import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
 from video_account_distiller.config import MediaSection
 from video_account_distiller.models import MediaMetadata
+
+WINDOWS_STATUS_DLL_INIT_FAILED = 0xC0000142
+WINDOWS_ERROR_DLL_INIT_FAILED = 1114
+_WINDOWS_LOADER_RETRY_DELAYS_SECONDS = (0.15, 0.4)
+_EXTERNAL_PROCESS_START_LOCK = threading.Lock()
+
+
+def _pyinstaller_bundle_root() -> Path | None:
+    raw_root = getattr(sys, "_MEIPASS", None)
+    if os.name != "nt" or not isinstance(raw_root, str) or not raw_root:
+        return None
+    return Path(raw_root).resolve()
+
+
+def _sanitized_external_process_environment(bundle_root: Path) -> dict[str, str]:
+    environment = os.environ.copy()
+    raw_path = environment.get("PATH")
+    if not raw_path:
+        return environment
+    filtered: list[str] = []
+    for raw_entry in raw_path.split(os.pathsep):
+        candidate = raw_entry.strip().strip('"')
+        if not candidate:
+            continue
+        try:
+            resolved = Path(os.path.expandvars(candidate)).resolve()
+            anchored_in_bundle = resolved == bundle_root or bundle_root in resolved.parents
+        except (OSError, RuntimeError):
+            anchored_in_bundle = False
+        if not anchored_in_bundle:
+            filtered.append(raw_entry)
+    environment["PATH"] = os.pathsep.join(filtered)
+    return environment
+
+
+def _set_windows_dll_directory(path: str | None) -> bool:
+    try:
+        import ctypes
+
+        return bool(ctypes.windll.kernel32.SetDllDirectoryW(path))
+    except (AttributeError, OSError):
+        return False
+
+
+def _get_windows_dll_directory() -> str | None:
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        buffer = ctypes.create_unicode_buffer(32_768)
+        length = int(kernel32.GetDllDirectoryW(len(buffer), buffer))
+        return buffer.value if 0 < length < len(buffer) else None
+    except (AttributeError, OSError):
+        return None
+
+
+@contextlib.contextmanager
+def _external_process_start_environment() -> Iterator[dict[str, str] | None]:
+    """Undo PyInstaller's DLL overrides only while creating a system process."""
+    bundle_root = _pyinstaller_bundle_root()
+    if bundle_root is None:
+        yield None
+        return
+    child_environment = _sanitized_external_process_environment(bundle_root)
+    with _EXTERNAL_PROCESS_START_LOCK:
+        previous_dll_directory = _get_windows_dll_directory()
+        dll_directory_was_reset = _set_windows_dll_directory(None)
+        try:
+            yield child_environment
+        finally:
+            if dll_directory_was_reset:
+                _set_windows_dll_directory(previous_dll_directory)
 
 
 class MediaBackendFailure(Exception):
@@ -101,9 +179,9 @@ class FFmpegMediaBackend:
         self.config = config
         self.ffmpeg = self._resolve(config.ffmpeg_path, "ffmpeg")
         self.ffprobe = self._resolve(config.ffprobe_path, "ffprobe")
-        self._version = self._read_version() if self.available else None
         self._active_process: subprocess.Popen[Any] | None = None
         atexit.register(self._cleanup)
+        self._version = self._read_version() if self.available else None
 
     def _cleanup(self) -> None:
         """Terminate the active child process on normal interpreter shutdown."""
@@ -137,48 +215,135 @@ class FFmpegMediaBackend:
     def _read_version(self) -> str | None:
         assert self.ffmpeg is not None
         try:
-            result = subprocess.run(
-                [self.ffmpeg, "-version"],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=self.config.command_timeout_seconds,
-                check=True,
-            )
-        except (OSError, subprocess.SubprocessError):
+            result = self._run([self.ffmpeg, "-version"])
+        except MediaBackendFailure:
             return None
         first = result.stdout.splitlines()[0] if result.stdout else ""
         return first[:200] or None
 
+    @staticmethod
+    def _windows_loader_status(returncode: int | None) -> bool:
+        return (
+            os.name == "nt"
+            and returncode is not None
+            and returncode & 0xFFFFFFFF == WINDOWS_STATUS_DLL_INIT_FAILED
+        )
+
+    @staticmethod
+    def _windows_loader_os_error(exc: OSError) -> bool:
+        return os.name == "nt" and getattr(exc, "winerror", None) == WINDOWS_ERROR_DLL_INIT_FAILED
+
+    @staticmethod
+    def _process_start_options() -> dict[str, Any]:
+        if os.name != "nt":
+            return {}
+        startup_info = subprocess.STARTUPINFO()
+        startup_info.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startup_info.wShowWindow = subprocess.SW_HIDE
+        return {
+            "creationflags": subprocess.CREATE_NO_WINDOW,
+            "startupinfo": startup_info,
+        }
+
+    @staticmethod
+    def _drain_terminated_process(proc: subprocess.Popen[Any]) -> None:
+        try:
+            proc.kill()
+        except OSError:
+            pass
+        try:
+            proc.communicate(timeout=5)
+        except (OSError, subprocess.TimeoutExpired):
+            try:
+                proc.wait(timeout=5)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+
+    @staticmethod
+    def _failure_message(
+        arguments: list[str], returncode: int, stderr: str | bytes | None, attempts: int
+    ) -> str:
+        executable = Path(arguments[0]).name or "FFmpeg"
+        unsigned_status = returncode & 0xFFFFFFFF
+        if unsigned_status == WINDOWS_STATUS_DLL_INIT_FAILED:
+            summary = (
+                f"{executable} failed with Windows status 0x{unsigned_status:08X} "
+                f"after {attempts} attempts (DLL initialization failed)"
+            )
+        else:
+            summary = f"{executable} failed with exit status {returncode}"
+        detail = stderr.decode("utf-8", errors="replace") if isinstance(stderr, bytes) else stderr
+        detail = (detail or "").strip()
+        return f"{summary}: {detail[-700:]}"[:1000] if detail else summary
+
     def _run(
         self, arguments: list[str], *, binary: bool = False
     ) -> subprocess.CompletedProcess[Any]:
-        try:
-            proc = subprocess.Popen(
-                arguments,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=not binary,
-                encoding=None if binary else "utf-8",
-                errors=None if binary else "replace",
-            )
-            self._active_process = proc
-            stdout, stderr = proc.communicate(timeout=self.config.command_timeout_seconds)
-            if proc.returncode != 0:
-                raise subprocess.CalledProcessError(
-                    proc.returncode, arguments, output=stdout, stderr=stderr
+        maximum_attempts = len(_WINDOWS_LOADER_RETRY_DELAYS_SECONDS) + 1
+        for attempt in range(1, maximum_attempts + 1):
+            proc: subprocess.Popen[Any] | None = None
+            try:
+                with _external_process_start_environment() as child_environment:
+                    proc = subprocess.Popen(
+                        arguments,
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=not binary,
+                        encoding=None if binary else "utf-8",
+                        errors=None if binary else "replace",
+                        env=child_environment,
+                        **self._process_start_options(),
+                    )
+                self._active_process = proc
+                try:
+                    stdout, stderr = proc.communicate(timeout=self.config.command_timeout_seconds)
+                except subprocess.TimeoutExpired as exc:
+                    self._drain_terminated_process(proc)
+                    executable = Path(arguments[0]).name or "FFmpeg"
+                    raise MediaBackendFailure(
+                        f"{executable} timed out after "
+                        f"{self.config.command_timeout_seconds} seconds"
+                    ) from exc
+                returncode = proc.returncode if proc.returncode is not None else 0
+                if returncode == 0:
+                    return subprocess.CompletedProcess(
+                        arguments, returncode, stdout=stdout, stderr=stderr
+                    )
+                if self._windows_loader_status(returncode) and attempt < maximum_attempts:
+                    time.sleep(_WINDOWS_LOADER_RETRY_DELAYS_SECONDS[attempt - 1])
+                    continue
+                raise MediaBackendFailure(
+                    self._failure_message(arguments, returncode, stderr, attempt)
                 )
-            return subprocess.CompletedProcess(
-                arguments, proc.returncode, stdout=stdout, stderr=stderr
-            )
-        except subprocess.CalledProcessError as exc:
-            stderr = exc.stderr
-            if isinstance(stderr, bytes):
-                stderr = stderr.decode("utf-8", errors="replace")
-            raise MediaBackendFailure(str(stderr or exc)[:1000]) from exc
-        except (OSError, subprocess.SubprocessError) as exc:
-            raise MediaBackendFailure(str(exc)[:1000]) from exc
+            except MediaBackendFailure:
+                raise
+            except OSError as exc:
+                executable = Path(arguments[0]).name or "FFmpeg"
+                if self._windows_loader_os_error(exc):
+                    if attempt < maximum_attempts:
+                        time.sleep(_WINDOWS_LOADER_RETRY_DELAYS_SECONDS[attempt - 1])
+                        continue
+                    raise MediaBackendFailure(
+                        f"{executable} failed to start after {attempt} attempts "
+                        f"(Windows error {WINDOWS_ERROR_DLL_INIT_FAILED}: "
+                        "DLL initialization failed)"
+                    ) from exc
+                raise MediaBackendFailure(f"{executable} could not start: {exc}") from exc
+            except subprocess.SubprocessError as exc:
+                executable = Path(arguments[0]).name or "FFmpeg"
+                raise MediaBackendFailure(f"{executable} process failed: {exc}") from exc
+            finally:
+                if proc is not None:
+                    try:
+                        still_running = proc.poll() is None
+                    except OSError:
+                        still_running = False
+                    if still_running:
+                        self._drain_terminated_process(proc)
+                if self._active_process is proc:
+                    self._active_process = None
+        raise AssertionError("unreachable")
 
     def probe(self, source: Path, media_hash: str) -> MediaMetadata:
         if not self.available:

@@ -19,7 +19,7 @@ from video_account_distiller.adapters.collaboration import (
 )
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.ingestion import ImportService
-from video_account_distiller.models import Platform, Publication
+from video_account_distiller.models import DataSourceTier, Platform, Publication
 from video_account_distiller.models.collaboration import (
     AuthorizedExportManifest,
     BatchManifest,
@@ -50,6 +50,7 @@ TABLE_BY_ENTITY = {
     "videos": "videos",
     "metrics": "metric_snapshots",
     "comments": "comments",
+    "audience_profiles": "audience_profiles",
 }
 
 
@@ -107,6 +108,7 @@ class CollaborationService:
         manifest_path: Path,
         mapping_path: Path | None = None,
         dry_run: bool = False,
+        data_path_override: Path | None = None,
     ) -> dict[str, Any]:
         manifest_path = manifest_path.expanduser().resolve()
         try:
@@ -118,7 +120,11 @@ class CollaborationService:
                 details={"reason": str(exc)},
             ) from exc
         manifest.authorization.require("read")
-        data_path = Path(manifest.data_file).expanduser()
+        data_path = (
+            data_path_override.expanduser()
+            if data_path_override is not None
+            else Path(manifest.data_file).expanduser()
+        )
         if not data_path.is_absolute():
             data_path = manifest_path.parent / data_path
         data_path = data_path.resolve()
@@ -139,6 +145,8 @@ class CollaborationService:
             platform=manifest.platform,
             mapping_path=mapping_path,
             dry_run=dry_run,
+            data_source_tier=DataSourceTier.AUTHORIZED_PRIVATE,
+            authorization_grant_id=manifest.authorization.grant_id,
         )
         manifest_artifact: str | None = None
         if not dry_run:
@@ -198,6 +206,8 @@ class CollaborationService:
                 platform=platform,
                 mapping_path=mapping_path,
                 dry_run=dry_run,
+                data_source_tier=DataSourceTier.AUTHORIZED_PRIVATE,
+                authorization_grant_id=adapter.authorization.grant_id,
             )
         sync = SyncReceipt(
             sync_id=sync_id,

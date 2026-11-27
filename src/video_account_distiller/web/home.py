@@ -1,137 +1,229 @@
-"""Video Account Distiller — 视频账号数据分析平台."""
+"""Focused product overview for the local account-distillation workflow."""
 
-import os
+from __future__ import annotations
+
 from datetime import datetime
-from pathlib import Path
+from typing import Any
+from urllib.parse import quote
 
 import requests
 import streamlit as st
 
-st.set_page_config(page_title="Distiller 仪表盘", page_icon="📊", layout="wide",
-                   initial_sidebar_state="expanded")
-
-# ── 侧边栏 ───────────────────────────────────────────────────────────
-st.sidebar.title("📊 Video Account Distiller")
-st.sidebar.caption("v1.0.0 — 基于证据的视频账号分析")
-
-api_url = st.sidebar.text_input(
-    "🔗 后端 API", value=os.environ.get("DISTILLER_API_URL", "http://127.0.0.1:8000"),
-    help="FastAPI 服务地址，可按需更换"
+from video_account_distiller.web.ui import (
+    badge,
+    empty_state,
+    metric_card,
+    section_header,
+    setup_page,
+    task_row,
 )
-st.session_state["api_url"] = api_url
 
-project_path = st.sidebar.text_input(
-    "📁 项目路径", value=str(Path.home() / "distiller-demo"),
-    help="Distiller 项目目录的绝对路径"
+st.set_page_config(
+    page_title="概览 · Distiller",
+    page_icon=":material/blur_on:",
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
-st.session_state["project_path"] = project_path
 
-st.sidebar.divider()
+context = setup_page(
+    "dashboard",
+    "账号蒸馏",
+    "从一个主页链接开始，得到视频内容理解、账号洞察、长文报告和可复用知识库。",
+    eyebrow="本地优先 · 可审计",
+)
 
-if st.sidebar.button("🚀 初始化项目", use_container_width=True):
+
+@st.cache_data(ttl=20, show_spinner=False)
+def _get(api_url: str, path: str, *, timeout: int = 8) -> dict[str, Any]:
     try:
-        r = requests.post(f"{api_url}/api/projects/init",
-                          json={"path": project_path, "name": Path(project_path).name}, timeout=10)
-        if r.json().get("ok"):
-            st.sidebar.success("项目已就绪 ✅")
-    except Exception as e:
-        st.sidebar.error(f"API 未连接: {e}")
-
-st.sidebar.markdown("---")
-st.sidebar.caption("💡 其他页面在左侧导航栏 →")
-st.sidebar.caption("⬆️ 如果看不到，点击左上角 `>` 展开")
-
-
-def _api(path: str) -> dict:
-    try:
-        return requests.get(f"{api_url}{path}", timeout=15).json()
-    except Exception:
+        response = requests.get(f"{api_url}{path}", timeout=timeout)
+        payload: Any = response.json()
+        return payload if isinstance(payload, dict) else {}
+    except (requests.RequestException, ValueError):
         return {}
 
-# ── 主页内容 ─────────────────────────────────────────────────────────
-st.title("📊 Video Account Distiller")
-st.caption("基于证据的视频账号分析平台 — 抖音 · B站 · YouTube · TikTok · 小红书 · Instagram · 微信视频号")
-st.caption(f"🕐 {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
-# 刷新状态
-if st.button("🔄 刷新项目状态", type="primary"):
-    r = _api(f"/api/projects/{project_path}/status")
-    st.session_state["status"] = r
+encoded_project = quote(context.project_path, safe="")
+status = (
+    _get(context.api_url, f"/api/projects/{encoded_project}/status") if context.project_path else {}
+)
+task_payload = _get(context.api_url, "/api/tasks?limit=20")
+tasks_value = task_payload.get("tasks")
+tasks: list[dict[str, Any]] = (
+    [item for item in tasks_value if isinstance(item, dict)]
+    if isinstance(tasks_value, list)
+    else []
+)
+doctor = (
+    _get(context.api_url, f"/api/doctor/{encoded_project}", timeout=12)
+    if context.project_path
+    else {}
+)
+doctor_data = doctor.get("data") if isinstance(doctor.get("data"), dict) else {}
+capabilities_value = doctor_data.get("capabilities") if isinstance(doctor_data, dict) else {}
+capabilities = capabilities_value if isinstance(capabilities_value, dict) else {}
 
-status = st.session_state.get("status", {})
-project = status.get("project", {})
+normalized_value = status.get("normalized")
+normalized: dict[str, Any] = normalized_value if isinstance(normalized_value, dict) else {}
+artifacts_value = status.get("artifacts")
+artifacts: dict[str, Any] = artifacts_value if isinstance(artifacts_value, dict) else {}
+accounts_value = status.get("accounts")
+account_count = len(accounts_value) if isinstance(accounts_value, list) else 0
+report_count = int(artifacts.get("reports", 0) or artifacts.get("account_distillations", 0) or 0)
+running_count = sum(
+    1 for item in tasks if item.get("status") in {"pending", "running", "cancelling"}
+)
+failed_count = sum(1 for item in tasks if item.get("status") == "failed")
 
-if not status.get("ok"):
-    st.info("👈 在左侧输入项目路径，点击「初始化项目」，然后「刷新状态」")
-    st.markdown("""
-    ### 快速开始
-    1. **设置 API**：左侧输入后端地址
-    2. **初始化项目**：点击按钮创建项目目录
-    3. **采集数据**：导航到「🎯 主页采集分析」粘贴抖音链接
-    4. **导入数据**：或在「📥 数据导入」上传 CSV/JSON 文件
-    5. **查看报告**：在「📄 报告浏览」查看分析结果
-    """)
-else:
-    # 统计卡片
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        st.metric("项目名称", project.get("name", "-"))
-    with c2:
-        st.metric("账号数", len(status.get("accounts", [])))
-    with c3:
-        st.metric("总视频数", status.get("normalized", {}).get("videos", 0))
-    with c4:
-        st.metric("总评论数", status.get("normalized", {}).get("comments", 0))
+st.markdown(
+    f"""
+    <div class="ds-hero">
+      <div class="ds-hero-eyebrow">从主页到知识，只保留一条主路径</div>
+      <div class="ds-hero-title">粘贴抖音主页，自动理解最近作品并生成完整账号报告。</div>
+      <div class="ds-hero-copy">
+        采集互动数据、解析画面与语音、总结内容方法，并将结果保存到本地项目。
+        云端模型和知识库同步始终由你显式选择。
+      </div>
+      <div class="ds-hero-meta">
+        <span>本地优先</span><span>GPU 转写</span><span>最多 100 条内容分析</span>
+        <span>{running_count} 个任务运行中</span>
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
-    st.divider()
+primary_action, secondary_action, action_spacer = st.columns([1.25, 1, 3.2])
+with primary_action:
+    st.page_link(
+        "pages/quick_collect.py",
+        label="开始新的账号蒸馏",
+        icon=":material/play_circle:",
+        use_container_width=True,
+    )
+with secondary_action:
+    st.page_link(
+        "pages/reports.py",
+        label="查看已有报告",
+        icon=":material/article:",
+        use_container_width=True,
+    )
+del action_spacer
 
-    # 页面快捷入口
-    st.subheader("📋 功能导航")
-    nav1, nav2, nav3, nav4 = st.columns(4)
-    with nav1:
-        st.page_link("pages/quick_collect.py", label="🎯 主页采集分析", icon="🎯")
-        st.caption("粘贴抖音链接，一键采集+分析")
-    with nav2:
-        st.page_link("pages/import_data.py", label="📥 数据导入", icon="📥")
-        st.caption("上传 CSV/JSON 文件导入数据")
-    with nav3:
-        st.page_link("pages/account_analysis.py", label="🔬 账号分析", icon="🔬")
-        st.caption("抽样 · 报告 · 视频分析 · 提炼")
-    with nav4:
-        st.page_link("pages/reports.py", label="📄 报告浏览", icon="📄")
-        st.caption("查看已生成的 Markdown/JSON 报告")
+metric_columns = st.columns(3)
+with metric_columns[0]:
+    metric_card(
+        "已蒸馏账号",
+        f"{account_count:,}",
+        delta="当前工作区",
+        tone="primary",
+        delta_tone="neutral",
+    )
+with metric_columns[1]:
+    metric_card(
+        "内容资产",
+        f"{int(normalized.get('videos', 0) or 0):,}",
+        delta="已标准化视频",
+        tone="purple",
+        delta_tone="neutral",
+    )
+with metric_columns[2]:
+    metric_card(
+        "可读报告",
+        f"{report_count:,}",
+        delta="长文分析与账号体检",
+        tone="green",
+        delta_tone="neutral",
+    )
 
-    st.divider()
+section_header("最近进展", "只显示需要继续处理或最近完成的工作")
+task_column, output_column = st.columns([1.22, 0.78], gap="large")
 
-    # 分析产出统计
-    artifacts = status.get("artifacts", {})
-    st.subheader("📊 分析产出")
-    a1, a2, a3, a4, a5 = st.columns(5)
-    with a1:
-        st.metric("视频分析", artifacts.get("video_analyses", 0))
-    with a2:
-        st.metric("评论分析", artifacts.get("comment_analyses", 0))
-    with a3:
-        st.metric("媒体分析", artifacts.get("media_analyses", 0))
-    with a4:
-        st.metric("账号提炼", artifacts.get("account_distillations", 0))
-    with a5:
-        st.metric("预测记录", artifacts.get("predictions", 0))
+with task_column:
+    with st.container(border=True):
+        title_column, state_column = st.columns([3, 1])
+        title_column.markdown('<div class="ds-mini-title">任务</div>', unsafe_allow_html=True)
+        state_column.markdown(
+            badge(
+                f"{running_count} 个运行中",
+                "warning" if running_count else "success",
+            ),
+            unsafe_allow_html=True,
+        )
+        if tasks:
+            rows: list[str] = []
+            for item in tasks[:5]:
+                status_name = str(item.get("status") or "pending")
+                status_map = {
+                    "completed": ("已完成", "success"),
+                    "running": ("进行中", "warning"),
+                    "pending": ("等待中", "neutral"),
+                    "cancelling": ("取消中", "warning"),
+                    "cancelled": ("已取消", "neutral"),
+                    "failed": ("需处理", "danger"),
+                }
+                label, tone = status_map.get(status_name, (status_name, "neutral"))
+                task_type = str(item.get("task_type") or "分析任务")
+                type_name = {
+                    "account_distill": "账号蒸馏",
+                    "gpt_account_analysis": "云端深度分析",
+                }.get(task_type, task_type.replace("_", " ").title())
+                stage = str(item.get("stage") or "等待调度")
+                updated = str(item.get("updated_at") or "")[:16].replace("T", " ")
+                rows.append(
+                    task_row(
+                        type_name,
+                        f"{stage} · {updated or '刚刚更新'}",
+                        status=label,
+                        progress=float(item.get("progress", 0.0) or 0.0),
+                        tone=tone,
+                    )
+                )
+            st.markdown("".join(rows), unsafe_allow_html=True)
+        else:
+            empty_state("还没有任务", "从一个主页链接开始第一次账号蒸馏。", mark="+")
+        st.page_link(
+            "pages/quick_collect.py",
+            label="查看任务与恢复进度",
+            icon=":material/arrow_forward:",
+            use_container_width=True,
+        )
 
-    # 时间线
-    st.divider()
-    st.subheader("⏱️ 操作时间线")
-    timeline = []
-    for field, label in [
-        ("last_video_analysis_at", "🎬 视频分析"), ("last_comment_analysis_at", "💬 评论分析"),
-        ("last_media_analysis_at", "📹 媒体分析"), ("last_distillation_at", "🏭 账号提炼"),
-        ("last_report_at", "📄 报告"), ("last_metrics_at", "📈 指标"),
-        ("last_normalized_at", "📐 标准化"), ("last_sample_at", "🎯 抽样"),
-        ("last_scoring_at", "⭐ 评分"), ("last_prediction_at", "🔮 预测"),
-        ("last_publication_at", "📤 发布"), ("last_retro_at", "🔄 复盘"),
-    ]:
-        ts = status.get(field)
-        if ts:
-            timeline.append(f"{label}: {ts[:19] if isinstance(ts, str) else str(ts)}")
-    for item in timeline:
-        st.caption(item)
+with output_column:
+    with st.container(border=True):
+        st.markdown('<div class="ds-mini-title">运行就绪度</div>', unsafe_allow_html=True)
+        readiness = (
+            ("主页采集", bool(capabilities.get("mediacrawler_douyin"))),
+            ("视频处理", bool(capabilities.get("local_media"))),
+            ("GPU 转写", bool(capabilities.get("video_transcription"))),
+            ("画面理解", bool(capabilities.get("local_vision"))),
+        )
+        for label, ready in readiness:
+            left, right = st.columns([2, 1])
+            left.markdown(f"**{label}**")
+            right.markdown(
+                badge("可用" if ready else "待配置", "success" if ready else "warning"),
+                unsafe_allow_html=True,
+            )
+        st.markdown(
+            f"""
+            <div class="ds-runtime-strip">
+              <span>失败任务</span><strong>{failed_count}</strong>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.page_link(
+            "pages/settings.py",
+            label="检查连接与模型设置",
+            icon=":material/settings:",
+            use_container_width=True,
+        )
+
+refresh_column, timestamp_column = st.columns([1, 4], vertical_alignment="center")
+with refresh_column:
+    if st.button("刷新", icon=":material/refresh:", key="refresh_dashboard"):
+        _get.clear()
+        st.rerun()
+with timestamp_column:
+    st.caption(f"数据刷新于 {datetime.now().strftime('%H:%M')}")

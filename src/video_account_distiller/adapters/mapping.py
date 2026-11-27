@@ -11,7 +11,7 @@ import yaml
 from video_account_distiller.errors import DistillerError, ErrorCode
 from video_account_distiller.models import FieldMapping, Platform
 
-Entity = Literal["accounts", "videos", "metrics", "comments"]
+Entity = Literal["accounts", "videos", "metrics", "comments", "audience_profiles"]
 
 COMMON_ALIASES: dict[Entity, dict[str, list[str]]] = {
     "accounts": {
@@ -62,22 +62,36 @@ COMMON_ALIASES: dict[Entity, dict[str, list[str]]] = {
         "snapshot_at": ["snapshot_at", "collected_at", "updated_at"],
         "age_hours": ["age_hours"],
         "views": ["views", "view_count"],
-        "impressions": ["impressions"],
+        "impressions": ["impressions", "exposure_count", "show_count"],
         "likes": ["likes", "like_count"],
         "comments": ["comments", "comment_count"],
         "shares": ["shares", "share_count"],
         "saves": ["saves", "save_count", "favorites"],
         "favorites": ["favorites", "favorite_count"],
-        "follows_gained": ["follows_gained", "new_followers"],
-        "profile_visits": ["profile_visits"],
-        "avg_watch_time_seconds": ["avg_watch_time_seconds", "avg_watch_time"],
-        "completion_rate": ["completion_rate"],
+        "follows_gained": [
+            "follows_gained",
+            "new_followers",
+            "new_follower_count",
+            "follower_increase",
+        ],
+        "profile_visits": [
+            "profile_visits",
+            "profile_visit_count",
+            "homepage_visit_count",
+        ],
+        "avg_watch_time_seconds": [
+            "avg_watch_time_seconds",
+            "avg_watch_time",
+            "average_play_time",
+            "avg_play_duration",
+        ],
+        "completion_rate": ["completion_rate", "play_finish_rate", "finish_rate"],
         "three_second_view_rate": ["three_second_view_rate"],
         "five_second_view_rate": ["five_second_view_rate"],
-        "clicks": ["clicks"],
-        "leads": ["leads"],
-        "orders": ["orders"],
-        "revenue": ["revenue"],
+        "clicks": ["clicks", "link_click_count", "product_click_count"],
+        "leads": ["leads", "lead_count"],
+        "orders": ["orders", "order_count"],
+        "revenue": ["revenue", "gmv", "income", "revenue_amount"],
         "is_promoted": ["is_promoted", "promoted"],
         "promotion_spend": ["promotion_spend", "ad_spend"],
         "metric_source": ["metric_source", "source"],
@@ -96,6 +110,21 @@ COMMON_ALIASES: dict[Entity, dict[str, list[str]]] = {
         "is_pinned": ["is_pinned", "pinned"],
         "language": ["language", "lang"],
     },
+    "audience_profiles": {
+        "profile_segment_id": ["profile_segment_id", "segment_id"],
+        "account_id": ["account_id", "platform_account_id", "author_id"],
+        "snapshot_at": ["snapshot_at", "exported_at", "collected_at"],
+        "dimension": ["dimension", "dimension_key"],
+        "bucket": ["bucket", "segment", "label"],
+        "share": ["share", "percentage", "ratio"],
+        "audience_count": ["audience_count", "count"],
+        "sample_size": ["sample_size", "total_count"],
+        "source_schema_version": [
+            "source_schema_version",
+            "export_schema_version",
+            "schema_version",
+        ],
+    },
 }
 
 REQUIRED_FIELDS: dict[Entity, tuple[str, ...]] = {
@@ -103,6 +132,13 @@ REQUIRED_FIELDS: dict[Entity, tuple[str, ...]] = {
     "videos": ("platform_video_id", "account_id"),
     "metrics": ("video_id", "snapshot_at"),
     "comments": ("platform_comment_id", "video_id", "text"),
+    "audience_profiles": (
+        "account_id",
+        "snapshot_at",
+        "dimension",
+        "bucket",
+        "source_schema_version",
+    ),
 }
 
 

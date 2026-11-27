@@ -18,16 +18,22 @@
 13. Run `uv run distiller validate` again to verify analysis isolation and its evidence chain.
 14. Run `uv run distiller analyze comments` for redacted comment signals and need clusters.
 15. Run `uv run distiller distill` for content clusters, Patterns, counterexamples, and actions.
-16. Distill every account separately before `uv run distiller compare`.
-17. Run `uv run distiller validate` again to verify Phase 4 evidence and knowledge artifacts.
-18. Run `uv run distiller score` to check a new script against the current Rubric.
-19. Run `uv run distiller predict` to save an immutable account-local interval.
-20. Import/normalize the published video, then run `uv run distiller publish`.
-21. Import later metric snapshots, recalculate metrics, and run `uv run distiller retro`.
-22. Run `uv run distiller validate` to verify the complete closed-loop evidence chain.
-23. Run `uv run distiller analyze media` for local scene/keyframe/audio and optional OCR evidence.
-24. Run `uv run distiller validate` to verify raw media, frames, timeline, and evidence hashes.
-25. Query with DuckDB only after normalization.
+16. Build a content-addressed `account benchmark-profile` after each distillation.
+17. Distill and profile every account separately before `uv run distiller compare`.
+18. Run `uv run distiller validate` again to verify Phase 4 evidence and knowledge artifacts.
+19. Run `uv run distiller score` to check a new script against the current Rubric.
+20. Run `uv run distiller predict` to save an immutable account-local interval.
+21. Import/normalize the published video, then run `uv run distiller publish`.
+22. Import later metric snapshots, recalculate metrics, and run `uv run distiller retro`.
+23. Run `uv run distiller validate` to verify the complete closed-loop evidence chain.
+24. Run `uv run distiller analyze media` for local scene/keyframe/audio and optional OCR evidence.
+25. Run `uv run distiller validate` to verify raw media, frames, timeline, and evidence hashes.
+26. For an approved retained account batch, preview and run `distiller account enrich-media` to
+    add local media, transcript, single-video semantics, and a rebuilt account distillation.
+27. Run `uv run distiller validate` to verify the account media-enrichment bridge.
+28. Query with DuckDB only after normalization.
+29. After repeated snapshots, run `distiller account growth` for observed account changes.
+30. Build `distiller account context` or use the REST context endpoint before GPT analysis.
 
 ## Idempotence
 
@@ -40,6 +46,8 @@ IDs and never overwrite an existing analysis.
 Comment analyses, account distillations, Patterns, and comparisons use content-addressed `cma_*`,
 `dst_*`, `pat_*`, and `cmp_*` IDs. Knowledge Pattern files are immutable; the account profile and
 knowledge index are rebuildable latest pointers.
+Account benchmark profiles use `abp_*`; new public metric/comment/distillation inputs create a new
+profile while every earlier profile remains available for historical comparison.
 Scores and predictions use content-addressed `score_*` and `pred_*` IDs. Predictions and
 publications are immutable. Retros use `retro_*`; repeating the same publication/snapshot/version
 reuses the existing review. Retro writes pending proposals without modifying Rule or Rubric files.
@@ -63,12 +71,16 @@ stable `shot_*`/`key_*` evidence. Repeating identical media/config/provider inpu
   warnings.
 - `reports/accounts/<account-id>/<distillation-id>/`: account distillation JSON/Markdown/evidence.
 - `reports/comparisons/<comparison-id>/`: benchmark transfer matrix and evidence.
+- `analyses/accounts/<account>/benchmark-profiles/<abp_*>/`: reusable interaction, comment,
+  content, and visual account snapshots for later ranking.
 - `knowledge-base/patterns/`: versioned Pattern JSON with support and counterexamples.
 - `knowledge-base/rules/` and `knowledge-base/rubrics/`: versioned scoring inputs.
 - `candidates/` and `reports/scoring/`: script candidate and explainable score artifacts.
 - `predictions/` and `publications/`: immutable prediction and publication linkage.
 - `reports/retros/` and `knowledge-base/reviews/`: prediction errors and pending proposals.
 - `analyses/media/<video-id>/<analysis-id>/`: media analysis, timeline, frames, evidence, warnings.
+- `analyses/accounts/<account>/media-enrichments/<ame_*>/`: retained batch, media, transcript,
+  text-analysis, and rebuilt-distillation links.
 
 ## Failure handling
 

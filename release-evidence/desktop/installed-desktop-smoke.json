@@ -1,0 +1,22 @@
+{
+  "ok": true,
+  "native_qt_window": true,
+  "page_count": 6,
+  "progress_stage_count": 6,
+  "animated_wait_feedback": true,
+  "mediacrawler_runtime_complete": true,
+  "mediacrawler_runtime_missing": [],
+  "ffmpeg_available": true,
+  "ffmpeg_external_process_ready": true,
+  "ffmpeg_version": "ffmpeg version 8.1.2-full_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers",
+  "health": {
+    "status": "ok",
+    "version": "1.1.1",
+    "features": {
+      "account_video_knowledge": "1"
+    }
+  },
+  "project_initialized": true,
+  "project_valid": true,
+  "api_base_url": "http://127.0.0.1:8000"
+}

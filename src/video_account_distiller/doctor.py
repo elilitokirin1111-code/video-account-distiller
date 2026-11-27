@@ -6,9 +6,15 @@ import os
 import platform
 import shutil
 import sys
+import urllib.error
+import urllib.request
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
+from video_account_distiller.collection.mediacrawler import (
+    chrome_executable,
+    mediacrawler_diagnostic,
+)
 from video_account_distiller.models.system import (
     CapabilityDiagnostic,
     DoctorReport,
@@ -43,6 +49,52 @@ def _executable(name: str) -> RuntimeExecutable:
     return RuntimeExecutable(name=name, available=path is not None, path=path)
 
 
+def _chrome() -> RuntimeExecutable:
+    path = chrome_executable()
+    return RuntimeExecutable(name="chrome", available=path is not None, path=path)
+
+
+def _whisper() -> RuntimeExecutable:
+    configured = os.environ.get("DISTILLER_WHISPER_COMMAND")
+    path = shutil.which(configured or "whisper")
+    if path is None and configured:
+        candidate = Path(configured).expanduser()
+        path = str(candidate.resolve()) if candidate.is_file() else None
+    return RuntimeExecutable(name="whisper", available=path is not None, path=path)
+
+
+def _ollama() -> RuntimeExecutable:
+    configured = os.environ.get("DISTILLER_OLLAMA_COMMAND")
+    path = shutil.which(configured or "ollama")
+    if path is None:
+        candidates = [
+            Path(r"D:\AI\Ollama\App\ollama.exe"),
+            Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama" / "ollama.exe",
+        ]
+        path = next((str(item.resolve()) for item in candidates if item.is_file()), None)
+    return RuntimeExecutable(name="ollama", available=path is not None, path=path)
+
+
+def _llamacpp() -> RuntimeExecutable:
+    base_url = os.environ.get(
+        "DISTILLER_LLAMACPP_BASE_URL",
+        "http://127.0.0.1:8081",
+    ).rstrip("/")
+    available = False
+    try:
+        request = urllib.request.Request(f"{base_url}/v1/models")
+        api_key = os.environ.get("DISTILLER_LLAMACPP_API_KEY")
+        if api_key:
+            request.add_header("Authorization", f"Bearer {api_key}")
+        with urllib.request.urlopen(request, timeout=3) as response:
+            available = response.status == 200
+    except urllib.error.HTTPError as exc:
+        available = exc.code == 401
+    except Exception:
+        available = False
+    return RuntimeExecutable(name="llamacpp", available=available, path=base_url)
+
+
 def _project_diagnostic(path: Path) -> ProjectDiagnostic:
     root = path.expanduser().resolve()
     exists = root.is_dir()
@@ -74,7 +126,16 @@ def doctor_report(project: Path | None = None) -> DoctorReport:
     """Inspect a local installation without changing project or credential state."""
 
     dependencies = [_dependency(name) for name in REQUIRED_DEPENDENCIES]
-    executables = [_executable("ffmpeg"), _executable("ffprobe")]
+    executables = [
+        _executable("ffmpeg"),
+        _executable("ffprobe"),
+        _executable("node"),
+        _executable("uv"),
+        _whisper(),
+        _ollama(),
+        _llamacpp(),
+        _chrome(),
+    ]
     executable_state = {item.name: item.available for item in executables}
     python_supported = sys.version_info >= (3, 11)
     core_ready = python_supported and all(item.version is not None for item in dependencies)
@@ -85,6 +146,7 @@ def doctor_report(project: Path | None = None) -> DoctorReport:
         and project_state.writable
         and project_state.validation_ok is True
     )
+    mediacrawler = mediacrawler_diagnostic()
     return DoctorReport(
         ok=core_ready and project_ready,
         package_version=PACKAGE_VERSION,
@@ -97,9 +159,24 @@ def doctor_report(project: Path | None = None) -> DoctorReport:
         capabilities=CapabilityDiagnostic(
             core=core_ready,
             local_media=executable_state["ffmpeg"] and executable_state["ffprobe"],
+            video_transcription=executable_state["whisper"],
+            local_vision=executable_state["ollama"] or executable_state["llamacpp"],
+            account_media_enrichment=(
+                executable_state["ffmpeg"]
+                and executable_state["ffprobe"]
+                and executable_state["whisper"]
+                and mediacrawler.runtime_ready
+            ),
+            mediacrawler_douyin=(
+                mediacrawler.ready
+                and executable_state["node"]
+                and executable_state["uv"]
+                and executable_state["chrome"]
+            ),
             tikhub_douyin=bool(os.environ.get("TIKHUB_API_KEY")),
             feishu_bitable=bool(os.environ.get("FEISHU_BITABLE_TOKEN")),
             google_sheets=bool(os.environ.get("GOOGLE_SHEETS_TOKEN")),
         ),
+        mediacrawler=mediacrawler,
         project=project_state,
     )

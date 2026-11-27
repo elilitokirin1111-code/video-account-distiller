@@ -22,10 +22,11 @@ from video_account_distiller.sampling.dataset import (
     load_account_dataset,
 )
 from video_account_distiller.storage.project import ProjectLayout
+from video_account_distiller.utils.content_pillars import infer_video_content_pillar
 from video_account_distiller.utils.ids import stable_id
 from video_account_distiller.utils.io import atomic_write_json, read_json
 
-STRATEGY_VERSION = "1.0.0"
+STRATEGY_VERSION = "1.1.0"
 BANDS = ("S", "A", "B", "C", "D")
 
 
@@ -40,8 +41,7 @@ def _duration_bucket(duration_seconds: float | None) -> str:
 
 
 def _pillar(record: AccountVideoRecord) -> str:
-    value = record.video.content_type
-    return value.strip() if value and value.strip() else "unknown"
+    return infer_video_content_pillar(record.video)[0]
 
 
 def _band(record: AccountVideoRecord) -> str:
@@ -123,11 +123,8 @@ def _sampling_warnings(
         warnings.append("small_sample: fewer than 30 videos; treat results as descriptive")
     if any(record.derived is None for record in dataset.records):
         warnings.append("missing_derived_metrics: some videos have no performance band")
-    if any(_pillar(record) == "unknown" for record in dataset.records):
-        warnings.append(
-            "unknown_content_pillar: content_type is missing for some videos; "
-            "Phase 2 uses it as a pillar proxy"
-        )
+    if any(infer_video_content_pillar(record.video)[1] for record in dataset.records):
+        warnings.append("部分内容方向由标题、描述和话题标签中的明确关键词推断，建议人工复核。")
     if any(record.video.published_at is None for record in dataset.records):
         warnings.append("missing_publish_time: recency coverage is partial")
     selected_bands = {_band(record) for record in selected}
@@ -199,7 +196,7 @@ class SamplingService:
         major_pillars = [
             pillar
             for pillar, count in sorted(pillar_counts.items(), key=lambda item: (-item[1], item[0]))
-            if pillar != "unknown" and count >= pillar_threshold
+            if pillar != "其他主题" and count >= pillar_threshold
         ]
 
         reasons: dict[str, set[str]] = defaultdict(set)

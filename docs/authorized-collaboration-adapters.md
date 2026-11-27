@@ -58,6 +58,19 @@ uv run distiller normalize --project ./demo-project --json
 
 Add `--mapping mapping.yaml` for noncanonical columns. The original data enters the normal immutable
 import pipeline; a validated manifest copy is retained under `raw/authorized-manifests/`.
+The import receipt records `data_source_tier: authorized_private` and the grant ID.
+
+`entity: metrics` accepts the v2 creator mapping for impressions, watch time, completion, profile
+visits, follows, clicks, leads, orders, and revenue. `entity: audience_profiles` accepts the
+versioned long-table contract:
+
+```csv
+account_id,snapshot_at,dimension,bucket,share,audience_count,sample_size,source_schema_version
+account-1,2026-07-29T08:00:00Z,gender,female,0.62,,100,douyin-creator-profile/2026-07
+```
+
+`share` must be between 0 and 1. A segment requires either `share` or `audience_count`; missing
+values remain null. Normalization writes `normalized/audience_profiles.parquet`.
 
 ## Feishu Bitable
 

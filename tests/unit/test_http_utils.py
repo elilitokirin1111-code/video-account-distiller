@@ -191,6 +191,41 @@ def test_request_json_bad_status() -> None:
     assert exc.value.code == ErrorCode.ADAPTER_RESPONSE
 
 
+def test_request_json_bad_status_redacts_upstream_credential_echoes() -> None:
+    bearer_secret = "request-bearer-secret-value"
+    api_key_secret = "upstream-api-key-secret-value"
+    header_secret = "custom-header-secret-value"
+    executor = _FakeExecutor(
+        _http_response(
+            400,
+            {
+                "error": {
+                    "message": (
+                        f"Authorization: Bearer {bearer_secret}; "
+                        f"api_key={api_key_secret}; echoed={header_secret}"
+                    )
+                }
+            },
+        )
+    )
+
+    with pytest.raises(DistillerError) as exc:
+        request_json(
+            executor,
+            method="POST",
+            url="https://api.example.com/v1",
+            token=bearer_secret,
+            extra_headers={"X-API-Key": header_secret},
+            policy=_retry_policy(),
+        )
+
+    details = str(exc.value.details)
+    assert "[REDACTED]" in details
+    assert bearer_secret not in details
+    assert api_key_secret not in details
+    assert header_secret not in details
+
+
 def test_request_json_non_json_body() -> None:
     from video_account_distiller.adapters.collaboration import HttpResponse
 

@@ -10,6 +10,7 @@ from typing import Any
 from fastapi import APIRouter, UploadFile
 
 from video_account_distiller.api.deps import resolve_project
+from video_account_distiller.collaboration import CollaborationService
 from video_account_distiller.ingestion import ImportService
 from video_account_distiller.metrics import MetricsService
 from video_account_distiller.models import Platform
@@ -160,6 +161,32 @@ async def import_comments(
         }
     finally:
         source.unlink(missing_ok=True)
+
+
+@router.post("/{project_path:path}/import/authorized-export")
+async def import_authorized_export(
+    project_path: str,
+    manifest: UploadFile,
+    data_file: UploadFile,
+    mapping: str | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Import an authorized creator export and preserve its provenance manifest."""
+
+    layout = resolve_project(project_path)
+    manifest_path = _save_upload(manifest)
+    data_path = _save_upload(data_file)
+    try:
+        return await asyncio.to_thread(
+            CollaborationService(layout).import_authorized_export,
+            manifest_path=manifest_path,
+            mapping_path=Path(mapping) if mapping else None,
+            dry_run=dry_run,
+            data_path_override=data_path,
+        )
+    finally:
+        manifest_path.unlink(missing_ok=True)
+        data_path.unlink(missing_ok=True)
 
 
 @router.post("/{project_path:path}/import/transcripts")

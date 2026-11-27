@@ -80,6 +80,8 @@ def performance_band(score: float | None, scores: list[float]) -> PerformanceBan
 
     if score is None or not scores:
         return None
+    if max(scores) == min(scores):
+        return "B"
     p95 = percentile(scores, 0.95)
     p80 = percentile(scores, 0.80)
     p40 = percentile(scores, 0.40)

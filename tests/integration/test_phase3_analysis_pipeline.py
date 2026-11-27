@@ -7,9 +7,11 @@ from typing import Any
 from video_account_distiller.features import VideoAnalysisService
 from video_account_distiller.models import (
     SingleVideoAnalysis,
+    TranscriptSegment,
     VideoAnalysisEvidenceIndex,
 )
 from video_account_distiller.status import project_status
+from video_account_distiller.storage.parquet import read_models
 from video_account_distiller.storage.project import ProjectLayout
 from video_account_distiller.utils.ids import stable_id
 from video_account_distiller.utils.io import read_json
@@ -96,6 +98,16 @@ def test_blind_analysis_outputs_are_traceable_and_content_addressed(
     assert "单视频文本拆解报告" in report_text
     assert "盲分析声明" in report_text
     assert "不证明任何内容标签导致" in report_text
+    assert "投流标记：否" in report_text
+    for machine_token in (
+        "unknown",
+        "degraded",
+        "insufficient",
+        "statistical_association",
+        "True",
+        "False",
+    ):
+        assert machine_token not in report_text
     assert "single_video_analysis_not_account_rule" in analysis.warnings
 
     repeated = service.analyze(
@@ -144,7 +156,7 @@ def test_validation_detects_performance_leak_in_blind_artifact(
     assert "performance fields" in validated.issues[0].message
 
 
-def test_missing_provider_degrades_without_strong_conclusions(
+def test_missing_provider_uses_bounded_local_hotel_semantics(
     phase3_project: ProjectLayout,
 ) -> None:
     result = VideoAnalysisService(phase3_project).analyze(
@@ -153,7 +165,51 @@ def test_missing_provider_degrades_without_strong_conclusions(
     )
     analysis = SingleVideoAnalysis.model_validate(result["analysis"])
     assert analysis.status == "degraded"
-    assert analysis.blind_analysis.semantics.confidence <= 0.2
-    assert analysis.blind_analysis.semantics.primary_pillar == "unknown"
+    assert analysis.blind_analysis.semantics.confidence <= 0.45
+    assert analysis.blind_analysis.semantics.primary_pillar == "酒店经营与运营"
+    assert analysis.blind_analysis.semantics.primary_pillar_evidence_segment_ids
+    assert "画面与声音特征" in analysis.blind_analysis.semantics.unknowns
     assert "single_video_analysis_not_account_rule" in analysis.warnings
     assert all("validated_rule" not in warning for warning in analysis.warnings)
+
+
+def test_model_paraphrased_opening_and_closing_are_replaced_with_observed_text(
+    phase3_project: ProjectLayout,
+    fixtures_dir: Path,
+    tmp_path: Path,
+) -> None:
+    payload = json.loads(
+        (fixtures_dir / "phase3" / "model-output-retry.json").read_text(encoding="utf-8")
+    )
+    facts = payload["video_fact_extraction"][1]
+    facts["opening_text"] = "模型润色后的开场，并非字幕原文"
+    facts["closing_text"] = "模型润色后的结尾，并非字幕原文"
+    model_output = tmp_path / "paraphrased-opening.json"
+    model_output.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    result = VideoAnalysisService(phase3_project).analyze(
+        video_id=stable_id("vid_", "douyin", "p2-01"),
+        model_output=model_output,
+        max_attempts=2,
+        strict_model=True,
+    )
+    analysis = SingleVideoAnalysis.model_validate(result["analysis"])
+    observed_text = [
+        item.text
+        for item in read_models(
+            phase3_project.normalized_dir / "transcripts.parquet",
+            TranscriptSegment,
+        )
+        if item.video_id == analysis.video_id
+    ]
+
+    assert analysis.status == "complete"
+    opening_text = analysis.blind_analysis.facts.opening_text
+    closing_text = analysis.blind_analysis.facts.closing_text
+    assert opening_text is not None
+    assert closing_text is not None
+    assert any(opening_text in text for text in observed_text)
+    assert any(closing_text in text for text in observed_text)

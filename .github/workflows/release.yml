@@ -6,45 +6,266 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  verify-build-release:
+  verify-python-and-beta:
+    name: Verify source and public-beta gate
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: astral-sh/setup-uv@v9.0.0
         with:
           enable-cache: true
-          cache-suffix: release
-      - run: uv sync --locked
+          cache-suffix: release-linux
+      - run: uv sync --locked --extra desktop
+      - name: Require an exact stable tag and matching package version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "${GITHUB_REF_NAME}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Release tag must be a stable vMAJOR.MINOR.PATCH tag" >&2
+            exit 1
+          fi
+          version="${GITHUB_REF_NAME#v}"
+          package_version="$(uv run python -c 'from video_account_distiller.version import PACKAGE_VERSION; print(PACKAGE_VERSION)')"
+          test "${package_version}" = "${version}"
+          test -f "docs/releases/${GITHUB_REF_NAME}.md"
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy src tests
       - run: uv run pytest
       - run: uv build
       - name: Smoke-test installed wheel
+        shell: bash
         run: |
+          set -euo pipefail
           uv venv .release-venv --python 3.11
           uv pip install --python .release-venv/bin/python dist/video_account_distiller-*.whl
           .release-venv/bin/python -m video_account_distiller --version
           .release-venv/bin/python tools/release_acceptance.py \
             --fixtures tests/fixtures \
             --report acceptance-linux.json
-      - name: Create checksums
+      - name: Require public-beta evidence and stage Python assets
+        shell: bash
         run: |
+          set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
-          (cd skills && zip -r "../dist/video-account-distiller-skill-${version}.zip" video-account-distiller)
-          sha256sum dist/video_account_distiller-* dist/video-account-distiller-skill-* > dist/SHA256SUMS.txt
-      - name: Create GitHub release
+          evidence="release-evidence/video-account-distiller-public-beta-${version}.zip"
+          test -f "${evidence}"
+          mkdir -p release-assets
+          cp dist/video_account_distiller-*.whl release-assets/
+          cp dist/video_account_distiller-*.tar.gz release-assets/
+          cp "${evidence}" release-assets/
+          (cd skills && zip -r \
+            "../release-assets/video-account-distiller-skill-${version}.zip" \
+            video-account-distiller)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-python-assets
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 7
+
+  build-windows-installer:
+    name: Build Windows installer
+    needs: verify-python-and-beta
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-suffix: release-windows
+      - name: Install pinned Inno Setup compiler
+        shell: pwsh
+        run: |
+          $installer = Join-Path $env:RUNNER_TEMP "innosetup-6.7.3.exe"
+          $source = "https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe"
+          Invoke-WebRequest -Uri $source -OutFile $installer
+          $installerSignature = Get-AuthenticodeSignature -LiteralPath $installer
+          if (
+            $installerSignature.Status -ne "Valid" -or
+            $installerSignature.SignerCertificate.Subject -notmatch '(?i)CN=Pyrsys B\.V\.'
+          ) {
+            throw "Inno Setup installer signature or publisher is invalid"
+          }
+          $install = Start-Process -FilePath $installer -Wait -PassThru -WindowStyle Hidden `
+            -ArgumentList @("/SP-", "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART")
+          if ($install.ExitCode -ne 0) {
+            throw "Inno Setup installation failed with exit code $($install.ExitCode)"
+          }
+          $compiler = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path -LiteralPath $compiler)) {
+            throw "Pinned Inno Setup compiler was not found"
+          }
+          $signature = Get-AuthenticodeSignature -LiteralPath $compiler
+          if (
+            $signature.Status -ne "Valid" -or
+            $signature.SignerCertificate.Subject -notmatch '(?i)CN=Pyrsys B\.V\.'
+          ) {
+            throw "Inno Setup compiler signature or publisher is invalid"
+          }
+      - name: Build and smoke-test the installed desktop application
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF_NAME -notmatch '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') {
+            throw "Release tag must be a stable vMAJOR.MINOR.PATCH tag"
+          }
+          $version = $env:GITHUB_REF_NAME.Substring(1)
+          .\scripts\build_windows_desktop.ps1 -Version $version
+          if ($LASTEXITCODE -ne 0) { throw "Windows desktop build failed" }
+          $expected = Join-Path $PWD "dist\windows\installer\VideoAccountDistiller-Setup-$version-win64.exe"
+          if (-not (Test-Path -LiteralPath $expected -PathType Leaf)) {
+            throw "Exact Windows installer was not produced: $expected"
+          }
+          New-Item -ItemType Directory -Path release-assets -Force | Out-Null
+          Copy-Item -LiteralPath $expected -Destination release-assets -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows-installer-assets
+          path: release-assets/VideoAccountDistiller-Setup-*-win64.exe
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-release:
+    name: Audit draft and publish release
+    needs:
+      - verify-python-and-beta
+      - build-windows-installer
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-suffix: release-publish
+      - run: uv sync --locked
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*-assets
+          path: release-dist
+          merge-multiple: true
+      - name: Require the complete release asset set
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          test -f "release-dist/video_account_distiller-${version}-py3-none-any.whl"
+          test -f "release-dist/video_account_distiller-${version}.tar.gz"
+          test -f "release-dist/video-account-distiller-skill-${version}.zip"
+          test -f "release-dist/video-account-distiller-public-beta-${version}.zip"
+          test -f "release-dist/VideoAccountDistiller-Setup-${version}-win64.exe"
+          find release-dist -maxdepth 1 -type f -printf '%f\n' | sort
+      - name: Create complete flat checksum manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          (
+            cd release-dist
+            sha256sum -- \
+              VideoAccountDistiller-Setup-*-win64.exe \
+              video-account-distiller-public-beta-*.zip \
+              video-account-distiller-skill-*.zip \
+              video_account_distiller-*.tar.gz \
+              video_account_distiller-*.whl \
+              > SHA256SUMS.txt
+          )
+      - name: Audit complete release candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          uv run distiller release audit \
+            --repository . \
+            --artifacts release-dist \
+            --public-beta-evidence \
+              "release-dist/video-account-distiller-public-beta-${version}.zip" \
+            --require-public-beta-freeze \
+            --json
+      - name: Create a private draft with every asset
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
+          set -euo pipefail
+          existing_release_ids="$(gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            --jq '.[] | select(.tag_name == env.GITHUB_REF_NAME) | .id')"
+          if [[ -n "${existing_release_ids}" ]]; then
+            echo "A release already exists for ${GITHUB_REF_NAME}; refusing to overwrite it" >&2
+            exit 1
+          fi
           gh release create "${GITHUB_REF_NAME}" \
-            dist/video_account_distiller-*.whl \
-            dist/video_account_distiller-*.tar.gz \
-            dist/video-account-distiller-skill-*.zip \
-            dist/SHA256SUMS.txt \
+            release-dist/* \
+            --draft \
             --verify-tag \
             --title "Video Account Distiller ${GITHUB_REF_NAME}" \
             --notes-file "docs/releases/${GITHUB_REF_NAME}.md"
+          draft_release_ids="$(gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            --jq '.[] | select(.tag_name == env.GITHUB_REF_NAME and .draft == true) | .id')"
+          if [[ ! "${draft_release_ids}" =~ ^[0-9]+$ ]]; then
+            echo "Could not resolve exactly one newly created draft release" >&2
+            exit 1
+          fi
+          echo "DRAFT_RELEASE_ID=${draft_release_ids}" >> "${GITHUB_ENV}"
+      - name: Verify remote installer digest, size, and exact asset set
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          expected_installer="VideoAccountDistiller-Setup-${version}-win64.exe"
+          installer_size="$(stat -c '%s' "release-dist/${expected_installer}")"
+          installer_digest="sha256:$(sha256sum "release-dist/${expected_installer}" | cut -d' ' -f1)"
+          find release-dist -maxdepth 1 -type f -printf '%f\n' | sort > expected-assets.txt
+          verified=false
+          for attempt in 1 2 3 4 5 6; do
+            gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              --slurp > releases.json
+            if ! jq -e --argjson release_id "${DRAFT_RELEASE_ID}" '
+              [.[][] | select(.id == $release_id and .draft == true)]
+              | if length == 1 then .[0] else empty end
+            ' releases.json > release.json; then
+              sleep 5
+              continue
+            fi
+            jq -r '.assets[].name' release.json | sort > actual-assets.txt
+            if diff -u expected-assets.txt actual-assets.txt \
+              && jq -e \
+                --arg installer "${expected_installer}" \
+                --argjson installer_size "${installer_size}" \
+                --arg installer_digest "${installer_digest}" '
+                .draft == true
+                and .prerelease == false
+                and ([.assets[] | select(
+                  .name == $installer
+                  and .state == "uploaded"
+                  and .size == $installer_size
+                  and ((.digest | type) == "string")
+                  and .digest == $installer_digest
+                )] | length == 1)
+              ' release.json >/dev/null; then
+              verified=true
+              break
+            fi
+            sleep 5
+          done
+          test "${verified}" = true
+      - name: Publish the verified draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: gh release edit "${GITHUB_REF_NAME}" --draft=false

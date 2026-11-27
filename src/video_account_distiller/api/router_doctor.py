@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter
 
 from video_account_distiller.doctor import doctor_report
+from video_account_distiller.recovery import run_task_recovery_drill
 
 router = APIRouter()
 
@@ -25,3 +26,11 @@ async def project_doctor(project_path: str) -> dict[str, Any]:
     root = Path(project_path).expanduser().resolve()
     report = doctor_report(root)
     return {"ok": True, "data": report.model_dump(mode="json")}
+
+
+@router.post("/doctor/task-recovery-drill")
+async def task_recovery_drill() -> dict[str, Any]:
+    """Exercise restart recovery against an isolated temporary task database."""
+
+    report = run_task_recovery_drill()
+    return {"ok": report.ok, "data": report.model_dump(mode="json")}
